@@ -1,0 +1,24 @@
+{
+  "name": "readvibe",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Industrial-style Vite + React (JavaScript) frontend and Flask REST API for an AI-powered immersive reading workspace.",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "lucide-react": "latest",
+    "react-router-dom": "^6.26.0"
+  },
+  "devDependencies": {}
+}

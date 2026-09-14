@@ -1,0 +1,222 @@
+/* ─── Sidebar ─────────────────────────────────────────────────────────────── */
+.sidebar {
+  width: 240px;
+  min-height: 100vh;
+  height: 100vh;
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  padding: 24px 12px 16px;
+  background: linear-gradient(180deg, var(--panel) 0%, var(--bg) 100%);
+  transition: width 0.22s ease;
+  flex-shrink: 0;
+  z-index: 30;
+}
+
+.sidebar.collapsed {
+  width: 66px;
+  padding: 24px 8px 16px;
+}
+
+/* Top: Brand + collapse */
+.sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 32px;
+  padding: 0 6px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.8px;
+  color: var(--text);
+  padding: 4px;
+  border-radius: 8px;
+  transition: background var(--transition);
+}
+.brand:hover { background: var(--panel-2); }
+.brand em { color: var(--accent); font-style: normal; }
+
+.brand-mark {
+  width: 26px;
+  height: 26px;
+  background: var(--accent);
+  color: #221408;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  transform: rotate(-6deg);
+  flex-shrink: 0;
+  transition: transform var(--transition);
+}
+.brand:hover .brand-mark { transform: rotate(0deg); }
+
+.collapse-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  transition: background var(--transition), color var(--transition);
+}
+.collapse-btn:hover { background: var(--panel-2); color: var(--text); }
+
+/* Workspace Label */
+.workspace-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 1.5px;
+  color: var(--muted-2);
+  padding: 0 9px 10px;
+}
+
+/* Nav Items */
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background var(--transition), color var(--transition);
+  position: relative;
+  white-space: nowrap;
+  width: 100%;
+  text-align: left;
+}
+.nav-item:hover { background: var(--panel-2); color: var(--text-2); }
+.nav-item.active {
+  background: var(--panel-2);
+  color: var(--text);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.nav-item.active svg { color: var(--accent); }
+
+.sidebar.collapsed .nav-item {
+  justify-content: center;
+  padding: 11px 10px;
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--green);
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--green) 20%, transparent);
+  margin-left: auto;
+  flex-shrink: 0;
+  animation: pulse 2.5s infinite;
+}
+
+/* Sidebar Bottom */
+.sidebar-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.profile-mini {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+}
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #b09080;
+  color: #2a1c17;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.avatar-large {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #261610;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.profile-info { flex: 1; min-width: 0; }
+.profile-info strong { display: block; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.profile-info small  { display: block; font-size: 10px; color: var(--muted); margin-top: 1px; }
+.muted-icon { color: var(--muted-2); }
+
+.theme-switch {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  transition: border-color var(--transition), color var(--transition);
+}
+.theme-switch:hover { border-color: var(--line-2); color: var(--text); }
+.theme-switch svg { color: var(--accent); }
+.theme-label { flex: 1; text-align: left; }
+
+.switch {
+  width: 30px;
+  height: 17px;
+  border-radius: 10px;
+  background: var(--panel-3);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  flex-shrink: 0;
+}
+.switch i {
+  display: block;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.2s, background 0.2s;
+}
+.switch i.on { transform: translateX(13px); background: var(--accent); }
+
+/* Toggle Switch Component */
+.toggle-switch { cursor: pointer; }
+.toggle-track {
+  width: 36px;
+  height: 20px;
+  border-radius: 12px;
+  background: var(--panel-3);
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  transition: background 0.2s;
+}
+.toggle-track.on { background: var(--accent); }
+.toggle-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.2s, background 0.2s;
+}
+.toggle-track.on .toggle-thumb { transform: translateX(16px); background: white; }
