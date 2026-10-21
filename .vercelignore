@@ -1,0 +1,8 @@
+# The API is deployed separately (render.yaml); Vercel only builds the frontend.
+backend/
+deploy/
+docker-compose.yml
+render.yaml
+node_modules/
+.venv/
+*.part
