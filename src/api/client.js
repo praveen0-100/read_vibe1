@@ -36,6 +36,8 @@ async function parseError(res) {
   const message = typeof detail === 'string' ? detail
     : res.status === 429 ? 'Too many requests — please wait a moment.'
     : res.status >= 500 ? 'The server had a problem. Please try again.'
+    : res.status === 405 ? 'The ReadVibe API route is not configured correctly. Redeploy the app with its API server connected.'
+    : res.status === 404 ? 'The ReadVibe API endpoint was not found. Check that the deployed app is connected to the correct API server.'
     : `Request failed (${res.status})`;
   return new ApiError(message, res.status, data);
 }
@@ -54,7 +56,7 @@ export async function request(path, { method = 'GET', body, query, signal, raw =
     });
   } catch (err) {
     if (err.name === 'AbortError') throw err;
-    throw new ApiError('Can’t reach the ReadVibe server. Check that the API is running and you are online.', 0);
+    throw new ApiError(`Can’t reach the ReadVibe API at ${API_BASE}. Check your connection and make sure the API server is running and configured for this app.`, 0);
   }
   if (res.status === 401 && path !== '/auth/login') {
     tokenStore.clear();
