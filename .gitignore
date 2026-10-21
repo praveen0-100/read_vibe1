@@ -1,0 +1,15 @@
+.vercel
+node_modules/
+.env
+.env.*
+!.env.example
+
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Runtime data (database, uploaded files, recordings)
+backend/data/
+*.part

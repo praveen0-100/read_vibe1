@@ -1,304 +1,417 @@
-// ─── Audio Studio Page ────────────────────────────────────────────────────────
-import React, { useState, useEffect, useRef } from 'react';
+// ─── Audio Studio ─────────────────────────────────────────────────────────────
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Headphones, Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
-  ChevronLeft, ChevronRight, Bookmark, Clock, Download, Share2,
-  Mic, Smile, Zap, BookOpen, ChevronDown, RotateCcw, FastForward,
-  Rewind, Plus, Users, Music
+  BookOpen, Bookmark, Check, ChevronDown, Clock, Download, FastForward, Headphones, Loader2, Pause, Play, Plus,
+  Rewind, SkipBack, SkipForward, Smile, Trash2, Users, Volume2, Zap,
 } from 'lucide-react';
+import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
-import { ProgressBar, EmptyState, SectionHead } from '../components/ui';
-import { AUDIOBOOKS } from '../data/mockData';
+import { useQuery } from '../hooks/useAsync';
+import { formatClock, formatDuration, timeAgo } from '../lib/format';
+import { loadVoices, Narrator, pickVoice, speak, speechSupported } from '../lib/speech';
+import { Cover, EmptyState, ErrorState, Menu, PageLoader, ProgressBar, Skeleton, Switch, Tabs } from '../components/ui';
+import CollabStudio from '../components/audio/CollabStudio';
 
-const TONES = [
-  {
-    id: 'Regular',
-    label: 'Regular',
-    icon: BookOpen,
-    description: 'Neutral, clear and balanced narration for everyday documents.',
-    badge: 'Most used',
-    color: 'var(--accent)',
-  },
-  {
-    id: 'Humor',
-    label: 'Humor',
-    icon: Smile,
-    description: 'Upbeat, expressive and engaging. Perfect for light fiction.',
-    badge: 'Fan favorite',
-    color: '#73c99e',
-  },
-  {
-    id: 'Tough',
-    label: 'Tough',
-    icon: Zap,
-    description: 'Authoritative and serious. Ideal for academic or historical content.',
-    badge: 'Study mode',
-    color: '#c4b4ec',
-  },
-];
+const TONE_META = {
+  Regular: { icon: BookOpen, badge: 'Most used', color: 'var(--accent)' },
+  Humor: { icon: Smile, badge: 'Fan favorite', color: 'var(--green)' },
+  Tough: { icon: Zap, badge: 'Study mode', color: 'var(--purple)' },
+};
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+const SLEEP = [0, 15, 30, 45, 60, -1];
 
-const SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
+function useVoices() {
+  const [voices, setVoices] = useState([]);
+  useEffect(() => { loadVoices().then(setVoices); }, []);
+  return voices;
+}
 
-// ─── Audio Player ─────────────────────────────────────────────────────────────
-function AudioPlayer({ audiobook, doc }) {
-  const { state, dispatch, notify } = useApp();
-  const { audioPlaying, audioProgress, audioSpeed } = state;
-  const [volume, setVolume] = useState(80);
-  const [muted, setMuted] = useState(false);
-  const [speedOpen, setSpeedOpen] = useState(false);
-  const [currentChapter, setCurrentChapter] = useState(0);
+// ─── Player ───────────────────────────────────────────────────────────────────
+function Player({ bookId, onBack }) {
+  const { prefs, setPrefs, notify } = useApp();
+  const voices = useVoices();
+  const book = useQuery(() => api.audio.get(bookId), [bookId]);
+  const narrator = useMemo(() => new Narrator(), []);
+  const [st, setSt] = useState(narrator.state());
+  const [charIndex, setCharIndex] = useState(null);
+  const [rate, setRate] = useState(prefs.audio.rate);
+  const [sleep, setSleep] = useState(prefs.audio.sleepTimer || 0);
+  const [sleepLeft, setSleepLeft] = useState(null);
+  const [bookmarks, setBookmarks] = useState([]);
+  const listened = useRef(0);
+  const saveRef = useRef(null);
 
-  const chapters = doc?.chapters || [{ title: 'Chapter 1', duration: '30 min' }];
+  useEffect(() => () => narrator.destroy(), [narrator]);
+  useEffect(() => narrator.on((s) => {
+    setSt(s);
+    setCharIndex(s.charIndex ?? null);
+    if (s.chapterEnded != null && sleep === -1) { narrator.pause(); notify('Sleep timer: stopped at the end of the chapter', 'info'); setSleep(0); }
+    if (s.finished) notify('Audiobook finished 🎧');
+  }), [narrator, sleep, notify]);
 
-  // Simulate playback progress
+  // load script once book + voices are known
   useEffect(() => {
-    let interval;
-    if (audioPlaying) {
-      interval = setInterval(() => {
-        dispatch({ type: 'SET_AUDIO_PROGRESS', payload: Math.min(audioProgress + 0.5, 100) });
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [audioPlaying, audioProgress]);
+    const b = book.data;
+    if (!b || b.status !== 'ready') return;
+    const voice = pickVoice(voices, b.voice || prefs.audio.voice, b.tone);
+    narrator.load(b.script, { rate: b.rate * rate, pitch: b.pitch, voice, chapter: b.position_chapter, segment: b.position_segment });
+    narrator.autoAdvance = prefs.audio.autoAdvance;
+    setBookmarks(b.bookmarks || []);
+    totalListened.current = b.listened_seconds || 0;
+  }, [book.data, voices.length]); // eslint-disable-line
 
-  const formatTime = (pct, total = 382) => {
-    const secs = Math.floor((pct / 100) * total * 60);
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m}:${String(s).padStart(2, '0')}`;
+  // persist position
+  const totalListened = useRef(0);
+  const persist = useCallback(() => {
+    if (!book.data) return;
+    const secs = Math.round(listened.current);
+    listened.current = 0;
+    totalListened.current += secs;
+    api.audio.update(bookId, {
+      position_chapter: narrator.chapter, position_segment: narrator.segment, listened_seconds: totalListened.current,
+    }).catch(() => {});
+    if (secs >= 20) api.activity.logSession({ document_id: book.data.document_id, kind: 'listening', mode: 'Audio', seconds: secs }).catch(() => {});
+  }, [book.data, bookId, narrator]);
+
+  useEffect(() => {
+    if (!st.playing) { if (book.data) persist(); return undefined; }
+    const t = setInterval(() => { listened.current += 1; }, 1000);
+    saveRef.current = setInterval(persist, 15000);
+    return () => { clearInterval(t); clearInterval(saveRef.current); };
+  }, [st.playing]); // eslint-disable-line
+  const persistRef = useRef(persist);
+  persistRef.current = persist;
+  useEffect(() => () => persistRef.current(), []);
+
+  // sleep timer
+  useEffect(() => {
+    if (sleep > 0) setSleepLeft(sleep * 60); else setSleepLeft(null);
+  }, [sleep]);
+  useEffect(() => {
+    if (sleepLeft == null || !st.playing) return undefined;
+    if (sleepLeft <= 0) { narrator.pause(); setSleep(0); notify('Sleep timer ended — playback paused', 'info'); return undefined; }
+    const t = setTimeout(() => setSleepLeft((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [sleepLeft, st.playing, narrator, notify]);
+
+  // live elapsed time while playing
+  const [, force] = useState(0);
+  useEffect(() => {
+    if (!st.playing) return undefined;
+    const t = setInterval(() => force((n) => n + 1), 500);
+    return () => clearInterval(t);
+  }, [st.playing]);
+
+  // keyboard
+  useEffect(() => {
+    const onKey = (e) => {
+      if (/input|textarea|select/i.test(e.target.tagName)) return;
+      if (e.key === ' ') { e.preventDefault(); narrator.toggle(); }
+      if (e.key === 'ArrowLeft') narrator.skip(-10);
+      if (e.key === 'ArrowRight') narrator.skip(30);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [narrator]);
+
+  if (book.error) return <ErrorState error={book.error} onRetry={book.reload} />;
+  if (!book.data) return <PageLoader label="Loading audiobook…" />;
+  const b = book.data;
+  if (b.status !== 'ready') return <EmptyState icon={Loader2} title="Still generating…" description="This audiobook is being prepared. You’ll get a notification when it’s ready." />;
+  if (!speechSupported) return <ErrorState error={{ message: 'This browser has no speech engine. Try Chrome, Edge or Safari, or download the narration script.' }} />;
+
+  const elapsed = narrator.elapsedSeconds;
+  const total = narrator.totalSeconds || b.duration_seconds;
+  const changeRate = (r) => {
+    setRate(r);
+    setPrefs({ audio: { rate: r } });
+    narrator.setRate(b.rate * r);
   };
+  const changeVoice = (name) => {
+    const v = voices.find((x) => x.name === name);
+    narrator.setVoice(v);
+    api.audio.update(bookId, { voice: name }).catch(() => {});
+  };
+  const addBookmark = () => {
+    const mark = { id: Date.now(), chapter: narrator.chapter, segment: narrator.segment, label: `${st.chapterTitle} · ${formatClock(elapsed)}`, text: st.text.slice(0, 80) };
+    const next = [...bookmarks, mark];
+    setBookmarks(next);
+    api.audio.update(bookId, { bookmarks: next }).then(() => notify('Bookmark added')).catch((e) => notify(e.message, 'error'));
+  };
+  const removeBookmark = (id) => {
+    const next = bookmarks.filter((m) => m.id !== id);
+    setBookmarks(next);
+    api.audio.update(bookId, { bookmarks: next }).catch(() => {});
+  };
+  const current = st.text || b.script[st.chapter]?.segments[st.segment]?.text || '';
+  const voiceName = narrator.voice?.name || '';
 
   return (
     <div className="audio-player">
-      {/* Track info */}
       <div className="player-track">
-        <div className={`player-cover cover-${doc?.color || 'coral'}`}>
-          <Headphones size={28} />
-        </div>
+        <div className={`player-cover cover-${b.color}`}><Headphones size={30} /><span className="tone-tag">{b.tone}</span></div>
         <div className="player-info">
           <div className="eyebrow">NOW PLAYING</div>
-          <h3>{audiobook?.title || doc?.title}</h3>
-          <p>{audiobook?.tone || 'Regular'} narration · {chapters[currentChapter]?.title}</p>
+          <h3>{b.title}</h3>
+          <p>{b.tone} narration · {st.chapterTitle}</p>
         </div>
         <div className="player-right-actions">
-          <button onClick={() => notify('Bookmarked')} aria-label="Bookmark">
-            <Bookmark size={17} />
-          </button>
-          <button onClick={() => notify('Downloaded')} aria-label="Download">
-            <Download size={17} />
-          </button>
+          <button onClick={addBookmark} aria-label="Bookmark this moment"><Bookmark size={17} /></button>
+          <button onClick={() => api.audio.downloadScript(bookId).catch((e) => notify(e.message, 'error'))} aria-label="Download narration script"><Download size={17} /></button>
         </div>
       </div>
 
-      {/* Progress */}
+      <div className="now-reading" aria-live="off">
+        {charIndex != null && current
+          ? <>{current.slice(0, charIndex)}<mark>{current.slice(charIndex).split(/\s/)[0]}</mark>{current.slice(charIndex + (current.slice(charIndex).split(/\s/)[0] || '').length)}</>
+          : current}
+      </div>
+
       <div className="player-progress-wrap">
-        <span className="time-label">{formatTime(audioProgress)}</span>
-        <div className="player-progress-track">
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={audioProgress}
-            onChange={e => dispatch({ type: 'SET_AUDIO_PROGRESS', payload: +e.target.value })}
-            aria-label="Playback position"
-          />
-          <div className="player-progress-fill" style={{ width: `${audioProgress}%` }} />
-        </div>
-        <span className="time-label">6:22:00</span>
+        <span className="time-label">{formatClock(elapsed)}</span>
+        <input type="range" className="seek" min={0} max={Math.max(1, Math.round(total))} value={Math.round(elapsed)} aria-label="Seek"
+          onChange={(e) => narrator.seekTime(+e.target.value)} style={{ '--fill': `${(elapsed / Math.max(1, total)) * 100}%` }} />
+        <span className="time-label">-{formatClock(total - elapsed)}</span>
       </div>
 
-      {/* Controls */}
       <div className="player-controls">
-        <button onClick={() => notify('Rewound 10s')} aria-label="Rewind 10 seconds">
-          <Rewind size={18} />
+        <button onClick={() => narrator.skip(-10)} aria-label="Back 10 seconds" title="Back 10s (←)"><Rewind size={18} /><small>10</small></button>
+        <button onClick={() => narrator.seek(narrator.segment > 2 ? narrator.chapter : narrator.chapter - 1, 0)} aria-label="Previous chapter" disabled={st.chapter === 0 && st.segment < 3}><SkipBack size={22} /></button>
+        <button className="play-main" onClick={() => narrator.toggle()} aria-label={st.playing ? 'Pause' : 'Play'}>
+          {st.playing ? <Pause size={26} fill="currentColor" /> : <Play size={26} fill="currentColor" />}
         </button>
-        <button
-          className="player-prev"
-          onClick={() => setCurrentChapter(Math.max(0, currentChapter - 1))}
-          aria-label="Previous chapter"
-          disabled={currentChapter === 0}
-        >
-          <SkipBack size={22} />
-        </button>
-        <button
-          className="play-main"
-          onClick={() => dispatch({ type: 'SET_AUDIO_PLAYING', payload: !audioPlaying })}
-          aria-label={audioPlaying ? 'Pause' : 'Play'}
-        >
-          {audioPlaying ? <Pause size={26} fill="currentColor" /> : <Play size={26} fill="currentColor" />}
-        </button>
-        <button
-          className="player-next"
-          onClick={() => setCurrentChapter(Math.min(chapters.length - 1, currentChapter + 1))}
-          aria-label="Next chapter"
-          disabled={currentChapter === chapters.length - 1}
-        >
-          <SkipForward size={22} />
-        </button>
-        <button onClick={() => notify('Skipped 30s')} aria-label="Skip 30 seconds">
-          <FastForward size={18} />
-        </button>
+        <button onClick={() => narrator.seek(narrator.chapter + 1, 0)} aria-label="Next chapter" disabled={st.chapter >= b.script.length - 1}><SkipForward size={22} /></button>
+        <button onClick={() => narrator.skip(30)} aria-label="Forward 30 seconds" title="Forward 30s (→)"><FastForward size={18} /><small>30</small></button>
       </div>
 
-      {/* Speed & Volume */}
       <div className="player-footer">
-        <div className="volume-ctrl">
-          <button onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute' : 'Mute'}>
-            {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
-          </button>
-          <input
-            type="range" min={0} max={100} value={muted ? 0 : volume}
-            onChange={e => { setVolume(+e.target.value); setMuted(false); }}
-            aria-label="Volume"
-            style={{ width: 90 }}
-          />
-          <span>{muted ? 0 : volume}%</span>
-        </div>
-
-        <div className="speed-ctrl">
-          <button className="speed-btn" onClick={() => setSpeedOpen(!speedOpen)}>
-            {audioSpeed}× <ChevronDown size={13} />
-          </button>
-          {speedOpen && (
-            <div className="speed-dropdown">
-              {SPEEDS.map(s => (
-                <button
-                  key={s}
-                  className={audioSpeed === s ? 'active' : ''}
-                  onClick={() => { dispatch({ type: 'SET_AUDIO_SPEED', payload: s }); setSpeedOpen(false); }}
-                >
-                  {s}×
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <button className="sleep-btn" onClick={() => notify('Sleep timer set for 30 min')}>
-          <Clock size={15} /> Sleep
-        </button>
+        <Menu trigger={<span className="speed-btn">{rate}× <ChevronDown size={13} /></span>} label="Playback speed" align="up"
+          items={SPEEDS.map((s) => ({ label: `${s}×`, checked: s === rate, onClick: () => changeRate(s) }))} />
+        {voices.length > 0 && (
+          <select className="voice-select" value={voiceName} onChange={(e) => changeVoice(e.target.value)} aria-label="Voice">
+            {voices.filter((v) => /^en/i.test(v.lang) || v.name === voiceName).map((v) => <option key={v.name} value={v.name}>{v.name.replace(/Microsoft |Google /, '')}</option>)}
+          </select>
+        )}
+        <Menu trigger={<span className={`sleep-btn ${sleep ? 'on' : ''}`}><Clock size={14} /> {sleep === -1 ? 'End of chapter' : sleepLeft != null ? formatClock(sleepLeft) : 'Sleep'}</span>} label="Sleep timer" align="up"
+          items={SLEEP.map((m) => ({ label: m === 0 ? 'Off' : m === -1 ? 'End of chapter' : `${m} minutes`, checked: sleep === m, onClick: () => setSleep(m) }))} />
       </div>
 
-      {/* Chapter list */}
-      <div className="player-chapters">
-        <div className="eyebrow">CHAPTERS</div>
-        <div className="chapter-list-scroll">
-          {chapters.map((ch, i) => (
-            <button
-              key={ch.id || i}
-              className={`chapter-row ${currentChapter === i ? 'active' : ''}`}
-              onClick={() => { setCurrentChapter(i); dispatch({ type: 'SET_AUDIO_PROGRESS', payload: 0 }); }}
-            >
-              <span className="ch-num">0{i + 1}</span>
-              <span className="ch-name">{ch.title}</span>
-              <span className="ch-dur">{ch.duration}</span>
+      <div className="player-columns">
+        <div className="player-chapters">
+          <div className="eyebrow">CHAPTERS</div>
+          <div className="chapter-list-scroll">
+            {b.script.map((ch, i) => (
+              <button key={i} className={`chapter-row ${st.chapter === i ? 'active' : ''}`} onClick={() => { narrator.seek(i, 0); if (!st.playing) narrator.play(); }}>
+                <span className="ch-num">{String(i + 1).padStart(2, '0')}</span>
+                <span className="ch-name">{ch.title}</span>
+                <span className="ch-dur">{formatDuration(narrator.chapterSeconds(i))}</span>
+                {st.chapter === i && st.playing && <span className="eq-mini" aria-hidden="true"><i /><i /><i /></span>}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="player-bookmarks">
+          <div className="eyebrow">BOOKMARKS</div>
+          {bookmarks.length === 0 && <p className="muted small">Tap the bookmark icon to save a moment.</p>}
+          {bookmarks.map((m) => (
+            <div key={m.id} className="bookmark-line">
+              <button onClick={() => narrator.seek(m.chapter, m.segment)}><Bookmark size={12} /> <span>{m.label}<small>{m.text}</small></span></button>
+              <button className="icon-ghost sm" onClick={() => removeBookmark(m.id)} aria-label="Remove bookmark"><Trash2 size={12} /></button>
+            </div>
+          ))}
+        </div>
+      </div>
+      {onBack && <button className="text-button" onClick={onBack}>← All audiobooks</button>}
+    </div>
+  );
+}
+
+// ─── Generate ─────────────────────────────────────────────────────────────────
+function Generate({ initialDoc, onReady }) {
+  const { prefs, setPrefs, notify, trackJob } = useApp();
+  const voices = useVoices();
+  const docs = useQuery(() => api.documents.list({ sort: 'recent' }), []);
+  const tones = useQuery(() => api.audio.tones(), []);
+  const ready = (docs.data || []).filter((d) => d.status === 'ready');
+  const [docId, setDocId] = useState(initialDoc);
+  const selectedId = docId || ready[0]?.id;
+  const detail = useQuery(() => (selectedId ? api.documents.get(selectedId) : null), [selectedId]);
+  const [tone, setTone] = useState(prefs.audio.tone);
+  const [voice, setVoice] = useState(prefs.audio.voice);
+  const [rate, setRate] = useState(1);
+  const [chapters, setChapters] = useState(null);
+  const [job, setJob] = useState(null);
+  const [previewing, setPreviewing] = useState(null);
+
+  useEffect(() => setChapters(null), [selectedId]);
+  const allIdx = (detail.data?.chapters || []).map((c) => c.index);
+  const chosen = chapters ?? allIdx;
+
+  const preview = (t) => {
+    const cfg = tones.data?.find((x) => x.id === t);
+    if (!cfg) return;
+    setPreviewing(t);
+    const v = pickVoice(voices, voice, t);
+    const text = detail.data ? `${cfg.preview} Here's how “${detail.data.title}” will sound.` : cfg.preview;
+    speak(text, { rate: cfg.rate * rate, pitch: cfg.pitch, voice: v, onEnd: () => setPreviewing(null) });
+  };
+
+  const generate = async () => {
+    try {
+      setPrefs({ audio: { tone, voice } });
+      const res = await api.audio.create({ document_id: selectedId, tone, voice: voice || null, rate, chapter_indexes: chosen.length === allIdx.length ? null : chosen });
+      setJob({ id: res.job_id, progress: 0, stage: 'Queued', bookId: res.audiobook.id });
+      const poll = setInterval(async () => {
+        try {
+          const j = await api.activity.job(res.job_id);
+          setJob((s) => (s ? { ...s, progress: j.progress, stage: j.stage, status: j.status } : s));
+          if (j.status === 'completed' || j.status === 'failed') clearInterval(poll);
+        } catch { clearInterval(poll); }
+      }, 600);
+      trackJob(res.job_id, (j) => {
+        if (j.status === 'completed') notify(`Your ${tone.toLowerCase()} audiobook is ready`, 'success', { action: { label: 'Play', onClick: () => onReady(res.audiobook.id) } });
+        else notify(j.error || 'Audiobook generation failed', 'error');
+      });
+    } catch (err) { notify(err.message, 'error'); }
+  };
+
+  if (job) {
+    const done = job.status === 'completed';
+    return (
+      <div className={`generating-view ${done ? 'success' : ''}`}>
+        <div className={`gen-orb ${done ? 'success' : ''}`}><Headphones size={30} />{!done && <span className="gen-ring" />}</div>
+        <h3>{done ? 'Your audiobook is ready!' : 'Generating audiobook'}</h3>
+        <p className="gen-stage">{done ? `${detail.data?.title} · ${tone} narration` : job.stage}</p>
+        {!done && <><ProgressBar value={job.progress} /><small>{Math.round(job.progress)}% · keeps running if you leave this page</small></>}
+        {job.status === 'failed' && <p className="field-error">Generation failed. Please try again.</p>}
+        <div className="gen-actions">
+          {done && <button className="primary-button" onClick={() => onReady(job.bookId)}><Play size={15} fill="currentColor" /> Play now</button>}
+          <button className="secondary-button" onClick={() => setJob(null)}>Generate another</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (docs.loading && !docs.data) return <Skeleton h={300} />;
+  if (!ready.length) return <EmptyState icon={BookOpen} title="Add a document first" description="Upload a document, then turn it into an audiobook here." />;
+
+  return (
+    <div className="audio-generate-layout">
+      <div className="gen-doc-picker">
+        <div className="eyebrow">1 · SELECT DOCUMENT</div>
+        <div className="gen-doc-list">
+          {ready.map((d) => (
+            <button key={d.id} className={`gen-doc-item ${selectedId === d.id ? 'selected' : ''}`} onClick={() => setDocId(d.id)} aria-pressed={selectedId === d.id}>
+              <Cover doc={d} size="sm" />
+              <span><strong>{d.title}</strong><small>{d.author} · {d.chapter_count} chapters</small></span>
+              {d.audio_ready && <Headphones size={13} className="audio-icon" aria-label="Has an audiobook" />}
             </button>
           ))}
         </div>
       </div>
-    </div>
-  );
-}
-
-// ─── Generate Audio ───────────────────────────────────────────────────────────
-function GenerateAudioView({ doc, onGenerated }) {
-  const { state, dispatch, notify } = useApp();
-  const { audioTone } = state;
-  const [step, setStep] = useState('tone'); // 'tone' | 'settings' | 'generating' | 'done'
-  const [progress, setProgress] = useState(0);
-  const [stage, setStage] = useState('');
-
-  const generate = async () => {
-    setStep('generating');
-    const stages = [
-      { label: 'Extracting text...', pct: 20 },
-      { label: 'Splitting chapters...', pct: 40 },
-      { label: `Generating ${audioTone.toLowerCase()} narration...`, pct: 65 },
-      { label: 'Normalizing audio...', pct: 85 },
-      { label: 'Finalizing...', pct: 100 },
-    ];
-    for (const s of stages) {
-      setStage(s.label);
-      setProgress(s.pct);
-      await new Promise(r => setTimeout(r, 700));
-    }
-    setStep('done');
-    onGenerated();
-  };
-
-  if (step === 'generating') return (
-    <div className="generating-view">
-      <div className="gen-orb">
-        <Headphones size={32} />
-        <div className="gen-ring" />
-      </div>
-      <h3>Generating audiobook</h3>
-      <p className="gen-stage">{stage}</p>
-      <ProgressBar value={progress} />
-      <small>{progress}% complete</small>
-    </div>
-  );
-
-  if (step === 'done') return (
-    <div className="generating-view success">
-      <div className="gen-orb success">
-        <Headphones size={32} />
-      </div>
-      <h3>Your audiobook is ready!</h3>
-      <p>{doc.title} has been converted to a {audioTone.toLowerCase()} narration.</p>
-      <button className="primary-button" onClick={() => setStep('player')}>
-        <Play size={16} fill="currentColor" /> Play now
-      </button>
-    </div>
-  );
-
-  return (
-    <div className="generate-view">
-      <h3>Generate Audiobook</h3>
-      <p className="gen-sub">Choose a narration tone for <strong>{doc?.title}</strong></p>
-
-      <div className="tone-cards">
-        {TONES.map(tone => (
-          <button
-            key={tone.id}
-            className={`tone-card ${audioTone === tone.id ? 'selected' : ''}`}
-            onClick={() => dispatch({ type: 'SET_AUDIO_TONE', payload: tone.id })}
-          >
-            <div className="tone-icon" style={{ color: tone.color }}>
-              <tone.icon size={22} />
-            </div>
-            <div>
-              <strong>{tone.label}</strong>
-              <small>{tone.description}</small>
-            </div>
-            {tone.badge && <span className="tone-badge">{tone.badge}</span>}
-          </button>
-        ))}
-      </div>
-
-      <div className="gen-settings">
-        <h4>Voice settings</h4>
-        <div className="setting-rows">
-          <label>Playback speed <select defaultValue="1.0"><option>1.0×</option><option>1.25×</option><option>1.5×</option></select></label>
-          <label>Sleep timer <select defaultValue="off"><option value="off">Off</option><option>30 min</option><option>1 hr</option></select></label>
-          <label>Auto-play next chapter <span className="switch"><i className="on" /></span></label>
+      <div className="generate-view">
+        <div className="eyebrow">2 · CHOOSE A VOICE PERSONALITY</div>
+        <div className="tone-cards">
+          {(tones.data || []).map((t) => {
+            const meta = TONE_META[t.id];
+            return (
+              <div key={t.id} className={`tone-card ${tone === t.id ? 'selected' : ''}`}>
+                <button className="tone-main" onClick={() => setTone(t.id)} aria-pressed={tone === t.id}>
+                  <span className="tone-icon" style={{ color: meta.color }}><meta.icon size={20} /></span>
+                  <span><strong>{t.id}</strong><small>{t.description}</small></span>
+                  <span className="tone-badge">{meta.badge}</span>
+                </button>
+                <button className="tone-preview" onClick={() => preview(t.id)} disabled={!speechSupported}>
+                  {previewing === t.id ? <Volume2 size={13} className="pulse-icon" /> : <Play size={12} fill="currentColor" />} Preview
+                </button>
+              </div>
+            );
+          })}
         </div>
-      </div>
 
-      <button className="primary-button full-width" onClick={generate}>
-        <Headphones size={16} /> Generate audiobook
-      </button>
+        <div className="eyebrow">3 · SETTINGS</div>
+        <div className="gen-settings">
+          {voices.length > 0 && (
+            <label className="setting-line">Voice
+              <select value={voice} onChange={(e) => setVoice(e.target.value)}>
+                <option value="">Best match for tone</option>
+                {voices.filter((v) => /^en/i.test(v.lang)).map((v) => <option key={v.name} value={v.name}>{v.name}</option>)}
+              </select>
+            </label>
+          )}
+          <label className="setting-line">Base speed
+            <select value={rate} onChange={(e) => setRate(+e.target.value)}>{[0.75, 0.9, 1, 1.1, 1.25, 1.5].map((s) => <option key={s} value={s}>{s}×</option>)}</select>
+          </label>
+          <Switch label="Auto-play next chapter" checked={prefs.audio.autoAdvance} onChange={(v) => setPrefs({ audio: { autoAdvance: v } })} />
+          {detail.data && (
+            <details className="chapter-picker">
+              <summary>Chapters: {chosen.length === allIdx.length ? 'all' : `${chosen.length} of ${allIdx.length}`}</summary>
+              <div className="chapter-picker-actions">
+                <button className="text-button" onClick={() => setChapters(allIdx)}>Select all</button>
+                <button className="text-button" onClick={() => setChapters([])}>None</button>
+              </div>
+              {detail.data.chapters.map((c) => (
+                <label key={c.index} className="check-line">
+                  <input type="checkbox" checked={chosen.includes(c.index)} onChange={(e) => setChapters(e.target.checked ? [...chosen, c.index].sort((a, b) => a - b) : chosen.filter((x) => x !== c.index))} />
+                  {c.index + 1}. {c.title} <small>{c.minutes} min</small>
+                </label>
+              ))}
+            </details>
+          )}
+        </div>
+        {!speechSupported && <p className="field-error">This browser can’t speak text aloud — you can still generate and download the script.</p>}
+        <button className="primary-button full-width" onClick={generate} disabled={!selectedId || chosen.length === 0}>
+          <Headphones size={16} /> Generate {tone.toLowerCase()} audiobook
+        </button>
+      </div>
     </div>
   );
 }
 
-// ─── Main Audio Studio ────────────────────────────────────────────────────────
+// ─── Saved ────────────────────────────────────────────────────────────────────
+function Saved({ onPlay, onGenerate }) {
+  const { notify, confirm, dataVersion } = useApp();
+  const books = useQuery(() => api.audio.list(), [dataVersion]);
+  if (books.error) return <ErrorState error={books.error} onRetry={books.reload} />;
+  if (!books.data) return <Skeleton h={200} />;
+  if (!books.data.length) return <EmptyState icon={Headphones} title="Turn a document into an audiobook." description="Generated audiobooks appear here and remember where you stopped." action="Generate audio" onAction={onGenerate} />;
+  const remove = async (b) => {
+    if (!(await confirm({ title: `Delete the ${b.tone} audiobook of “${b.title}”?`, confirmLabel: 'Delete', danger: true }))) return;
+    await api.audio.remove(b.id).catch((e) => notify(e.message, 'error'));
+    books.setData((l) => l.filter((x) => x.id !== b.id));
+  };
+  return (
+    <div className="saved-audiobooks">
+      {books.data.map((b) => (
+        <div key={b.id} className="saved-ab-card">
+          <div className={`saved-ab-cover cover-${b.color}`}><Headphones size={22} /></div>
+          <div className="saved-ab-info">
+            <strong>{b.title}</strong>
+            <small>{b.tone} · {formatDuration(b.duration_seconds)} · {b.chapters.length} chapters · {timeAgo(b.created_at)}</small>
+            <ProgressBar value={b.progress} thin />
+          </div>
+          {b.status === 'ready' ? (
+            <button className="play-circle" onClick={() => onPlay(b.id)} aria-label={`Play ${b.title}`}><Play size={15} fill="currentColor" /></button>
+          ) : <span className="status processing"><Loader2 size={13} className="spin" /> {b.status}</span>}
+          <Menu trigger={<span className="icon-ghost sm">⋯</span>} items={[
+            { label: 'Download script', icon: Download, onClick: () => api.audio.downloadScript(b.id) },
+            { label: 'Delete', icon: Trash2, danger: true, onClick: () => remove(b) },
+          ]} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function AudioStudioPage() {
-  const { state, notify } = useApp();
-  const { documents, audiobooks } = state;
-  const [tab, setTab] = useState('player'); // 'player' | 'generate' | 'saved' | 'collab'
-  const [selectedDoc, setSelectedDoc] = useState(documents[0]);
-  const [audioReady, setAudioReady] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const books = useQuery(() => api.audio.list(), []);
+  const tab = params.get('tab') || (params.get('book') ? 'player' : 'player');
+  const bookId = params.get('book') || (books.data || []).find((b) => b.status === 'ready')?.id;
+  const setTab = (t) => setParams(t === 'player' && bookId ? { tab: t, book: bookId } : { tab: t });
+  const play = (id) => setParams({ tab: 'player', book: id });
 
   return (
     <div className="page-shell audio-page">
@@ -308,106 +421,26 @@ export default function AudioStudioPage() {
           <h1>Your listening world.</h1>
         </div>
         <div className="top-actions">
-          <button className="primary-button" onClick={() => setTab('generate')}>
-            <Plus size={15} /> Generate audiobook
-          </button>
+          <button className="primary-button" onClick={() => setTab('generate')}><Plus size={15} /> Generate audiobook</button>
         </div>
       </header>
 
-      <div className="audio-tabs" role="tablist">
-        {[
-          { id: 'player', label: 'Player' },
-          { id: 'generate', label: 'Generate' },
-          { id: 'saved', label: 'Saved audiobooks' },
-          { id: 'collab', label: 'Collaborative studio' },
-        ].map(t => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={tab === t.id}
-            className={tab === t.id ? 'selected' : ''}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs value={tab} onChange={setTab} className="library-tabs" tabs={[
+        { id: 'player', label: 'Player', icon: Headphones },
+        { id: 'generate', label: 'Generate', icon: Plus },
+        { id: 'saved', label: 'Saved audiobooks', count: books.data?.length || undefined },
+        { id: 'collab', label: 'Collaborative studio', icon: Users },
+      ]} />
 
       {tab === 'player' && (
-        audiobooks.length > 0
-          ? <AudioPlayer audiobook={audiobooks[0]} doc={documents.find(d => d.id === audiobooks[0].docId)} />
-          : <EmptyState emoji="🎧" title="Turn a document into an audiobook." description="Generate your first audiobook to listen here." action="Generate audiobook" onAction={() => setTab('generate')} />
+        bookId ? <Player key={bookId} bookId={bookId} />
+          : books.loading ? <Skeleton h={300} />
+          : <EmptyState icon={Headphones} title="Turn a document into an audiobook." description="Choose humor, tough or regular narration — ReadVibe prepares it in the background." action="Generate audiobook" onAction={() => setTab('generate')} />
       )}
-
-      {tab === 'generate' && (
-        <div className="audio-generate-layout">
-          <div className="gen-doc-picker">
-            <div className="eyebrow">SELECT DOCUMENT</div>
-            {documents.map(doc => (
-              <button
-                key={doc.id}
-                className={`gen-doc-item ${selectedDoc?.id === doc.id ? 'selected' : ''}`}
-                onClick={() => setSelectedDoc(doc)}
-              >
-                <div className={`mini-cover-sm cover-${doc.color}`}>{doc.coverSymbol}</div>
-                <div>
-                  <strong>{doc.title}</strong>
-                  <small>{doc.author}</small>
-                </div>
-              </button>
-            ))}
-          </div>
-          <GenerateAudioView doc={selectedDoc} onGenerated={() => { setAudioReady(true); notify('Audiobook ready! Switching to player.'); setTimeout(() => setTab('player'), 1200); }} />
-        </div>
-      )}
-
-      {tab === 'saved' && (
-        audiobooks.length > 0 ? (
-          <div className="saved-audiobooks">
-            {audiobooks.map(ab => {
-              const doc = documents.find(d => d.id === ab.docId);
-              return (
-                <div key={ab.id} className="saved-ab-card">
-                  <div className={`saved-ab-cover cover-${doc?.color}`}><Headphones size={24} /></div>
-                  <div className="saved-ab-info">
-                    <strong>{ab.title}</strong>
-                    <small>{ab.tone} · {ab.duration}</small>
-                    <ProgressBar value={ab.progress} thin />
-                  </div>
-                  <button className="play-circle" onClick={() => { setTab('player'); notify('Resuming playback'); }}>
-                    <Play size={16} fill="currentColor" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <EmptyState emoji="📼" title="No audiobooks yet." description="Generate your first audiobook and it will appear here." action="Generate" onAction={() => setTab('generate')} />
-        )
-      )}
-
-      {tab === 'collab' && (
-        <div className="collab-studio">
-          <div className="collab-hero">
-            <div className="collab-icon"><Users size={32} /></div>
-            <div>
-              <h3>Collaborative Audiobook Studio</h3>
-              <p>Record with friends — assign chapters, record different voices, and stitch them into one audiobook.</p>
-            </div>
-          </div>
-          <div className="collab-steps">
-            {['Create project', 'Invite collaborators', 'Assign chapters', 'Record parts', 'AI cleanup & stitch', 'Publish'].map((step, i) => (
-              <div key={step} className="collab-step">
-                <div className="step-num">{i + 1}</div>
-                <span>{step}</span>
-              </div>
-            ))}
-          </div>
-          <button className="primary-button" onClick={() => notify('Collaborative studio — coming in Phase 4')}>
-            <Plus size={15} /> Start a collaborative project
-          </button>
-        </div>
-      )}
+      {tab === 'generate' && <Generate initialDoc={params.get('doc')} onReady={(id) => { books.reload(); play(id); }} />}
+      {tab === 'saved' && <Saved onPlay={play} onGenerate={() => setTab('generate')} />}
+      {tab === 'collab' && <CollabStudio onOpenDoc={(id) => navigate(`/read/${id}`)} />}
+      {tab === 'player' && <p className="fineprint"><Check size={11} /> Narration uses your device’s speech engine, so it works offline. Shortcuts: Space play/pause · ← back 10s · → forward 30s.</p>}
     </div>
   );
 }

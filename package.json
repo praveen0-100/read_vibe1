@@ -1,24 +1,33 @@
 {
   "name": "readvibe",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
-  "description": "Industrial-style Vite + React (JavaScript) frontend and Flask REST API for an AI-powered immersive reading workspace.",
+  "description": "ReadVibe — AI-powered immersive reading, audiobook and research platform (React + Vite frontend, FastAPI backend).",
+  "homepage": "https://github.com/praveen0-100/read_vibe1#readme",
+  "bugs": {
+    "url": "https://github.com/praveen0-100/read_vibe1/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/praveen0-100/read_vibe1.git"
+  },
   "license": "ISC",
-  "author": "",
   "type": "module",
-  "main": "index.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "api": "cd backend && .venv/Scripts/python run.py",
+    "api:test": "cd backend && .venv/Scripts/python -m pytest -q"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "lucide-react": "latest",
-    "react-router-dom": "^6.26.0"
+    "lucide-react": "^1.45.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.4"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.1",
+    "vite": "^8.3.4"
+  }
 }

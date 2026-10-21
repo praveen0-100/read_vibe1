@@ -1,232 +1,185 @@
-// ─── Home Page ────────────────────────────────────────────────────────────────
-import React, { useState } from 'react';
+// ─── Home dashboard ───────────────────────────────────────────────────────────
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  ArrowRight, Upload, Sparkles, Headphones, Brain, Flame, Clock3,
-  MoreHorizontal, WandSparkles, BookOpen, Zap, Play
+  ArrowRight, BookOpen, Brain, CircleHelp, Clock3, Flame, Headphones, Highlighter, Map as MapIcon,
+  Sparkles, Upload, WandSparkles, Workflow, Zap,
 } from 'lucide-react';
+import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
-import { SectionHead, ProgressBar } from '../components/ui';
-import { READING_STATS, AI_SUGGESTIONS } from '../data/mockData';
+import { useQuery } from '../hooks/useAsync';
+import { formatMinutes, greeting, timeAgo } from '../lib/format';
+import { Cover, EmptyState, ErrorState, ProgressBar, SectionHead, Skeleton } from '../components/ui';
 
-function BookCover({ doc }) {
-  const colors = {
-    coral: '#c96a52',
-    blue: '#5a7a9e',
-    lavender: '#8a7ab8',
-    amber: '#b88548',
-  };
+function ContinueCard({ doc }) {
+  const navigate = useNavigate();
+  const open = () => navigate(`/read/${doc.id}`);
   return (
-    <div className={`book-cover cover-${doc.color}`} style={{ background: colors[doc.color] }}>
-      <div className="cover-symbol">{doc.coverSymbol}</div>
-      <small>{doc.title.toUpperCase().substring(0, 20)}</small>
-      <b>{doc.author.toUpperCase().split(' ').slice(-1)[0]}</b>
-    </div>
-  );
-}
-
-function ContinueCard({ doc, onOpen }) {
-  return (
-    <div className="continue-card" onClick={() => onOpen(doc)} role="button" tabIndex={0} onKeyDown={e => e.key === 'Enter' && onOpen(doc)}>
-      <div className="card-kicker">
-        <span className="pulse" aria-hidden="true" />
-        CONTINUE READING
-        <span className="kicker-progress">{doc.progress}%</span>
-      </div>
+    <article className="continue-card" onClick={open} role="link" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && open()} aria-label={`Continue reading ${doc.title}`}>
+      <div className="card-kicker"><span className="pulse" aria-hidden="true" /> CONTINUE READING <span className="kicker-progress">{Math.round(doc.progress)}%</span></div>
       <div className="continue-content">
-        <BookCover doc={doc} />
+        <Cover doc={doc} size="lg" />
         <div className="continue-copy">
           <h2>{doc.title}</h2>
           <p>{doc.author}</p>
-          <div className="progress-row">
-            <ProgressBar value={doc.progress} />
-            <span>p. {doc.currentPage} / {doc.totalPages}</span>
-          </div>
-          <button className="resume-btn" onClick={(e) => { e.stopPropagation(); onOpen(doc); }}>
-            Resume reading <ArrowRight size={15} />
-          </button>
+          {doc.current_chapter_title && <p className="continue-chapter">{doc.current_chapter_title}</p>}
+          <div className="progress-row"><ProgressBar value={doc.progress} /><span>{doc.minutes_left} min left</span></div>
+          <button className="resume-btn" onClick={(e) => { e.stopPropagation(); open(); }}>Resume reading <ArrowRight size={15} /></button>
         </div>
       </div>
       <div className="continue-footer">
-        <span><Clock3 size={13} /> {doc.time}</span>
-        <span className="mode-pill">Reader mode</span>
+        <span><Clock3 size={13} /> Opened {timeAgo(doc.last_opened_at)}</span>
+        <span className="mode-pill">{doc.last_mode} mode</span>
       </div>
-    </div>
+    </article>
   );
 }
 
-function StatsCard() {
-  const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-  const max = Math.max(...READING_STATS.weeklyMinutes);
+function StatsCard({ stats }) {
+  const navigate = useNavigate();
+  const max = Math.max(30, ...stats.week.map((d) => d.minutes));
   return (
-    <div className="stats-card">
-      <div className="section-top">
-        <span className="eyebrow">YOUR READING RHYTHM</span>
-        <MoreHorizontal size={17} />
-      </div>
-      <div className="focus-number">
-        {READING_STATS.currentWeekTotal} <small>min</small>
-      </div>
-      <p className="stats-sub">focus time this week</p>
-      <div className="bars" aria-label="Weekly reading chart">
-        {READING_STATS.weeklyMinutes.map((h, i) => (
-          <div
-            key={i}
-            className={`bar ${i === 5 ? 'today' : ''}`}
-            style={{ height: `${(h / max) * 100}%` }}
-            title={`${days[i]}: ${h} min`}
-          >
-            <span>{days[i]}</span>
+    <section className="stats-card" aria-label="Reading statistics">
+      <div className="section-top"><span className="eyebrow">YOUR READING RHYTHM</span></div>
+      <div className="focus-number">{stats.week_minutes} <small>min</small></div>
+      <p className="stats-sub">focus time this week · {stats.today_minutes} min today</p>
+      <div className="bars" role="img" aria-label={`Minutes read per day this week: ${stats.week.map((d) => `${d.label} ${d.minutes}`).join(', ')}`}>
+        {stats.week.map((d) => (
+          <div key={d.date} className={`bar ${d.today ? 'today' : ''}`} style={{ height: `${Math.max(6, (d.minutes / max) * 100)}%` }} title={`${d.date}: ${d.minutes} min`}>
+            <span>{d.label}</span>
           </div>
         ))}
       </div>
-      <div className="streak-row">
+      <button className="streak-row" onClick={() => navigate('/read')}>
         <Flame size={15} />
-        <span>{READING_STATS.streak} day reading streak</span>
+        <span>{stats.streak ? `${stats.streak}-day reading streak` : 'Start a streak today'}</span>
         <ArrowRight size={13} />
-      </div>
-    </div>
+      </button>
+    </section>
   );
 }
 
-function QuickActions({ setPage, notify }) {
+const REC_ICONS = { continue: BookOpen, summarize: Sparkles, mindmap: MapIcon, diagram: Workflow, quiz: CircleHelp };
+
+export default function HomePage() {
+  const { user, setUploadOpen, openAI, dataVersion } = useApp();
+  const navigate = useNavigate();
+  const docs = useQuery(() => api.documents.list({ sort: 'recent' }), [dataVersion]);
+  const stats = useQuery(() => api.activity.stats(), [dataVersion]);
+  const recs = useQuery(() => api.ai.recommendations(), [dataVersion]);
+  const books = useQuery(() => api.audio.list(), [dataVersion]);
+
+  const list = docs.data || [];
+  const current = list.find((d) => d.status === 'ready' && d.last_opened_at && d.progress < 99) || list.find((d) => d.status === 'ready');
+  const recent = list.filter((d) => d.id !== current?.id).slice(0, 3);
+  const lastBook = (books.data || []).find((b) => b.status === 'ready' && b.progress > 0 && b.progress < 100);
+  const date = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+
+  const runRec = (r) => {
+    if (r.action === 'continue') navigate(`/read/${r.document_id}`);
+    else openAI({ documentId: r.document_id, tool: r.action === 'summarize' ? 'summarize' : r.action, nonce: Date.now() });
+  };
+
   const actions = [
-    { label: 'Upload document', detail: 'PDF, EPUB, DOCX or TXT', icon: Upload, tone: 'coral', page: null, action: () => notify('Open the upload dialog to add documents') },
-    { label: 'Summarize a chapter', detail: 'Get the signal, skip the noise', icon: Sparkles, tone: 'violet', page: 'reader' },
-    { label: 'Generate audiobook', detail: 'Listen in your favorite tone', icon: Headphones, tone: 'blue', page: 'audio' },
-    { label: 'Start research', detail: 'Turn a question into a paper', icon: Brain, tone: 'green', page: 'research' },
+    { label: 'Upload document', detail: 'PDF, EPUB, DOCX, TXT, MD', icon: Upload, tone: 'coral', run: () => setUploadOpen(true) },
+    { label: 'Read with AI', detail: 'Summaries, chat, mind maps', icon: Sparkles, tone: 'violet', run: () => openAI() },
+    { label: 'Generate audiobook', detail: 'Humor, tough or regular voice', icon: Headphones, tone: 'blue', run: () => navigate('/audio?tab=generate') },
+    { label: 'Start research', detail: 'From topic to cited draft', icon: Brain, tone: 'green', run: () => navigate('/research') },
   ];
 
   return (
-    <section className="section-block">
-      <SectionHead eyebrow="MAKE IT YOURS" title="What would you like to do?" />
-      <div className="action-grid">
-        {actions.map(({ label, detail, icon: Icon, tone, page, action }) => (
-          <button
-            key={label}
-            className="action-card"
-            onClick={() => page ? setPage(page) : action?.()}
-          >
-            <div className={`action-icon ${tone}`}>
-              <Icon size={20} />
-            </div>
-            <div className="action-text">
-              <strong>{label}</strong>
-              <small>{detail}</small>
-            </div>
-            <ArrowRight size={15} className="action-arrow" />
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function DocumentMiniCard({ doc, openDoc }) {
-  return (
-    <button className="doc-card" onClick={() => openDoc(doc)}>
-      <div className={`mini-cover cover-${doc.color}`}>
-        <span>{doc.coverSymbol}</span>
-      </div>
-      <div className="doc-info">
-        <div className="doc-type">{doc.type} · {doc.tag}</div>
-        <h3>{doc.title}</h3>
-        <p>{doc.author}</p>
-        <ProgressBar value={doc.progress} thin className="doc-progress" />
-        <small>{doc.progress}% complete</small>
-      </div>
-      <MoreHorizontal size={15} className="doc-more" />
-    </button>
-  );
-}
-
-function AISuggestionBanner({ setPage, notify }) {
-  const [dismissed, setDismissed] = useState(false);
-  if (dismissed) return null;
-
-  return (
-    <section className="suggestion-banner">
-      <div className="suggestion-icon"><WandSparkles size={19} /></div>
-      <div className="suggestion-body">
-        <div className="eyebrow">A NOTE FROM READVIBE</div>
-        <p>"You highlighted 7 concepts in <em>Design of Everyday Things</em>. Want me to connect them into a mind map?"</p>
-      </div>
-      <div className="suggestion-actions">
-        <button className="small-button" onClick={() => { setPage('reader'); notify('Mind map queued for generation'); }}>
-          Create mind map
-        </button>
-        <button className="dismiss-btn" onClick={() => setDismissed(true)} aria-label="Dismiss suggestion">×</button>
-      </div>
-    </section>
-  );
-}
-
-function MiniStatsRow() {
-  return (
-    <div className="mini-stats-row">
-      {[
-        { label: 'Books read', value: READING_STATS.totalBooksRead, icon: BookOpen },
-        { label: 'Audio hours', value: READING_STATS.totalAudioHours + 'h', icon: Headphones },
-        { label: 'Focus sessions', value: READING_STATS.focusSessions, icon: Zap },
-      ].map(({ label, value, icon: Icon }) => (
-        <div key={label} className="mini-stat">
-          <Icon size={16} />
-          <div>
-            <strong>{value}</strong>
-            <small>{label}</small>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-export default function HomePage() {
-  const { state, openDoc, setPage, notify } = useApp();
-  const { documents } = state;
-
-  const date = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-
-  return (
     <div className="page-shell home-page">
-      {/* Topbar */}
       <header className="topbar">
         <div>
           <div className="eyebrow">{date}</div>
-          <h1>{greeting}, Praveen.</h1>
+          <h1>{greeting()}, {user?.name?.split(' ')[0] || 'reader'}.</h1>
         </div>
-        <div className="top-actions">
-          <MiniStatsRow />
-        </div>
+        {stats.data && (
+          <div className="mini-stats-row">
+            {[
+              { label: 'Completed', value: stats.data.books_completed, icon: BookOpen },
+              { label: 'Audio hours', value: `${stats.data.audio_hours}h`, icon: Headphones },
+              { label: 'Focus sessions', value: stats.data.focus_sessions, icon: Zap },
+              { label: 'Highlights', value: stats.data.highlights, icon: Highlighter },
+            ].map(({ label, value, icon: Icon }) => (
+              <div key={label} className="mini-stat"><Icon size={16} /><div><strong>{value}</strong><small>{label}</small></div></div>
+            ))}
+          </div>
+        )}
       </header>
 
-      {/* Hero Grid: Continue Reading + Stats */}
-      <section className="hero-grid">
-        <ContinueCard doc={documents[0]} onOpen={openDoc} />
-        <StatsCard />
-      </section>
+      {docs.error && <ErrorState error={docs.error} onRetry={docs.reload} />}
 
-      {/* Quick Actions */}
-      <QuickActions setPage={setPage} notify={notify} />
+      {docs.loading && !docs.data ? (
+        <section className="hero-grid"><Skeleton h={260} r={14} /><Skeleton h={260} r={14} /></section>
+      ) : list.length === 0 && !docs.error ? (
+        <EmptyState icon={BookOpen} title="Your next reading experience starts here."
+          description="Upload a PDF, EPUB, DOCX or text file — ReadVibe splits it into chapters and unlocks AI tools, audio and immersive modes."
+          action="Upload a document" onAction={() => setUploadOpen(true)} />
+      ) : (
+        <section className="hero-grid">
+          {current ? <ContinueCard doc={current} /> : <Skeleton h={260} r={14} />}
+          {stats.data ? <StatsCard stats={stats.data} /> : <Skeleton h={260} r={14} />}
+        </section>
+      )}
 
-      {/* Recent Library */}
       <section className="section-block">
-        <SectionHead
-          eyebrow="FROM YOUR LIBRARY"
-          title="Pick up where you left off"
-          actionLabel="View library"
-          onAction={() => setPage('library')}
-        />
-        <div className="document-row">
-          {documents.slice(1, 4).map(doc => (
-            <DocumentMiniCard key={doc.id} doc={doc} openDoc={openDoc} />
+        <SectionHead eyebrow="MAKE IT YOURS" title="What would you like to do?" />
+        <div className="action-grid">
+          {actions.map(({ label, detail, icon: Icon, tone, run }) => (
+            <button key={label} className="action-card" onClick={run}>
+              <span className={`action-icon ${tone}`}><Icon size={19} /></span>
+              <span className="action-text"><strong>{label}</strong><small>{detail}</small></span>
+              <ArrowRight size={15} className="action-arrow" />
+            </button>
           ))}
         </div>
       </section>
 
-      {/* AI Suggestion Banner */}
-      <AISuggestionBanner setPage={setPage} notify={notify} />
+      {(recs.data?.length > 0 || lastBook) && (
+        <section className="section-block">
+          <SectionHead eyebrow="A NOTE FROM READVIBE" title="Suggested for you" />
+          <div className="suggestions">
+            {lastBook && (
+              <button className="suggestion-row" onClick={() => navigate(`/audio?book=${lastBook.id}`)}>
+                <span className="suggestion-icon"><Headphones size={16} /></span>
+                <span>Resume listening to “{lastBook.title}” · {Math.round(lastBook.progress)}% done</span>
+                <ArrowRight size={14} />
+              </button>
+            )}
+            {(recs.data || []).slice(0, 4).map((r) => {
+              const Icon = REC_ICONS[r.action] || WandSparkles;
+              return (
+                <button key={`${r.action}-${r.document_id}`} className="suggestion-row" onClick={() => runRec(r)}>
+                  <span className="suggestion-icon"><Icon size={16} /></span>
+                  <span>{r.label}</span>
+                  <ArrowRight size={14} />
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {recent.length > 0 && (
+        <section className="section-block">
+          <SectionHead eyebrow="FROM YOUR LIBRARY" title="Pick up where you left off" actionLabel="View library" onAction={() => navigate('/library')} />
+          <div className="document-row">
+            {recent.map((doc) => (
+              <button key={doc.id} className="doc-card" onClick={() => navigate(`/read/${doc.id}`)} disabled={doc.status !== 'ready'}>
+                <Cover doc={doc} />
+                <span className="doc-info">
+                  <span className="doc-type">{doc.type} · {doc.tags?.[0] || doc.format}</span>
+                  <h3>{doc.title}</h3>
+                  <p>{doc.author}</p>
+                  <ProgressBar value={doc.progress} thin />
+                  <small>{doc.status === 'processing' ? 'Processing…' : `${Math.round(doc.progress)}% · ${formatMinutes(doc.minutes_left)} left`}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

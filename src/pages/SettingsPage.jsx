@@ -1,373 +1,320 @@
-// ─── Settings Page ────────────────────────────────────────────────────────────
-import React, { useState } from 'react';
+// ─── Settings ─────────────────────────────────────────────────────────────────
+import React, { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Sun, Moon, BookOpen, Headphones, Zap, Cloud, User, Music,
-  ChevronRight, Check, Monitor
+  Accessibility, AudioLines, BookOpen, Check, Database, Download, HardDrive, Keyboard, LogOut, Monitor, Moon, Palette,
+  Play, Server, Sun, Trash2, User, Volume2,
 } from 'lucide-react';
+import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
+import { useQuery } from '../hooks/useAsync';
+import { formatBytes, initials, timeAgo } from '../lib/format';
+import { offline } from '../lib/offline';
+import { READING_FONTS } from '../lib/prefs';
+import { loadVoices, pickVoice, speak, speechSupported } from '../lib/speech';
+import { Field, Segmented, Slider, Switch } from '../components/ui';
+import { VIBE_PRESETS, ZEN_PRESETS } from '../components/reader/Scenes';
 
-const SETTING_SECTIONS = [
-  { id: 'appearance', label: 'Appearance', icon: Sun },
+const SECTIONS = [
+  { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'reading', label: 'Reading', icon: BookOpen },
-  { id: 'audio', label: 'Audio & Voice', icon: Headphones },
-  { id: 'accessibility', label: 'Accessibility', icon: Zap },
-  { id: 'vibe', label: 'Music & Vibe', icon: Music },
-  { id: 'storage', label: 'Storage & Offline', icon: Cloud },
+  { id: 'accessibility', label: 'Accessibility', icon: Accessibility },
+  { id: 'audio', label: 'Audio', icon: Volume2 },
+  { id: 'vibe', label: 'Music & Vibe', icon: AudioLines },
+  { id: 'storage', label: 'Storage & Offline', icon: HardDrive },
   { id: 'account', label: 'Account', icon: User },
+  { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
 ];
 
-function Toggle({ value, onChange, label }) {
+function GoogleMark() {
   return (
-    <button
-      className="toggle-switch"
-      onClick={() => onChange(!value)}
-      aria-checked={value}
-      role="switch"
-      aria-label={label}
-    >
-      <span className={`toggle-track ${value ? 'on' : ''}`}>
-        <span className="toggle-thumb" />
-      </span>
-    </button>
+    <svg width="13" height="13" viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z" />
+      <path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z" />
+      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z" />
+    </svg>
   );
 }
 
-function SettingRow({ label, description, control }) {
+function Section({ title, description, children }) {
   return (
-    <div className="setting-row">
-      <div className="setting-row-label">
-        <strong>{label}</strong>
-        {description && <small>{description}</small>}
-      </div>
-      <div className="setting-row-control">{control}</div>
-    </div>
+    <section className="setting-section">
+      <div><h2>{title}</h2>{description && <p>{description}</p>}</div>
+      <div className="setting-rows">{children}</div>
+    </section>
   );
 }
 
-function AppearanceSection({ state, dispatch }) {
-  const { theme } = state;
+function Appearance() {
+  const { prefs, setPrefs } = useApp();
   return (
-    <div className="settings-panel">
-      <div className="panel-header">
-        <h2>Appearance</h2>
-        <p>Make ReadVibe feel like your space.</p>
-      </div>
-      <div className="theme-options">
-        {[
-          { id: 'light', label: 'Light', icon: Sun },
-          { id: 'dark', label: 'Dark', icon: Moon },
-          { id: 'system', label: 'System', icon: Monitor },
-        ].map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            className={`theme-option ${theme === id ? 'chosen' : ''}`}
-            onClick={() => dispatch({ type: 'SET_THEME', payload: id })}
-          >
-            <Icon size={18} />
-            <span>{label}</span>
-            {theme === id && <Check size={14} className="check" />}
-          </button>
-        ))}
-      </div>
-
-      <div className="setting-group">
-        <div className="setting-group-label">Color accent</div>
-        <div className="accent-swatches">
-          {['#ee8b72', '#73c99e', '#9b8de8', '#6ca8d4', '#d4a26a', '#e87298'].map(color => (
-            <button
-              key={color}
-              className="accent-swatch"
-              style={{ background: color }}
-              onClick={() => {}}
-              title={color}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ReadingSection({ state, dispatch }) {
-  const { readingSettings } = state;
-  const [settings, setSettings] = useState(readingSettings);
-
-  const update = (key, value) => {
-    const next = { ...settings, [key]: value };
-    setSettings(next);
-    dispatch({ type: 'SET_READING_SETTINGS', payload: next });
-  };
-
-  return (
-    <div className="settings-panel">
-      <div className="panel-header">
-        <h2>Reading preferences</h2>
-        <p>Customize your ideal reading environment.</p>
-      </div>
-      <div className="setting-rows-list">
-        <SettingRow
-          label="Reading font"
-          description="Font used for document text"
-          control={
-            <select value={settings.font} onChange={e => update('font', e.target.value)}>
-              <option value="Playfair Display">Playfair Display (Serif)</option>
-              <option value="DM Sans">DM Sans (Sans-serif)</option>
-              <option value="Georgia">Georgia (Classic)</option>
-              <option value="OpenDyslexic">OpenDyslexic</option>
-            </select>
-          }
-        />
-        <SettingRow
-          label="Text size"
-          description={`${settings.fontSize}px`}
-          control={
-            <input
-              type="range"
-              min={13}
-              max={24}
-              value={settings.fontSize}
-              onChange={e => update('fontSize', +e.target.value)}
-              aria-label="Font size"
-            />
-          }
-        />
-        <SettingRow
-          label="Line spacing"
-          control={
-            <select value={settings.lineHeight} onChange={e => update('lineHeight', +e.target.value)}>
-              <option value={1.4}>Compact (1.4)</option>
-              <option value={1.6}>Standard (1.6)</option>
-              <option value={1.8}>Relaxed (1.8)</option>
-              <option value={2.0}>Spacious (2.0)</option>
-            </select>
-          }
-        />
-        <SettingRow
-          label="Reading margins"
-          control={
-            <select value={settings.margins} onChange={e => update('margins', e.target.value)}>
-              <option value="narrow">Narrow</option>
-              <option value="comfortable">Comfortable</option>
-              <option value="wide">Wide</option>
-            </select>
-          }
-        />
-        <SettingRow
-          label="Page theme"
-          control={
-            <select value={settings.theme} onChange={e => update('theme', e.target.value)}>
-              <option value="sepia">Sepia (warm)</option>
-              <option value="white">White (crisp)</option>
-              <option value="dark">Dark (night)</option>
-              <option value="sage">Sage (calm)</option>
-            </select>
-          }
-        />
-      </div>
-    </div>
-  );
-}
-
-function AudioSection({ state, dispatch, notify }) {
-  const [defaultSpeed, setDefaultSpeed] = useState(1.0);
-  const [defaultTone, setDefaultTone] = useState('Regular');
-  const [sleepTimer, setSleepTimer] = useState('off');
-  const [bgPlayback, setBgPlayback] = useState(true);
-
-  return (
-    <div className="settings-panel">
-      <div className="panel-header">
-        <h2>Audio & Voice</h2>
-        <p>Configure your audiobook listening experience.</p>
-      </div>
-      <div className="setting-rows-list">
-        <SettingRow
-          label="Default playback speed"
-          control={
-            <select value={defaultSpeed} onChange={e => setDefaultSpeed(+e.target.value)}>
-              {[0.75, 1.0, 1.25, 1.5, 1.75, 2.0].map(s => <option key={s} value={s}>{s}×</option>)}
-            </select>
-          }
-        />
-        <SettingRow
-          label="Default narration tone"
-          control={
-            <select value={defaultTone} onChange={e => setDefaultTone(e.target.value)}>
-              <option>Regular</option>
-              <option>Humor</option>
-              <option>Tough</option>
-            </select>
-          }
-        />
-        <SettingRow
-          label="Sleep timer"
-          control={
-            <select value={sleepTimer} onChange={e => setSleepTimer(e.target.value)}>
-              <option value="off">Off</option>
-              <option value="15">15 minutes</option>
-              <option value="30">30 minutes</option>
-              <option value="45">45 minutes</option>
-              <option value="60">1 hour</option>
-            </select>
-          }
-        />
-        <SettingRow
-          label="Background playback"
-          description="Continue playing when you switch screens"
-          control={<Toggle value={bgPlayback} onChange={setBgPlayback} label="Background playback" />}
-        />
-        <SettingRow
-          label="Auto-play next chapter"
-          control={<Toggle value={true} onChange={() => notify('Setting saved')} label="Auto-play next chapter" />}
-        />
-      </div>
-    </div>
-  );
-}
-
-function AccessibilitySection({ notify }) {
-  const [settings, setSettings] = useState({
-    highContrast: true,
-    reducedMotion: false,
-    dyslexicFont: false,
-    screenReader: false,
-    focusLine: false,
-    largeTargets: false,
-  });
-
-  const toggle = (key) => {
-    setSettings(prev => ({ ...prev, [key]: !prev[key] }));
-    notify('Accessibility setting saved');
-  };
-
-  return (
-    <div className="settings-panel">
-      <div className="panel-header">
-        <h2>Accessibility</h2>
-        <p>Reading support that works for you.</p>
-      </div>
-      <div className="setting-rows-list">
-        <SettingRow label="High contrast" description="Increases text contrast for readability" control={<Toggle value={settings.highContrast} onChange={() => toggle('highContrast')} label="High contrast" />} />
-        <SettingRow label="Reduced motion" description="Minimizes animations" control={<Toggle value={settings.reducedMotion} onChange={() => toggle('reducedMotion')} label="Reduced motion" />} />
-        <SettingRow label="Dyslexia-friendly font" description="Switch to OpenDyslexic for all reading" control={<Toggle value={settings.dyslexicFont} onChange={() => toggle('dyslexicFont')} label="Dyslexia-friendly font" />} />
-        <SettingRow label="Screen reader mode" description="Optimized layout for screen readers" control={<Toggle value={settings.screenReader} onChange={() => toggle('screenReader')} label="Screen reader mode" />} />
-        <SettingRow label="Focus line" description="Highlight current reading line" control={<Toggle value={settings.focusLine} onChange={() => toggle('focusLine')} label="Focus line" />} />
-        <SettingRow label="Large touch targets" description="Increases tap area for all buttons" control={<Toggle value={settings.largeTargets} onChange={() => toggle('largeTargets')} label="Large touch targets" />} />
-      </div>
-    </div>
-  );
-}
-
-function StorageSection({ notify }) {
-  const [offlineDocs, setOfflineDocs] = useState(true);
-  const [offlineAudio, setOfflineAudio] = useState(false);
-
-  return (
-    <div className="settings-panel">
-      <div className="panel-header">
-        <h2>Storage & Offline</h2>
-        <p>Manage what's available when you're not connected.</p>
-      </div>
-      <div className="storage-stats">
-        <div className="storage-bar-wrap">
-          <div className="storage-bar">
-            <div className="storage-docs" style={{ width: '35%' }} />
-            <div className="storage-audio" style={{ width: '25%' }} />
-          </div>
-          <div className="storage-legend">
-            <span><i className="docs" /> Documents — 142 MB</span>
-            <span><i className="audio" /> Audio — 890 MB</span>
-            <span><i className="free" /> Free — 14.1 GB</span>
-          </div>
-        </div>
-      </div>
-      <div className="setting-rows-list">
-        <SettingRow label="Download documents for offline" control={<Toggle value={offlineDocs} onChange={setOfflineDocs} label="Offline documents" />} />
-        <SettingRow label="Download audio for offline" control={<Toggle value={offlineAudio} onChange={setOfflineAudio} label="Offline audio" />} />
-        <SettingRow
-          label="Clear cache"
-          description="Frees temporary files"
-          control={<button className="secondary-button small" onClick={() => notify('Cache cleared (124 MB freed)')}>Clear cache</button>}
-        />
-      </div>
-    </div>
-  );
-}
-
-function AccountSection({ notify }) {
-  return (
-    <div className="settings-panel">
-      <div className="panel-header">
-        <h2>Account</h2>
-      </div>
-      <div className="account-profile">
-        <div className="avatar-large">PS</div>
-        <div>
-          <strong>Praveen S.</strong>
-          <small>praveen@example.com</small>
-          <button className="text-button" onClick={() => notify('Profile edit opened')}>Edit profile →</button>
-        </div>
-      </div>
-      <div className="setting-rows-list">
-        {['Connected services', 'Reading data & privacy', 'Export all data', 'Sign out'].map(item => (
-          <button key={item} className="setting-link-row" onClick={() => notify(`${item} — opened`)}>
-            <span>{item}</span>
-            <ChevronRight size={16} />
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-export default function SettingsPage() {
-  const { state, dispatch, notify } = useApp();
-  const [activeSection, setActiveSection] = useState('appearance');
-
-  const panels = {
-    appearance: <AppearanceSection state={state} dispatch={dispatch} />,
-    reading: <ReadingSection state={state} dispatch={dispatch} />,
-    audio: <AudioSection state={state} dispatch={dispatch} notify={notify} />,
-    accessibility: <AccessibilitySection notify={notify} />,
-    storage: <StorageSection notify={notify} />,
-    account: <AccountSection notify={notify} />,
-    vibe: (
-      <div className="settings-panel">
-        <div className="panel-header"><h2>Music & Vibe</h2><p>Configure your music connection and saved vibe presets.</p></div>
-        <div className="setting-rows-list">
-          <SettingRow label="Music service" control={<select><option>None connected</option><option>Spotify</option><option>Local music</option></select>} />
-          <SettingRow label="Default vibe preset" control={<select defaultValue="chill"><option value="chill">Chill</option><option>Study</option><option>Rainy</option><option>Cinematic</option></select>} />
-        </div>
-      </div>
-    ),
-  };
-
-  return (
-    <div className="page-shell settings-page">
-      <header className="topbar">
-        <div>
-          <div className="eyebrow">PREFERENCES</div>
-          <h1>Settings</h1>
-        </div>
-      </header>
-
-      <div className="settings-layout">
-        <aside className="settings-nav" aria-label="Settings navigation">
-          {SETTING_SECTIONS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              className={activeSection === id ? 'active' : ''}
-              onClick={() => setActiveSection(id)}
-              aria-current={activeSection === id ? 'page' : undefined}
-            >
-              <Icon size={16} />
-              <span>{label}</span>
+    <>
+      <Section title="Theme" description="Choose how ReadVibe looks. System follows your device.">
+        <Segmented value={prefs.theme} onChange={(v) => setPrefs({ theme: v })} label="Theme"
+          options={[{ value: 'light', label: 'Light', icon: Sun }, { value: 'dark', label: 'Dark', icon: Moon }, { value: 'system', label: 'System', icon: Monitor }]} />
+      </Section>
+      <Section title="Accent colour" description="Used for buttons, progress and AI actions.">
+        <div className="accent-picker">
+          {['coral', 'violet', 'teal', 'gold'].map((a) => (
+            <button key={a} className={`accent-swatch accent-${a} ${prefs.accent === a ? 'chosen' : ''}`} onClick={() => setPrefs({ accent: a })} aria-label={a} aria-pressed={prefs.accent === a}>
+              {prefs.accent === a && <Check size={14} />}
             </button>
           ))}
-        </aside>
+        </div>
+      </Section>
+      <Section title="Interface size" description="Scales all interface text and controls.">
+        <Slider label="UI scale" value={prefs.accessibility.uiScale} min={85} max={130} step={5} onChange={(v) => setPrefs({ accessibility: { uiScale: v } })} format={(v) => `${v}%`} />
+      </Section>
+    </>
+  );
+}
 
+function Reading() {
+  const { prefs, setPrefs } = useApp();
+  const r = prefs.reading;
+  const set = (p) => setPrefs({ reading: p });
+  return (
+    <>
+      <Section title="Typeface" description="Serif, sans-serif and dyslexia-friendly options.">
+        <div className="font-options">
+          {Object.entries(READING_FONTS).map(([id, f]) => (
+            <button key={id} className={`font-btn ${r.font === id ? 'chosen' : ''}`} style={{ fontFamily: f.css }} onClick={() => set({ font: id })} aria-pressed={r.font === id}>{f.label}</button>
+          ))}
+        </div>
+      </Section>
+      <Section title="Text layout">
+        <Slider label="Font size" value={r.fontSize} min={13} max={30} onChange={(v) => set({ fontSize: v })} format={(v) => `${v}px`} />
+        <Slider label="Line spacing" value={r.lineHeight} min={1.3} max={2.4} step={0.05} onChange={(v) => set({ lineHeight: v })} format={(v) => v.toFixed(2)} />
+        <Slider label="Paragraph spacing" value={r.paragraphSpacing} min={0.4} max={2} step={0.1} onChange={(v) => set({ paragraphSpacing: v })} format={(v) => `${v.toFixed(1)}em`} />
+        <Segmented size="sm" value={r.width} onChange={(v) => set({ width: v })} label="Reading width" options={[{ value: 'narrow', label: 'Narrow' }, { value: 'comfortable', label: 'Comfortable' }, { value: 'wide', label: 'Wide' }]} />
+        <Segmented size="sm" value={r.align} onChange={(v) => set({ align: v })} label="Alignment" options={[{ value: 'left', label: 'Left' }, { value: 'justify', label: 'Justified' }]} />
+      </Section>
+      <Section title="Page colour">
+        <Segmented size="sm" value={r.paper} onChange={(v) => set({ paper: v })} label="Page colour" options={[{ value: 'paper', label: 'Paper' }, { value: 'sepia', label: 'Sepia' }, { value: 'night', label: 'Night' }, { value: 'contrast', label: 'High contrast' }]} />
+        <div className={`reading-preview swatch-${r.paper}`} style={{ fontFamily: READING_FONTS[r.font].css, fontSize: r.fontSize, lineHeight: r.lineHeight, textAlign: r.align }}>
+          The challenge of reading well is to give one thing your whole attention. Good typography makes that easier.
+        </div>
+      </Section>
+      <Section title="Reading aids">
+        <Switch label="Focus line" description="Dim surrounding paragraphs" checked={r.focusLine} onChange={(v) => set({ focusLine: v })} />
+        <Switch label="Reading ruler" description="A guide band that follows the pointer" checked={r.ruler} onChange={(v) => set({ ruler: v })} />
+      </Section>
+    </>
+  );
+}
+
+function AccessibilitySettings() {
+  const { prefs, setPrefs } = useApp();
+  const a = prefs.accessibility;
+  return (
+    <Section title="Accessibility" description="ReadVibe supports screen readers, keyboard navigation and these display options.">
+      <Switch label="Dyslexia-friendly font" description="Use OpenDyslexic in the reader" checked={prefs.reading.font === 'dyslexic'} onChange={(v) => setPrefs({ reading: { font: v ? 'dyslexic' : 'serif' } })} />
+      <Switch label="High contrast" description="Stronger text and border contrast everywhere" checked={a.highContrast} onChange={(v) => setPrefs({ accessibility: { highContrast: v } })} />
+      <Switch label="Reduce motion" description="Static backgrounds in Zen and Vibe, no animated transitions" checked={a.reducedMotion} onChange={(v) => setPrefs({ accessibility: { reducedMotion: v } })} />
+      <Switch label="Large touch targets" description="Bigger buttons for touch and motor accessibility" checked={a.largeTargets} onChange={(v) => setPrefs({ accessibility: { largeTargets: v } })} />
+      <Slider label="Interface size" value={a.uiScale} min={85} max={130} step={5} onChange={(v) => setPrefs({ accessibility: { uiScale: v } })} format={(v) => `${v}%`} />
+    </Section>
+  );
+}
+
+function AudioSettings() {
+  const { prefs, setPrefs } = useApp();
+  const [voices, setVoices] = useState([]);
+  useEffect(() => { loadVoices().then(setVoices); }, []);
+  const au = prefs.audio;
+  const test = () => speak('This is how ReadVibe will read to you.', { rate: au.rate, voice: pickVoice(voices, au.voice, au.tone) });
+  return (
+    <Section title="Narration defaults" description={speechSupported ? 'Uses your device’s speech engine — works offline.' : 'This browser has no speech engine; narration is unavailable.'}>
+      <Segmented size="sm" value={au.tone} onChange={(v) => setPrefs({ audio: { tone: v } })} label="Default tone" options={['Regular', 'Humor', 'Tough']} />
+      <Slider label="Default speed" value={au.rate} min={0.5} max={3} step={0.25} onChange={(v) => setPrefs({ audio: { rate: v } })} format={(v) => `${v}×`} />
+      {voices.length > 0 && (
+        <label className="setting-line">Voice
+          <select value={au.voice} onChange={(e) => setPrefs({ audio: { voice: e.target.value } })}>
+            <option value="">Automatic (best for tone)</option>
+            {voices.map((v) => <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>)}
+          </select>
+        </label>
+      )}
+      <label className="setting-line">Default sleep timer
+        <select value={au.sleepTimer} onChange={(e) => setPrefs({ audio: { sleepTimer: +e.target.value } })}>
+          {[0, 15, 30, 45, 60].map((m) => <option key={m} value={m}>{m ? `${m} min` : 'Off'}</option>)}
+        </select>
+      </label>
+      <Switch label="Auto-play next chapter" checked={au.autoAdvance} onChange={(v) => setPrefs({ audio: { autoAdvance: v } })} />
+      <button className="secondary-button" onClick={test} disabled={!speechSupported}><Play size={13} /> Test voice</button>
+    </Section>
+  );
+}
+
+function VibeSettings() {
+  const { prefs, setPrefs } = useApp();
+  return (
+    <>
+      <Section title="Zen defaults" description="Ambient preset and focus-session lengths.">
+        <label className="setting-line">Preset
+          <select value={prefs.zen.preset} onChange={(e) => setPrefs({ zen: { preset: e.target.value } })}>{ZEN_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.emoji} {p.name}</option>)}</select>
+        </label>
+        <label className="setting-line">Focus length
+          <select value={prefs.zen.focusMinutes} onChange={(e) => setPrefs({ zen: { focusMinutes: +e.target.value } })}>{[15, 20, 25, 30, 45, 50, 60].map((m) => <option key={m} value={m}>{m} min</option>)}</select>
+        </label>
+        <label className="setting-line">Break length
+          <select value={prefs.zen.breakMinutes} onChange={(e) => setPrefs({ zen: { breakMinutes: +e.target.value } })}>{[3, 5, 10, 15].map((m) => <option key={m} value={m}>{m} min</option>)}</select>
+        </label>
+        <Slider label="Ambient volume" value={prefs.zen.volume} onChange={(v) => setPrefs({ zen: { volume: v } })} format={(v) => `${v}%`} />
+      </Section>
+      <Section title="Vibe Reader" description="Pick local music inside Vibe mode — files stay on your device. Streaming-service playlists can be connected by a deployment that registers an OAuth app.">
+        <label className="setting-line">Default ambiance
+          <select value={prefs.vibe.preset} onChange={(e) => setPrefs({ vibe: { preset: e.target.value } })}>{VIBE_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.emoji} {p.name}</option>)}</select>
+        </label>
+        <Slider label="Text contrast" value={prefs.vibe.contrast} min={50} max={100} onChange={(v) => setPrefs({ vibe: { contrast: v } })} format={(v) => `${v}%`} />
+        <Slider label="Animation intensity" value={prefs.vibe.intensity} onChange={(v) => setPrefs({ vibe: { intensity: v } })} format={(v) => `${v}%`} />
+        <p className="muted small">{prefs.vibe.savedCombos?.length || 0} saved vibe combination(s). Manage them from Vibe mode.</p>
+      </Section>
+    </>
+  );
+}
+
+function Storage() {
+  const { notify, confirm, refreshData } = useApp();
+  const [items, setItems] = useState(null);
+  const [usage, setUsage] = useState(null);
+  const load = () => {
+    offline.list().then(setItems).catch(() => setItems([]));
+    offline.usage().then(setUsage).catch(() => {});
+  };
+  useEffect(load, []);
+  const remove = async (it) => {
+    await offline.remove(it.id);
+    api.documents.update(it.id, { offline: false }).catch(() => {});
+    load();
+    refreshData();
+  };
+  const clearAll = async () => {
+    if (!(await confirm({ title: 'Remove all offline documents?', message: 'They stay in your library and can be downloaded again.', confirmLabel: 'Remove all', danger: true }))) return;
+    await Promise.all((items || []).map((it) => api.documents.update(it.id, { offline: false }).catch(() => {})));
+    await offline.clear();
+    notify('Offline storage cleared');
+    load();
+    refreshData();
+  };
+  return (
+    <Section title="Offline documents" description="Saved documents open without internet — including highlights and bookmarks.">
+      <div className="storage-meter">
+        <Database size={16} />
+        <span>{usage ? `${usage.count} document${usage.count === 1 ? '' : 's'} · ${formatBytes(usage.bytes)}` : '…'}{usage?.quota ? ` of ${formatBytes(usage.quota)} available` : ''}</span>
+      </div>
+      {items?.length === 0 && <p className="muted small">Nothing saved yet. Use “Make available offline” in the library.</p>}
+      <ul className="offline-list">
+        {(items || []).map((it) => (
+          <li key={it.id}>
+            <span><strong>{it.document.title}</strong><small>{it.chapters.length} chapters · saved {timeAgo(it.savedAt)}</small></span>
+            <button className="icon-ghost sm" onClick={() => remove(it)} aria-label={`Remove ${it.document.title}`}><Trash2 size={14} /></button>
+          </li>
+        ))}
+      </ul>
+      {items?.length > 0 && <button className="secondary-button danger-text" onClick={clearAll}><Trash2 size={13} /> Remove all offline copies</button>}
+    </Section>
+  );
+}
+
+function Account() {
+  const { user, setUser, notify, confirm, auth } = useApp();
+  const navigate = useNavigate();
+  const [profile, setProfile] = useState({ name: user?.name || '', email: user?.email || '' });
+  const [pw, setPw] = useState({ current: '', next: '' });
+  const health = useQuery(() => api.health(), []);
+  const saveProfile = async (e) => {
+    e.preventDefault();
+    try { setUser(await api.auth.update(profile)); notify('Profile updated'); } catch (err) { notify(err.message, 'error'); }
+  };
+  const changePw = async (e) => {
+    e.preventDefault();
+    try {
+      await api.auth.changePassword(pw.current, pw.next);
+      setPw({ current: '', next: '' });
+      if (user?.has_password === false) setUser({ ...user, has_password: true });
+      notify(user?.has_password === false ? 'Password set — you can now also sign in with email' : 'Password changed');
+    } catch (err) { notify(err.message, 'error'); }
+  };
+  const deleteAccount = async () => {
+    if (!(await confirm({ title: 'Delete your account?', message: 'All documents, notes, audiobooks and research projects will be permanently deleted. This cannot be undone.', confirmLabel: 'Delete account', danger: true }))) return;
+    try { await api.auth.deleteAccount(); await offline.clear().catch(() => {}); auth.logout(); navigate('/login'); } catch (err) { notify(err.message, 'error'); }
+  };
+  return (
+    <>
+      <Section title="Profile">
+        <div className="profile-card">
+          {user?.avatar_url ? <img className="avatar lg" src={user.avatar_url} alt="" referrerPolicy="no-referrer" /> : <span className="avatar lg">{initials(user?.name)}</span>}
+          <div>
+            <strong>{user?.name}</strong>
+            <small>Member since {user?.created_at ? new Date(user.created_at).toLocaleDateString() : '—'}</small>
+            {user?.google_linked && <span className="google-badge"><GoogleMark /> Connected to Google</span>}
+          </div>
+        </div>
+        <form className="stack" onSubmit={saveProfile}>
+          <Field label="Name"><input className="input" value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></Field>
+          <Field label="Email"><input className="input" type="email" value={profile.email} onChange={(e) => setProfile({ ...profile, email: e.target.value })} /></Field>
+          <button className="primary-button" disabled={!profile.name.trim()}>Save profile</button>
+        </form>
+      </Section>
+      <Section title="Password" description={user?.has_password === false ? 'You sign in with Google. Add a password to also sign in with your email.' : undefined}>
+        <form className="stack" onSubmit={changePw}>
+          {user?.has_password !== false && (
+            <Field label="Current password"><input className="input" type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} /></Field>
+          )}
+          <Field label="New password" hint="At least 8 characters"><input className="input" type="password" autoComplete="new-password" minLength={8} value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} /></Field>
+          <button className="secondary-button" disabled={(user?.has_password !== false && !pw.current) || pw.next.length < 8}>
+            {user?.has_password === false ? 'Set password' : 'Change password'}
+          </button>
+        </form>
+      </Section>
+      <Section title="Your data" description="Download everything ReadVibe stores about you, or delete your account.">
+        <button className="secondary-button" onClick={() => api.auth.exportData().catch((e) => notify(e.message, 'error'))}><Download size={14} /> Export my data (.zip)</button>
+        <button className="secondary-button" onClick={() => { auth.logout(); navigate('/login'); }}><LogOut size={14} /> Sign out</button>
+        <button className="secondary-button danger-text" onClick={deleteAccount}><Trash2 size={14} /> Delete account</button>
+      </Section>
+      <Section title="Service status">
+        <div className="status-grid">
+          <span><Server size={14} /> API</span><strong className={health.data?.status === 'ok' ? 'ok' : 'bad'}>{health.data ? `${health.data.status} · v${health.data.version}` : health.error ? 'unreachable' : '…'}</strong>
+          <span><AudioLines size={14} /> AI engine</span><strong>{health.data?.ai_provider === 'local' ? 'ReadVibe local engine' : health.data?.ai_provider || '…'}</strong>
+        </div>
+      </Section>
+    </>
+  );
+}
+
+const SHORTCUTS = [
+  ['Global', [['Ctrl/⌘ K or /', 'Search everything'], ['U', 'Upload a document'], ['A', 'Open the AI companion'], ['[', 'Collapse sidebar'], ['G then H/L/R/A/S/N', 'Go to Home, Library, Read, Audio, Research, Notebook']]],
+  ['Reader', [['Ctrl/⌘ F', 'Search in document'], ['N / P', 'Next / previous section'], ['B', 'Bookmark this position'], ['M', 'Switch Reader → Zen → Vibe'], ['L', 'Read aloud'], ['T', 'Display settings'], ['A', 'AI companion'], ['Esc', 'Close popovers']]],
+  ['Audio player', [['Space', 'Play / pause'], ['← / →', 'Back 10s / forward 30s']]],
+];
+
+export default function SettingsPage() {
+  const [params, setParams] = useSearchParams();
+  const tab = params.get('tab') || 'appearance';
+  const views = { appearance: <Appearance />, reading: <Reading />, accessibility: <AccessibilitySettings />, audio: <AudioSettings />, vibe: <VibeSettings />, storage: <Storage />, account: <Account /> };
+  return (
+    <div className="page-shell settings-page">
+      <header className="topbar"><div><div className="eyebrow">PREFERENCES</div><h1>Settings</h1></div></header>
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Settings sections">
+          {SECTIONS.map(({ id, label, icon: Icon }) => (
+            <button key={id} className={tab === id ? 'active' : ''} onClick={() => setParams({ tab: id })} aria-current={tab === id ? 'page' : undefined}><Icon size={16} /> {label}</button>
+          ))}
+        </nav>
         <div className="settings-content">
-          {panels[activeSection]}
+          {tab === 'shortcuts' ? (
+            <Section title="Keyboard shortcuts" description="Shortcuts are ignored while typing in a text field.">
+              {SHORTCUTS.map(([group, list]) => (
+                <div key={group} className="shortcut-group">
+                  <div className="eyebrow">{group}</div>
+                  {list.map(([k, d]) => <div key={k} className="shortcut"><kbd>{k}</kbd><span>{d}</span></div>)}
+                </div>
+              ))}
+            </Section>
+          ) : views[tab] || views.appearance}
+          <p className="fineprint">Preferences sync to your account and apply on every device.</p>
         </div>
       </div>
     </div>
