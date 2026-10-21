@@ -1,0 +1,34 @@
+# Render Blueprint for the ReadVibe API.
+# Render dashboard → New → Blueprint → select this repo. The frontend stays on Vercel.
+services:
+  - type: web
+    name: readvibe-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    plan: starter            # persistent disks are not available on the free plan
+    region: oregon
+    healthCheckPath: /api/health
+    autoDeploy: true
+    disk:
+      name: readvibe-data
+      mountPath: /data       # SQLite database + uploaded files + recordings
+      sizeGB: 10
+    envVars:
+      - key: READVIBE_ENVIRONMENT
+        value: production
+      - key: READVIBE_JWT_SECRET
+        generateValue: true
+      - key: READVIBE_DATABASE_URL
+        value: sqlite:////data/readvibe.db
+      - key: READVIBE_STORAGE_DIR
+        value: /data/storage
+      - key: READVIBE_MAX_UPLOAD_MB
+        value: "5120"
+      # Your Vercel production URL; *.vercel.app previews are also allowed by the API.
+      - key: READVIBE_CORS_ORIGINS
+        value: '["https://readvibecodex.vercel.app"]'
+      - key: READVIBE_GOOGLE_CLIENT_ID
+        sync: false          # set in the dashboard to enable Google sign-in
+      - key: READVIBE_ANTHROPIC_API_KEY
+        sync: false          # optional: Claude-powered AI; local engine otherwise
