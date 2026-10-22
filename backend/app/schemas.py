@@ -257,3 +257,8 @@ class ExportIn(BaseModel):
     @classmethod
     def lower(cls, v: str) -> str:
         return v.lower()
+
+
+class TTSIn(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+    voice: str | None = Field(default=None, max_length=120)

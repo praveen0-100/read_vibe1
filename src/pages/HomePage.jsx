@@ -9,6 +9,8 @@ import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
 import { useQuery } from '../hooks/useAsync';
 import { formatMinutes, greeting, timeAgo } from '../lib/format';
+import { useIsMobile } from '../hooks/useMediaQuery';
+import MobileHome from '../components/home/MobileHome';
 import { Cover, EmptyState, ErrorState, ProgressBar, SectionHead, Skeleton } from '../components/ui';
 
 function ContinueCard({ doc }) {
@@ -69,6 +71,7 @@ export default function HomePage() {
   const recs = useQuery(() => api.ai.recommendations(), [dataVersion]);
   const books = useQuery(() => api.audio.list(), [dataVersion]);
 
+  const isMobile = useIsMobile();
   const list = docs.data || [];
   const current = list.find((d) => d.status === 'ready' && d.last_opened_at && d.progress < 99) || list.find((d) => d.status === 'ready');
   const recent = list.filter((d) => d.id !== current?.id).slice(0, 3);
@@ -86,6 +89,8 @@ export default function HomePage() {
     { label: 'Generate audiobook', detail: 'Humor, tough or regular voice', icon: Headphones, tone: 'blue', run: () => navigate('/audio?tab=generate') },
     { label: 'Start research', detail: 'From topic to cited draft', icon: Brain, tone: 'green', run: () => navigate('/research') },
   ];
+
+  if (isMobile && list.length > 0) return <MobileHome docs={list} books={books.data} stats={stats.data} current={current} />;
 
   return (
     <div className="page-shell home-page">

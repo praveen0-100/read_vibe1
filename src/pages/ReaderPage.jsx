@@ -9,15 +9,19 @@ import {
 import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
 import { useQuery } from '../hooks/useAsync';
+import { useIsMobile } from '../hooks/useMediaQuery';
 import { AmbientEngine } from '../lib/ambient';
 import { formatMinutes } from '../lib/format';
 import { offline } from '../lib/offline';
 import { READING_FONTS, READING_WIDTHS } from '../lib/prefs';
 import { loadVoices, Narrator, pickVoice, speak, speechSupported } from '../lib/speech';
+import { useNaturalVoice } from '../hooks/useNaturalVoice';
+import { clearSpokenWord, showSpokenWord, wordAtPoint } from '../lib/spokenWord';
 import { VibePlayer } from '../lib/vibeMusic';
 import { EmptyState, ErrorState, Field, Menu, Modal, PageLoader, ProgressBar } from '../components/ui';
 import ChapterText, { splitParagraphs } from '../components/reader/ChapterText';
-import { DocSearch, HighlightPopover, ReaderSettings, SelectionToolbar, categoryColor } from '../components/reader/ReaderTools';
+import MobileReader from '../components/reader/MobileReader';
+import { DocSearch, HighlightPopover, ReaderSettings, SelectionToolbar, WordMenu, categoryColor } from '../components/reader/ReaderTools';
 import { VibeVisualizer, VIBE_PRESETS, ZEN_PRESETS, ZenBackdrop } from '../components/reader/Scenes';
 import VibePanel from '../components/reader/VibePanel';
 import ZenPanel, { useFocusTimer } from '../components/reader/ZenPanel';
@@ -72,6 +76,11 @@ function Reader({ docId }) {
   const [highlights, setHighlights] = useState([]);
   const [bookmarks, setBookmarks] = useState([]);
   const [mode, setModeState] = useState('Reader');
+  // On phones the Reader mode is a paged, book-style view; Zen/Vibe keep the scrolling layout.
+  const isMobile = useIsMobile();
+  const paged = isMobile && mode === 'Reader';
+  const pagedRef = useRef(paged);
+  pagedRef.current = paged;
   const pendingScroll = useRef(null); // ratio to restore
   const pendingFind = useRef(params.get('q'));
   const [searchQuery, setSearchQuery] = useState(params.get('q') || '');
@@ -159,7 +168,7 @@ function Reader({ docId }) {
   }, [getScroller]);
 
   useLayoutEffect(() => {
-    if (!chapter) return;
+    if (!chapter || pagedRef.current) return; // the paged reader restores its own position
     const main = getScroller();
     const el = articleRef.current;
     if (!main || !el) return;
@@ -274,43 +283,60 @@ function Reader({ docId }) {
   const [listen, setListen] = useState({ playing: false, paragraph: null });
   const segParagraphs = useRef([]);
   const voiceRef = useRef(null);
+  const natural = useNaturalVoice();
   useEffect(() => { loadVoices().then((v) => { voiceRef.current = pickVoice(v, prefs.audio.voice, prefs.audio.tone); }); }, [prefs.audio.voice, prefs.audio.tone]);
   useEffect(() => () => narrator.destroy(), [narrator]);
   const autoNext = useRef(false);
 
-  const buildScript = useCallback((ch, fromParagraph = 0) => {
+  // The script always covers the whole chapter (so the transcript can show it all and any word can be tapped);
+  // `segMeta[i]` says where segment i sits: paragraph index + character offset inside that paragraph's text.
+  const segMeta = useRef([]);
+  const buildScript = useCallback((ch) => {
     const paras = splitParagraphs(ch.content);
     const segments = [];
-    const map = [];
-    paras.forEach((p, pi) => {
-      if (pi < fromParagraph) return;
-      const sentences = p.match(/[^.!?]+[.!?]+["”’)]*|[^.!?]+$/g) || [p];
-      sentences.forEach((s, si) => {
-        const text = s.trim();
+    const meta = [];
+    paras.forEach((para, pi) => {
+      // headings render without their markdown marker, so offsets must be measured on the visible text
+      const p = para.length < 70 && /^#{1,3}\s/.test(para) ? para.replace(/^#+\s*/, '') : para;
+      const sentences = [...p.matchAll(/[^.!?]+[.!?]+["”’)]*|[^.!?]+$/g)];
+      sentences.forEach((m, si) => {
+        const text = m[0].trim();
         if (!text) return;
+        const base = m.index + (m[0].length - m[0].trimStart().length);
         for (let i = 0; i < text.length; i += 230) {
           segments.push({ text: text.slice(i, i + 230), pause_ms: si === sentences.length - 1 ? 450 : 150 });
-          map.push(pi);
+          meta.push({ p: pi, start: base + i });
         }
       });
     });
-    segParagraphs.current = map;
+    segMeta.current = meta;
+    segParagraphs.current = meta.map((m) => m.p);
     return [{ title: ch.title, segments }];
   }, []);
 
+  // Light up the word being spoken. It stays lit when paused, marking where playback will resume.
+  useEffect(() => narrator.on((s) => {
+    const m = segMeta.current[s.segment];
+    if (m && (s.playing || s.charIndex)) showSpokenWord(articleRef.current, m.p, m.start + (s.charIndex || 0));
+  }), [narrator]);
+  useEffect(() => clearSpokenWord, []);
+
   useEffect(() => narrator.on((s) => {
     setListen({ playing: s.playing, paragraph: s.playing || s.segment ? segParagraphs.current[s.segment] ?? null : null });
+    if (s.neuralFailed) notify('Natural voices are unavailable right now — using your device voice.', 'info');
     if (s.finished) {
+      clearSpokenWord();
       setListen({ playing: false, paragraph: null });
       if (prefs.audio.autoAdvance && doc && chapterIndex + 1 < doc.chapter_count) {
         autoNext.current = true;
         goChapter(chapterIndex + 1);
       }
     }
-  }), [narrator, prefs.audio.autoAdvance, doc, chapterIndex, goChapter]);
+  }), [narrator, prefs.audio.autoAdvance, doc, chapterIndex, goChapter, notify]);
 
-  const startListening = useCallback((fromParagraph) => {
-    if (!speechSupported) { notify('Read-aloud isn’t supported in this browser', 'warning'); return; }
+  /** Read the chapter aloud from a paragraph — or, with `fromChar`, from a word inside it. */
+  const startListening = useCallback((fromParagraph, fromChar = 0) => {
+    if (!speechSupported && !natural) { notify('Read-aloud isn’t supported in this browser', 'warning'); return; }
     if (!chapter) return;
     let from = fromParagraph;
     if (from == null) {
@@ -319,16 +345,66 @@ function Reader({ docId }) {
       const visible = ps.find((p) => p.getBoundingClientRect().bottom > (main?.getBoundingClientRect().top || 0) + 120);
       from = visible ? Number(visible.dataset.p) : 0;
     }
-    narrator.load(buildScript(chapter, from), { rate: prefs.audio.rate, voice: voiceRef.current });
+    const script = buildScript(chapter);
+    const meta = segMeta.current;
+    let segment = meta.findIndex((m, i) => m.p === from && m.start + script[0].segments[i].text.length > fromChar);
+    if (segment < 0) segment = meta.findIndex((m) => m.p >= from);
+    const m = meta[Math.max(0, segment)];
+    const offset = m && m.p === from ? Math.max(0, fromChar - m.start) : 0;
+    narrator.load(script, { rate: prefs.audio.rate, voice: voiceRef.current, segment: Math.max(0, segment), offset, neural: natural });
     narrator.play();
-  }, [chapter, narrator, buildScript, prefs.audio.rate, getScroller, notify]);
+  }, [chapter, narrator, buildScript, prefs.audio.rate, getScroller, notify, natural]);
+
+  // ─── Tap a word: read from it (jump straight there while playing) ──────────
+  const [wordMenu, setWordMenu] = useState(null); // {word, p, start, pos}
+  const onWordTap = useCallback((hit) => {
+    if (narrator.playing) { setWordMenu(null); startListening(hit.p, hit.start); return; }
+    const host = surfaceRef.current?.getBoundingClientRect();
+    if (!host) return;
+    const below = hit.rect.top - host.top < 120;
+    setWordMenu({
+      ...hit,
+      pos: {
+        x: Math.min(Math.max(hit.rect.left + hit.rect.width / 2 - host.left, 130), host.width - 130),
+        y: (below ? hit.rect.bottom + 12 : hit.rect.top - 12) - host.top,
+        below,
+      },
+    });
+  }, [narrator, startListening]);
+
+  const onArticleClick = useCallback((e) => {
+    if (e.target.closest('mark[data-hl], a, button, .selection-toolbar, .popover, .modal') || window.getSelection()?.toString()) return;
+    const hit = wordAtPoint(e.clientX, e.clientY, articleRef.current);
+    if (hit) onWordTap(hit); else setWordMenu(null);
+  }, [onWordTap]);
+
+  useEffect(() => {
+    if (!wordMenu) return undefined;
+    const out = (e) => { if (!e.target.closest('.word-menu')) setWordMenu(null); };
+    const esc = (e) => e.key === 'Escape' && setWordMenu(null);
+    document.addEventListener('pointerdown', out);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', out); document.removeEventListener('keydown', esc); };
+  }, [wordMenu]);
+
+  useEffect(() => { setWordMenu(null); clearSpokenWord(); }, [chapterIndex]);
+
+  const onWordAction = (action) => {
+    const w = wordMenu;
+    setWordMenu(null);
+    if (!w) return;
+    if (action === 'listen') startListening(w.p, w.start);
+    else if (action === 'define') openAI({ documentId: docId, chapterIndex, selection: w.word, tool: 'define', tab: 'tools', nonce: Date.now() });
+    else if (action === 'explain') openAI({ documentId: docId, chapterIndex, selection: w.word, tool: 'explain', tab: 'tools', nonce: Date.now() });
+    else if (action === 'ask') openAI({ documentId: docId, chapterIndex, selection: w.word, tab: 'chat', nonce: Date.now() });
+  };
 
   useEffect(() => {
     if (autoNext.current && chapter) { autoNext.current = false; startListening(0); }
   }, [chapter]); // eslint-disable-line
 
   useEffect(() => {
-    if (!listen.playing || listen.paragraph == null) return;
+    if (!listen.playing || listen.paragraph == null || pagedRef.current) return; // the paged reader turns pages itself
     const el = articleRef.current?.querySelector(`[data-p="${listen.paragraph}"]`);
     el?.scrollIntoView({ block: 'center', behavior: prefs.accessibility.reducedMotion ? 'auto' : 'smooth' });
   }, [listen.paragraph, listen.playing, prefs.accessibility.reducedMotion]);
@@ -431,16 +507,17 @@ function Reader({ docId }) {
 
   // ─── Bookmarks ─────────────────────────────────────────────────────────────
   const currentBookmark = bookmarks.find((b) => b.chapter_index === chapterIndex && Math.abs(b.scroll_ratio - ratioRef.current) < 0.04);
-  const toggleBookmark = async () => {
-    if (currentBookmark) {
-      setBookmarks((b) => b.filter((x) => x.id !== currentBookmark.id));
-      api.documents.removeBookmark(currentBookmark.id).catch((err) => notify(err.message, 'error'));
+  // The paged reader passes the bookmark under the current page and a label for a new one.
+  const toggleBookmark = async ({ existing = currentBookmark, label: given } = {}) => {
+    if (existing) {
+      setBookmarks((b) => b.filter((x) => x.id !== existing.id));
+      api.documents.removeBookmark(existing.id).catch((err) => notify(err.message, 'error'));
       notify('Bookmark removed');
       return;
     }
     const main = getScroller();
     const p = [...(articleRef.current?.querySelectorAll('[data-p]') || [])].find((n) => n.getBoundingClientRect().bottom > (main?.getBoundingClientRect().top || 0) + 120);
-    const label = (p?.textContent || chapter?.title || 'Bookmark').split(/\s+/).slice(0, 9).join(' ');
+    const label = given || (p?.textContent || chapter?.title || 'Bookmark').split(/\s+/).slice(0, 9).join(' ');
     try {
       const b = await api.documents.addBookmark(docId, { chapter_index: chapterIndex, scroll_ratio: Number(ratioRef.current.toFixed(4)), label });
       setBookmarks((list) => [...list, b]);
@@ -510,6 +587,58 @@ function Reader({ docId }) {
   const meta = doc.chapters?.[chapterIndex];
   const isLast = chapterIndex === doc.chapter_count - 1;
   const titleParts = (chapter?.title || meta?.title || '').split(/ · |: /);
+
+  const noteModal = noteDraft && (
+      <Modal open onClose={() => setNoteDraft(null)} eyebrow="NEW NOTE" title="Add a note" icon={StickyNote}>
+        <form className="stack" onSubmit={saveNote}>
+          <blockquote className="note-quote">“{noteDraft.quote}”</blockquote>
+          <Field label="Title"><input className="input" value={noteDraft.title} onChange={(e) => setNoteDraft({ ...noteDraft, title: e.target.value })} /></Field>
+          <Field label="Your note"><textarea className="input" rows={4} autoFocus value={noteDraft.content} onChange={(e) => setNoteDraft({ ...noteDraft, content: e.target.value })} placeholder="What does this make you think?" /></Field>
+          <Field label="Category">
+            <select className="input" value={noteDraft.category} onChange={(e) => setNoteDraft({ ...noteDraft, category: e.target.value })}>
+              {['Note', 'Important', 'Question', 'Definition', 'Exam', 'Research'].map((c) => <option key={c}>{c}</option>)}
+            </select>
+          </Field>
+          <div className="modal-actions">
+            <button type="button" className="secondary-button" onClick={() => setNoteDraft(null)}>Cancel</button>
+            <button className="primary-button">Save note</button>
+          </div>
+        </form>
+      </Modal>
+  );
+
+  if (paged) {
+    return (
+      <MobileReader
+        doc={doc} chapter={chapter} chapterIndex={chapterIndex} chapterLoading={chapterLoading}
+        highlights={chapterHighlights} allHighlights={highlights} bookmarks={bookmarks}
+        searchOpen={searchOpen} setSearchOpen={setSearchOpen} searchQuery={searchQuery} setSearchQuery={setSearchQuery}
+        onToggleBookmark={toggleBookmark}
+        onDeleteBookmark={async (b) => {
+          if (await confirm({ title: 'Delete bookmark?', confirmLabel: 'Delete', danger: true })) {
+            setBookmarks((l) => l.filter((x) => x.id !== b.id));
+            api.documents.removeBookmark(b.id).catch(() => {});
+          }
+        }}
+        onHighlightClick={onHighlightClick} goChapter={goChapter} setMode={setMode}
+        surfaceRef={surfaceRef} articleRef={articleRef} ratioRef={ratioRef} pendingScroll={pendingScroll} pendingFind={pendingFind}
+        saveProgress={saveProgress} lastActivity={lastActivity}
+        narrator={narrator} listen={listen} startListening={startListening} segMeta={segMeta} onWordTap={onWordTap}
+        offlineMode={offlineMode} saveOffline={saveOffline}
+        downloadOriginal={() => api.documents.downloadFile(docId).catch((e) => notify(e.message, 'error'))}
+        navigate={navigate} openAI={openAI} notify={notify}
+      >
+        <SelectionToolbar pos={selection?.pos} onAction={onSelectionAction} />
+        <WordMenu menu={wordMenu} onAction={onWordAction} />
+        {hlPop && (
+          <HighlightPopover highlight={hlPop.highlight} pos={hlPop.pos} onClose={() => setHlPop(null)}
+            onUpdate={(patch) => updateHighlight(hlPop.highlight, patch)} onDelete={() => removeHighlight(hlPop.highlight)}
+            onExplain={(t) => { setHlPop(null); openAI({ documentId: docId, chapterIndex, selection: t, tool: 'explain', tab: 'tools', nonce: Date.now() }); }} />
+        )}
+        {noteModal}
+      </MobileReader>
+    );
+  }
 
   return (
     <div className={`reader-page mode-${mode.toLowerCase()} paper-${r.paper} ${r.focusLine ? 'focus-line' : ''}`}
@@ -584,12 +713,13 @@ function Reader({ docId }) {
 
         <article className="reading-surface" ref={surfaceRef} style={surfaceStyle} aria-busy={chapterLoading}>
           <SelectionToolbar pos={selection?.pos} onAction={onSelectionAction} />
+          <WordMenu menu={wordMenu} onAction={onWordAction} />
           {hlPop && (
             <HighlightPopover highlight={hlPop.highlight} pos={hlPop.pos} onClose={() => setHlPop(null)}
               onUpdate={(patch) => updateHighlight(hlPop.highlight, patch)} onDelete={() => removeHighlight(hlPop.highlight)}
               onExplain={(t) => { setHlPop(null); openAI({ documentId: docId, chapterIndex, selection: t, tool: 'explain', tab: 'tools', nonce: Date.now() }); }} />
           )}
-          <div className="reading-inner" ref={articleRef}>
+          <div className="reading-inner" ref={articleRef} onClick={onArticleClick}>
             <div className="chapter-label">SECTION {String(chapterIndex + 1).padStart(2, '0')} <span>•</span> {doc.chapter_count} TOTAL</div>
             <h2>{titleParts[0]}{titleParts[1] && <><br /><em>{titleParts.slice(1).join(' · ')}</em></>}</h2>
             <div className="reading-meta">
@@ -673,24 +803,7 @@ function Reader({ docId }) {
         <div className="focus-pill" role="status"><Moon size={13} /> {timer.phase === 'break' ? 'Break' : 'Focus'} · {Math.floor(timer.left / 60)}:{String(timer.left % 60).padStart(2, '0')}</div>
       )}
 
-      {noteDraft && (
-        <Modal open onClose={() => setNoteDraft(null)} eyebrow="NEW NOTE" title="Add a note" icon={StickyNote}>
-          <form className="stack" onSubmit={saveNote}>
-            <blockquote className="note-quote">“{noteDraft.quote}”</blockquote>
-            <Field label="Title"><input className="input" value={noteDraft.title} onChange={(e) => setNoteDraft({ ...noteDraft, title: e.target.value })} /></Field>
-            <Field label="Your note"><textarea className="input" rows={4} autoFocus value={noteDraft.content} onChange={(e) => setNoteDraft({ ...noteDraft, content: e.target.value })} placeholder="What does this make you think?" /></Field>
-            <Field label="Category">
-              <select className="input" value={noteDraft.category} onChange={(e) => setNoteDraft({ ...noteDraft, category: e.target.value })}>
-                {['Note', 'Important', 'Question', 'Definition', 'Exam', 'Research'].map((c) => <option key={c}>{c}</option>)}
-              </select>
-            </Field>
-            <div className="modal-actions">
-              <button type="button" className="secondary-button" onClick={() => setNoteDraft(null)}>Cancel</button>
-              <button className="primary-button">Save note</button>
-            </div>
-          </form>
-        </Modal>
-      )}
+      {noteModal}
       {chapterLoading && chapter && <div className="chapter-loading"><Loader2 size={14} className="spin" /> Loading…</div>}
     </div>
   );

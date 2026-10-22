@@ -7,7 +7,7 @@ import { useApp } from '../../context/AppContext';
 import { formatBytes } from '../../lib/format';
 import { Field, Modal, ProgressBar, Segmented } from '../ui';
 
-const SUPPORTED = ['pdf', 'epub', 'docx', 'txt', 'md', 'html', 'rtf'];
+const SUPPORTED = ['pdf', 'epub', 'docx', 'pptx', 'odt', 'txt', 'md', 'html', 'rtf', 'csv'];
 const MAX_MB = 5 * 1024; // 5 GB — the API streams uploads to disk
 
 export default function UploadModal() {

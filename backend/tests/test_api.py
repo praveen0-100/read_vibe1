@@ -305,3 +305,76 @@ def test_google_verification_rejects_forged_token(monkeypatch):
         pass
     else:
         raise AssertionError("forged token was accepted")
+
+
+def _pptx_bytes() -> bytes:
+    """A minimal two-slide deck: slide 1 has a title, body and speaker notes; slide 2 only a title and a table."""
+    import zipfile
+
+    a = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    p = "http://schemas.openxmlformats.org/presentationml/2006/main"
+
+    def shape(text, ph=None):
+        ph_xml = f'<p:nvPr><p:ph type="{ph}"/></p:nvPr>' if ph else "<p:nvPr/>"
+        return f'<p:sp><p:nvSpPr><p:cNvPr id="1" name="s"/><p:cNvSpPr/>{ph_xml}</p:nvSpPr><p:txBody><a:p><a:r><a:t>{text}</a:t></a:r></a:p></p:txBody></p:sp>'
+
+    def slide(*shapes, extra=""):
+        return f'<p:sld xmlns:a="{a}" xmlns:p="{p}"><p:cSld><p:spTree>{"".join(shapes)}{extra}</p:spTree></p:cSld></p:sld>'
+
+    table = '<a:tbl><a:tr><a:tc><a:txBody><a:p><a:r><a:t>Cell A</a:t></a:r></a:p></a:txBody></a:tc><a:tc><a:txBody><a:p><a:r><a:t>Cell B</a:t></a:r></a:p></a:txBody></a:tc></a:tr></a:tbl>'
+    notes = f'<p:notes xmlns:a="{a}" xmlns:p="{p}"><p:cSld><p:spTree>{shape("Remember to pause here.")}</p:spTree></p:cSld></p:notes>'
+    rels = '<Relationships><Relationship Id="rId1" Target="../notesSlides/notesSlide1.xml"/></Relationships>'
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("ppt/slides/slide2.xml", slide(shape("Second slide", "title"), extra=table))
+        zf.writestr("ppt/slides/slide1.xml", slide(shape("Opening slide", "title"), shape("Attention is a muscle " * 40)))
+        zf.writestr("ppt/slides/_rels/slide1.xml.rels", rels)
+        zf.writestr("ppt/notesSlides/notesSlide1.xml", notes)
+    return buf.getvalue()
+
+
+def test_extract_pptx_in_slide_order_with_notes_and_tables():
+    from app.services import extraction
+
+    doc = extraction.extract("deck.pptx", _pptx_bytes())
+    text = "\n".join(c.title + "\n" + c.content for c in doc.chapters)
+    assert text.index("Opening slide") < text.index("Second slide")  # numeric, not archive, order
+    assert "Attention is a muscle" in text
+    assert "Speaker notes: Remember to pause here." in text
+    assert "Cell A | Cell B" in text
+
+
+def test_upload_pptx(client, auth):
+    r = client.post("/api/documents/upload", headers=auth, files={"file": ("deck.pptx", _pptx_bytes(), "application/octet-stream")})
+    assert r.status_code == 202, r.text
+
+
+def test_tts_aligns_words_and_caches(client, auth, monkeypatch):
+    from app.services import tts
+
+    calls = []
+
+    async def fake_edge(text, voice):
+        calls.append(voice)
+        words = [(0, 300, "Hello"), (300, 250, "world,"), (550, 200, "again")]
+        return b"ID3fake-mp3", tts._align(text, words), "ms"
+
+    monkeypatch.setattr(tts, "_edge", fake_edge)
+    assert client.get("/api/tts/status", headers=auth).json()["available"] is True
+    assert any(v["id"].startswith("edge:en-IN") for v in client.get("/api/tts/voices", headers=auth).json())
+
+    body = {"text": "Hello  world, again", "voice": "edge:en-IN-NeerjaNeural"}
+    r = client.post("/api/tts/synthesize", headers=auth, json=body)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["mime"] == "audio/mpeg" and out["timing"] == "ms" and out["voice"] == "edge:en-IN-NeerjaNeural"
+    assert out["words"] == [[0, 5, 0, 300], [6, 6, 300, 250], [13, 5, 550, 200]]  # offsets index the whitespace-normalised text
+
+    assert client.post("/api/tts/synthesize", headers=auth, json=body).json()["words"] == out["words"]
+    assert calls == ["en-IN-NeerjaNeural"]  # second request came from the disk cache
+
+
+def test_tts_rejects_unknown_provider_and_requires_auth(client, auth):
+    assert client.post("/api/tts/synthesize", json={"text": "hi"}).status_code == 401
+    r = client.post("/api/tts/synthesize", headers=auth, json={"text": "hi", "voice": "nope:voice"})
+    assert r.status_code == 502 and "isn’t available" in r.json()["detail"]

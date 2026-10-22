@@ -110,21 +110,26 @@ export default function Sidebar() {
 }
 
 export function MobileNav() {
-  const items = [NAV_ITEMS[0], NAV_ITEMS[1], NAV_ITEMS[2], NAV_ITEMS[4], { to: '/settings', label: 'Profile', icon: User }];
+  const { setSearchOpen } = useApp();
+  const items = [NAV_ITEMS[0], NAV_ITEMS[1], NAV_ITEMS[2], NAV_ITEMS[3]];
   return (
     <nav className="mobile-nav" aria-label="Mobile navigation">
       {items.map(({ to, label, icon: Icon, end }) => (
         <NavLink key={to} to={to} end={end} className={({ isActive }) => (isActive ? 'active' : '')}>
-          <Icon size={19} />
-          <span>{label === 'Read now' ? 'Read' : label}</span>
+          <Icon size={22} />
+          <span>{label === 'Read now' ? 'Read' : label === 'Audio Studio' ? 'Audio' : label}</span>
         </NavLink>
       ))}
+      <button type="button" className="nav-search" onClick={() => setSearchOpen(true)}>
+        <Search size={22} />
+        <span>Search</span>
+      </button>
     </nav>
   );
 }
 
 export function MobileHeader() {
-  const { setSearchOpen } = useApp();
+  const { setSearchOpen, user } = useApp();
   return (
     <header className="mobile-header">
       <NavLink to="/" className="brand" aria-label="ReadVibe home">
@@ -134,6 +139,9 @@ export function MobileHeader() {
       <div className="mobile-header-actions">
         <button className="icon-ghost" onClick={() => setSearchOpen(true)} aria-label="Search"><Search size={18} /></button>
         <Notifications />
+        <NavLink to="/settings" className="mobile-avatar" aria-label="Profile and settings">
+          {user?.avatar_url ? <img src={user.avatar_url} alt="" referrerPolicy="no-referrer" /> : initials(user?.name)}
+        </NavLink>
       </div>
     </header>
   );

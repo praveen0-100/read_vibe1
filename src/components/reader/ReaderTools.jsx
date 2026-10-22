@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   AlignJustify, AlignLeft, BookA, ChevronDown, ChevronUp, Copy, Highlighter, Languages, Lightbulb, Loader2,
-  MessageSquare, Search, StickyNote, Trash2, Volume2, Workflow, X,
+  MessageSquare, Play, Search, StickyNote, Trash2, Volume2, Workflow, X,
 } from 'lucide-react';
 import { api } from '../../api/client';
 import { useApp } from '../../context/AppContext';
@@ -159,6 +159,20 @@ export function DocSearch({ documentId, initialQuery = '', onJump, onClose, onQu
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+// ─── Overlay for a tapped word: start reading aloud from it, or look it up ────
+export function WordMenu({ menu, onAction }) {
+  if (!menu) return null;
+  return (
+    <div className={`selection-toolbar word-menu ${menu.pos.below ? 'below' : ''}`} style={{ top: menu.pos.y, left: menu.pos.x }} role="toolbar"
+      aria-label={`Actions for “${menu.word}”`} onMouseDown={(e) => e.preventDefault()}>
+      <button className="primary" onClick={() => onAction('listen')} autoFocus><Play size={13} fill="currentColor" /> <span>Read aloud from here</span></button>
+      <button onClick={() => onAction('define')} title="Define"><BookA size={13} /> <span>Define</span></button>
+      <button onClick={() => onAction('explain')} title="Explain"><Lightbulb size={13} /> <span>Explain</span></button>
+      <button onClick={() => onAction('ask')} title="Ask AI"><MessageSquare size={13} /> <span>Ask AI</span></button>
     </div>
   );
 }

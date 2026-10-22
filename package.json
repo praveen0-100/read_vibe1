@@ -15,6 +15,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "start": "concurrently -n api,web -c yellow,cyan \"npm:api\" \"npm:dev\"",
     "build": "vite build",
     "preview": "vite preview",
     "api": "cd backend && .venv/Scripts/python run.py",
@@ -28,6 +29,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.6",
     "vite": "^8.3.4"
   }
 }

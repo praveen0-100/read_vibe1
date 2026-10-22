@@ -10,9 +10,13 @@ export const DEFAULT_PREFS = {
     width: 'comfortable', // narrow | comfortable | wide
     paragraphSpacing: 1.1,
     align: 'left', // left | justify
-    paper: 'paper', // paper | sepia | night | contrast
+    paper: 'paper', // white | paper | sepia | night | contrast
     focusLine: false,
     ruler: false,
+    brightnessOn: false, // in-app dimming, independent of the device brightness
+    brightness: 100, // 30–100
+    nightLight: false, // warm filter for evening reading
+    pageAnim: 'slide', // slide | curl | fade | none (paged mobile reader)
   },
   accessibility: {
     reducedMotion: false,
@@ -24,6 +28,8 @@ export const DEFAULT_PREFS = {
     rate: 1,
     tone: 'Regular',
     voice: '',
+    engine: 'natural', // natural (neural voices from the server) | device (the browser's own voices)
+    naturalVoice: 'edge:en-US-AvaMultilingualNeural',
     sleepTimer: 0,
     autoAdvance: true,
   },

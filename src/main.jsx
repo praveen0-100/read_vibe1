@@ -6,6 +6,7 @@ import { BookOpen, Headphones, Plus, Sparkles, Upload, X } from 'lucide-react';
 import { AppProvider, useApp } from './context/AppContext';
 import { useClickOutside } from './hooks/useAsync';
 import Sidebar, { MobileHeader, MobileNav } from './components/layout/Sidebar';
+import MiniReading from './components/layout/MiniReading';
 import AIPanel from './components/ai/AIPanel';
 import SearchOverlay from './components/search/SearchOverlay';
 import UploadModal from './components/upload/UploadModal';
@@ -13,6 +14,9 @@ import { ConfirmDialog, PageLoader, Toasts } from './components/ui';
 import ErrorBoundary from './components/ErrorBoundary';
 import LoginPage from './pages/LoginPage';
 import './styles/app.css';
+import './styles/mobile.css';
+import './styles/responsive.css';
+import { installUiScale } from './lib/uiScale';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const LibraryPage = lazy(() => import('./pages/LibraryPage'));
@@ -114,6 +118,7 @@ function Shell() {
             </Suspense>
           </ErrorBoundary>
         </main>
+        {!inReader && <MiniReading />}
         {!inReader && <MobileNav />}
       </div>
       <AIPanel />
@@ -137,6 +142,8 @@ function Root() {
     </>
   );
 }
+
+installUiScale();
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>

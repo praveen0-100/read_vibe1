@@ -1,4 +1,4 @@
-"""Text extraction and chapter segmentation for PDF, EPUB, DOCX, TXT, Markdown and HTML."""
+"""Text extraction and chapter segmentation for PDF, EPUB, DOCX, PPTX, ODT, TXT, Markdown, CSV and HTML."""
 from __future__ import annotations
 
 import io
@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from xml.etree import ElementTree
 
-SUPPORTED_FORMATS = {"pdf", "epub", "docx", "txt", "md", "markdown", "html", "htm", "rtf"}
+SUPPORTED_FORMATS = {"pdf", "epub", "docx", "pptx", "odt", "txt", "md", "markdown", "html", "htm", "rtf", "csv"}
 
 _CHAPTER_RE = re.compile(
     r"^\s*(?:(?:chapter|part|book|section)\s+(?:[0-9]+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|"
@@ -329,6 +329,91 @@ def _read_docx(data) -> ExtractedDocument:
     )
 
 
+_A_NS = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+_P_NS = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
+
+
+def _slide_paragraphs(root) -> list[str]:
+    """Visible text of one slide/notes part, one entry per text paragraph."""
+    out = []
+    for para in root.iter(f"{_A_NS}p"):
+        text = "".join(t.text or "" for t in para.iter(f"{_A_NS}t")).strip()
+        if text:
+            out.append(text)
+    return out
+
+
+def _read_pptx(data) -> ExtractedDocument:
+    """Slides become sections (title + body + speaker notes), in presentation order."""
+    try:
+        zf = zipfile.ZipFile(_binary(data))
+    except Exception as exc:  # noqa: BLE001
+        raise ExtractionError(f"Could not open PPTX: {exc}") from exc
+    with zf:
+        names = set(zf.namelist())
+        slides = sorted(
+            (n for n in names if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)),
+            key=lambda n: int(re.findall(r"\d+", n)[-1]),
+        )
+        if not slides:
+            raise ExtractionError("No slides found in this PPTX")
+        sections: list[str] = []
+        for number, name in enumerate(slides, start=1):
+            try:
+                root = ElementTree.fromstring(zf.read(name))
+            except ElementTree.ParseError:
+                continue
+            title = ""
+            body: list[str] = []
+            for shape in root.iter(f"{_P_NS}sp"):
+                ph = shape.find(f".//{_P_NS}ph")
+                lines = _slide_paragraphs(shape)
+                if not lines:
+                    continue
+                if ph is not None and ph.get("type") in ("title", "ctrTitle") and not title:
+                    title = " ".join(lines)
+                else:
+                    body.extend(lines)
+            for table in root.iter(f"{_A_NS}tbl"):  # tables: one row per line
+                for row in table.iter(f"{_A_NS}tr"):
+                    cells = [" ".join(_slide_paragraphs(c)) for c in row.iter(f"{_A_NS}tc")]
+                    cells = [c for c in cells if c]
+                    if cells:
+                        body.append(" | ".join(cells))
+            notes: list[str] = []
+            rels = f"ppt/slides/_rels/{posixpath.basename(name)}.rels"
+            if rels in names:
+                match = re.search(r'Target="[^"]*(notesSlides/[^"]+\.xml)"', zf.read(rels).decode("utf-8", errors="ignore"))
+                note_part = f"ppt/{match.group(1)}" if match else ""
+                if note_part in names:
+                    try:
+                        notes = _slide_paragraphs(ElementTree.fromstring(zf.read(note_part)))
+                    except ElementTree.ParseError:
+                        notes = []
+                    notes = [n for n in notes if not n.isdigit()]  # drop the slide-number placeholder
+            parts = [f"## {title or f'Slide {number}'}"] + body
+            if notes:
+                parts.append("Speaker notes: " + " ".join(notes))
+            sections.append("\n\n".join(parts))
+    return ExtractedDocument(chapters=split_into_chapters("\n\n".join(sections)))
+
+
+def _read_odt(data) -> ExtractedDocument:
+    ns = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
+    try:
+        with zipfile.ZipFile(_binary(data)) as zf:
+            root = ElementTree.fromstring(zf.read("content.xml"))
+    except Exception as exc:  # noqa: BLE001
+        raise ExtractionError(f"Could not open ODT: {exc}") from exc
+    lines: list[str] = []
+    for el in root.iter():
+        if el.tag in (f"{ns}h", f"{ns}p"):
+            text = "".join(el.itertext()).strip()
+            if text:
+                lines.append(f"## {text}" if el.tag == f"{ns}h" else text)
+    return ExtractedDocument(chapters=split_into_chapters("\n\n".join(lines)))
+
+
 def _read_epub(data) -> ExtractedDocument:
     try:
         zf = zipfile.ZipFile(_binary(data))
@@ -398,6 +483,10 @@ def extract(filename: str, data) -> ExtractedDocument:
         doc = _read_docx(data)
     elif ext == "epub":
         doc = _read_epub(data)
+    elif ext == "pptx":
+        doc = _read_pptx(data)
+    elif ext == "odt":
+        doc = _read_odt(data)
     else:
         raw, truncated = _text_bytes(data)
         if ext in ("html", "htm"):

@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   BookOpen, Bookmark, Check, ChevronDown, Clock, Download, FastForward, Headphones, Loader2, Pause, Play, Plus,
-  Rewind, SkipBack, SkipForward, Smile, Trash2, Users, Volume2, Zap,
+  Quote, Rewind, SkipBack, SkipForward, Smile, Trash2, Users, Volume2, Zap,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
@@ -12,6 +12,7 @@ import { formatClock, formatDuration, timeAgo } from '../lib/format';
 import { loadVoices, Narrator, pickVoice, speak, speechSupported } from '../lib/speech';
 import { Cover, EmptyState, ErrorState, Menu, PageLoader, ProgressBar, Skeleton, Switch, Tabs } from '../components/ui';
 import CollabStudio from '../components/audio/CollabStudio';
+import LyricsView from '../components/audio/LyricsView';
 
 const TONE_META = {
   Regular: { icon: BookOpen, badge: 'Most used', color: 'var(--accent)' },
@@ -35,6 +36,7 @@ function Player({ bookId, onBack }) {
   const narrator = useMemo(() => new Narrator(), []);
   const [st, setSt] = useState(narrator.state());
   const [charIndex, setCharIndex] = useState(null);
+  const [lyrics, setLyrics] = useState(false);
   const [rate, setRate] = useState(prefs.audio.rate);
   const [sleep, setSleep] = useState(prefs.audio.sleepTimer || 0);
   const [sleepLeft, setSleepLeft] = useState(null);
@@ -162,11 +164,16 @@ function Player({ bookId, onBack }) {
         </div>
       </div>
 
-      <div className="now-reading" aria-live="off">
-        {charIndex != null && current
-          ? <>{current.slice(0, charIndex)}<mark>{current.slice(charIndex).split(/\s/)[0]}</mark>{current.slice(charIndex + (current.slice(charIndex).split(/\s/)[0] || '').length)}</>
-          : current}
-      </div>
+      <button className={`lyrics-chip ${lyrics ? 'on' : ''}`} onClick={() => setLyrics((l) => !l)} aria-pressed={lyrics}><Quote size={14} /> Lyrics</button>
+      {lyrics ? (
+        <div className="player-lyrics"><LyricsView narrator={narrator} reducedMotion={prefs.accessibility.reducedMotion} /></div>
+      ) : (
+        <div className="now-reading" aria-live="off">
+          {charIndex != null && current
+            ? <>{current.slice(0, charIndex)}<mark>{current.slice(charIndex).split(/\s/)[0]}</mark>{current.slice(charIndex + (current.slice(charIndex).split(/\s/)[0] || '').length)}</>
+            : current}
+        </div>
+      )}
 
       <div className="player-progress-wrap">
         <span className="time-label">{formatClock(elapsed)}</span>

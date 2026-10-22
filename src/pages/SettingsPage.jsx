@@ -1,5 +1,5 @@
 // ─── Settings ─────────────────────────────────────────────────────────────────
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Accessibility, AudioLines, BookOpen, Check, Database, Download, HardDrive, Keyboard, LogOut, Monitor, Moon, Palette,
@@ -121,14 +121,48 @@ function AccessibilitySettings() {
 function AudioSettings() {
   const { prefs, setPrefs } = useApp();
   const [voices, setVoices] = useState([]);
+  const [neural, setNeural] = useState([]); // natural voices offered by the server
+  const [testing, setTesting] = useState(false);
   useEffect(() => { loadVoices().then(setVoices); }, []);
+  useEffect(() => { api.tts.voices().then(setNeural).catch(() => setNeural([])); }, []);
   const au = prefs.audio;
-  const test = () => speak('This is how ReadVibe will read to you.', { rate: au.rate, voice: pickVoice(voices, au.voice, au.tone) });
+  const natural = neural.length > 0 && au.engine !== 'device';
+  const groups = useMemo(() => {
+    const out = new Map();
+    neural.filter((v) => v.featured).forEach((v) => out.set(v.group, [...(out.get(v.group) || []), v]));
+    return [...out.entries()];
+  }, [neural]);
+  const test = async () => {
+    const line = 'This is how ReadVibe will read to you.';
+    if (!natural) { speak(line, { rate: au.rate, voice: pickVoice(voices, au.voice, au.tone) }); return; }
+    setTesting(true);
+    try {
+      const r = await api.tts.synthesize(line, au.naturalVoice);
+      const audio = new Audio(`data:${r.mime};base64,${r.audio}`);
+      audio.playbackRate = au.rate;
+      audio.onended = () => setTesting(false);
+      await audio.play();
+    } catch { setTesting(false); }
+  };
   return (
-    <Section title="Narration defaults" description={speechSupported ? 'Uses your device’s speech engine — works offline.' : 'This browser has no speech engine; narration is unavailable.'}>
+    <Section title="Narration defaults" description={natural ? 'Natural neural voices, like an audiobook narrator.' : speechSupported ? 'Uses your device’s speech engine — works offline.' : 'This browser has no speech engine; narration is unavailable.'}>
+      {neural.length > 0 && (
+        <Switch label="Natural voices" description="Human-sounding narration with real accents. Turn off to use your device’s own voices offline." checked={au.engine !== 'device'} onChange={(v) => setPrefs({ audio: { engine: v ? 'natural' : 'device' } })} />
+      )}
+      {natural && (
+        <label className="setting-line">Voice &amp; accent
+          <select value={au.naturalVoice} onChange={(e) => setPrefs({ audio: { naturalVoice: e.target.value } })}>
+            {groups.map(([group, list]) => (
+              <optgroup key={group} label={group}>
+                {list.map((v) => <option key={v.id} value={v.id}>{v.name} · {v.gender}{v.style ? ` · ${v.style}` : ''}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+      )}
       <Segmented size="sm" value={au.tone} onChange={(v) => setPrefs({ audio: { tone: v } })} label="Default tone" options={['Regular', 'Humor', 'Tough']} />
       <Slider label="Default speed" value={au.rate} min={0.5} max={3} step={0.25} onChange={(v) => setPrefs({ audio: { rate: v } })} format={(v) => `${v}×`} />
-      {voices.length > 0 && (
+      {voices.length > 0 && !natural && (
         <label className="setting-line">Voice
           <select value={au.voice} onChange={(e) => setPrefs({ audio: { voice: e.target.value } })}>
             <option value="">Automatic (best for tone)</option>
@@ -142,7 +176,7 @@ function AudioSettings() {
         </select>
       </label>
       <Switch label="Auto-play next chapter" checked={au.autoAdvance} onChange={(v) => setPrefs({ audio: { autoAdvance: v } })} />
-      <button className="secondary-button" onClick={test} disabled={!speechSupported}><Play size={13} /> Test voice</button>
+      <button className="secondary-button" onClick={test} disabled={(!speechSupported && !natural) || testing}><Play size={13} /> {testing ? 'Playing…' : 'Test voice'}</button>
     </Section>
   );
 }

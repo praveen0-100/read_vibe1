@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     anthropic_model: str = "claude-opus-5-5"
     ai_effort: str = "low"
 
+    # Natural read-aloud voices: Microsoft neural voices (edge-tts) work with no key; add an OpenAI key to unlock its voices too.
+    openai_api_key: str | None = None
+    openai_tts_model: str = "gpt-4o-mini-tts"
+
     # Google sign-in: OAuth 2.0 "Web application" client ID from Google Cloud Console.
     # Leave unset to hide the Google button.
     google_client_id: str | None = None

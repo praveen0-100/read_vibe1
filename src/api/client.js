@@ -181,6 +181,12 @@ export const api = {
     recommendations: () => get('/ai/recommendations'),
   },
 
+  tts: {
+    status: () => get('/tts/status'),
+    voices: () => get('/tts/voices'),
+    synthesize: (text, voice) => post('/tts/synthesize', { text, voice }),
+  },
+
   audio: {
     tones: () => get('/audio/tones'),
     preview: (tone, text) => post('/audio/preview', { tone, text }),
