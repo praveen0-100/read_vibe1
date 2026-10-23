@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     research_online: bool = True
     semantic_scholar_api_key: str | None = None
     contact_email: str = "readvibe@example.com"
+    # Free translation (MyMemory, no key): a real contact e-mail lifts the daily allowance from ~5,000 to ~50,000 characters.
+    translate_email: str | None = None
 
     seed_demo_data: bool = True
     worker_threads: int = 4

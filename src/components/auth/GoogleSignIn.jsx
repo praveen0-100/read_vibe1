@@ -55,9 +55,12 @@ export default function GoogleSignIn({ onCredential, onError, disabled, theme = 
     let cancelled = false;
     (async () => {
       try {
+        // Fetch the config and Google's script side by side — neither waits on the other.
+        const script = loadGsi();
+        script.catch(() => {}); // surfaced below, only if Google sign-in turns out to be enabled
         const cfg = await api.auth.config();
         if (!cfg.google_enabled) { if (!cancelled) setState('off'); return; }
-        await loadGsi();
+        await script;
         if (cancelled || !ref.current) return;
         window.google.accounts.id.initialize({
           client_id: cfg.google_client_id,

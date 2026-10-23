@@ -39,8 +39,11 @@ GENERIC = set(
     looks find finds found tell tells told ask asks asked work works call calls try tries seem seems leave leaves""".split()
 )
 
-_WORD_RE = re.compile(r"[A-Za-z][A-Za-z'\-]*[A-Za-z]|[A-Za-z]")
-_SENT_SPLIT_RE = re.compile(r"(?<=[.!?])[\"')\]]?\s+(?=[\"'(\[]?[A-Z0-9])")
+# Indian scripts (Devanagari … Sinhala, 0900–0DFF) and Arabic-script Urdu: a "word" is a run of letters *and* combining
+# vowel signs — Python's \w would split Tamil/Telugu/Malayalam words at every vowel sign. Sentence marks (danda, ۔ ؟) excluded.
+_INDIC_LETTERS = "ऀ-ॣ०-९ॱ-෿؀-؋؍-؞ؠ-ۓە-ۿ‌‍"
+_WORD_RE = re.compile(rf"[A-Za-z][A-Za-z'\-]*[A-Za-z]|[A-Za-z]|[{_INDIC_LETTERS}]+")
+_SENT_SPLIT_RE = re.compile(rf"(?<=[.!?।॥۔؟])[\"')\]]?\s+(?=[\"'(\[]?[A-Z0-9{_INDIC_LETTERS}])")
 _ABBREV = re.compile(r"\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|St|vs|etc|e\.g|i\.e|Fig|al|No)\.$")
 
 

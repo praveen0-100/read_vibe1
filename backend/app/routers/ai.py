@@ -2,14 +2,14 @@
 import logging
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from ..deps import DB, CurrentUser, get_owned_document
 from ..models import Highlight
-from ..schemas import ChatIn, CompareIn, DefineIn, DiagramIn, ExplainIn, MindMapIn, QuizIn, SummarizeIn, VisualIn
-from ..services import ai, llm, nlp
+from ..schemas import ChatIn, CompareIn, DefineIn, DiagramIn, ExplainIn, MindMapIn, OverviewIn, QuizIn, SummarizeIn, VisualIn
+from ..services import ai, llm, nlp, overview
 
 log = logging.getLogger("readvibe.ai")
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -165,3 +165,13 @@ def recommendations(user: CurrentUser, db: DB):
             seen.add(key)
             unique.append(r)
     return unique[:6]
+
+
+@router.post("/overview")
+def audio_overview(body: OverviewIn, user: CurrentUser, db: DB):
+    """A spoken overview written natively in the requested language (Tamil, Telugu, Malayalam, Kannada, Hindi …)."""
+    doc = get_owned_document(db, user, body.document_id)
+    try:
+        return overview.generate(doc, body.chapter_index, body.language, body.format)
+    except overview.OverviewError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

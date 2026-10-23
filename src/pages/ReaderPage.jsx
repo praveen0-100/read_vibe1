@@ -14,8 +14,12 @@ import { AmbientEngine } from '../lib/ambient';
 import { formatMinutes } from '../lib/format';
 import { offline } from '../lib/offline';
 import { READING_FONTS, READING_WIDTHS } from '../lib/prefs';
-import { loadVoices, Narrator, pickVoice, speak, speechSupported } from '../lib/speech';
+import { loadVoices, Narrator, pickVoice, pickVoiceForLang, speak, speechSupported } from '../lib/speech';
+import { chunkAtSpaces, detectLanguage, SENTENCE_RE, speechTag } from '../lib/languages';
+import { findSpeakers, splitParagraph, stripDirections } from '../lib/stageDirections';
 import { useNaturalVoice } from '../hooks/useNaturalVoice';
+import OverviewLauncher from '../components/audio/OverviewLauncher';
+import OverviewSheet from '../components/audio/OverviewSheet';
 import { clearSpokenWord, showSpokenWord, wordAtPoint } from '../lib/spokenWord';
 import { VibePlayer } from '../lib/vibeMusic';
 import { EmptyState, ErrorState, Field, Menu, Modal, PageLoader, ProgressBar } from '../components/ui';
@@ -25,6 +29,9 @@ import { DocSearch, HighlightPopover, ReaderSettings, SelectionToolbar, WordMenu
 import { VibeVisualizer, VIBE_PRESETS, ZEN_PRESETS, ZenBackdrop } from '../components/reader/Scenes';
 import VibePanel from '../components/reader/VibePanel';
 import ZenPanel, { useFocusTimer } from '../components/reader/ZenPanel';
+
+// pitch offsets (Hz) that keep characters apart when two voices must play several parts
+const CAST_SHIFTS = [0, -4, 5, -8, 8, -11];
 
 const MODES = [
   { id: 'Reader', icon: BookOpen },
@@ -283,30 +290,68 @@ function Reader({ docId }) {
   const [listen, setListen] = useState({ playing: false, paragraph: null });
   const segParagraphs = useRef([]);
   const voiceRef = useRef(null);
-  const natural = useNaturalVoice();
-  useEffect(() => { loadVoices().then((v) => { voiceRef.current = pickVoice(v, prefs.audio.voice, prefs.audio.tone); }); }, [prefs.audio.voice, prefs.audio.tone]);
+  const nv = useNaturalVoice();
+  const deviceVoices = useRef([]);
+  const [overviewOpen, setOverviewOpen] = useState(false);
+  const [overviewLang, setOverviewLang] = useState(null); // null until the user picks one: the dropdown then shows its placeholder
+  const openOverview = (code) => { if (code) setOverviewLang(code); setOverviewOpen(true); };
+  useEffect(() => { if (overviewOpen) narrator.pause(); }, [overviewOpen, narrator]);
+  useEffect(() => { loadVoices().then((v) => { deviceVoices.current = v; voiceRef.current = pickVoice(v, prefs.audio.voice, prefs.audio.tone); }); }, [prefs.audio.voice, prefs.audio.tone]);
+  // language of what's on the page, from its script — drives the voice, the font and the text's lang attribute
+  const chapterLang = useMemo(() => detectLanguage(chapter?.content), [chapter]);
   useEffect(() => () => narrator.destroy(), [narrator]);
   const autoNext = useRef(false);
 
   // The script always covers the whole chapter (so the transcript can show it all and any word can be tapped);
   // `segMeta[i]` says where segment i sits: paragraph index + character offset inside that paragraph's text.
   const segMeta = useRef([]);
-  const buildScript = useCallback((ch) => {
+  const buildScript = useCallback((ch, cast = [], gender = {}) => {
     const paras = splitParagraphs(ch.content);
+    const visible = paras.map((para) => (para.length < 70 && /^#{1,3}\s/.test(para) ? para.replace(/^#+\s*/, '') : para)); // headings render without their marker
+    const speakers = findSpeakers(visible); // characters of a play: a voice each, and their labels are never read out
+    // casting: a man's part goes to the man's voice, a woman's to the woman's (judged from pronouns in the text);
+    // anyone unclear takes the less-used voice. Characters sharing a voice are kept apart by a pitch offset.
+    const used = new Map(cast.map((c) => [c.voice, 0]));
+    const assigned = new Map();
+    const castFor = (name) => {
+      if (!name || !cast.length || !speakers.has(name)) return {};
+      if (!assigned.has(name)) {
+        const wanted = cast.filter((c) => c.gender === gender[name]);
+        const pool = wanted.length ? wanted : cast;
+        const pick = pool.reduce((best, c) => (used.get(c.voice) < used.get(best.voice) ? c : best), pool[0]);
+        assigned.set(name, { voice: pick.voice, shift: CAST_SHIFTS[used.get(pick.voice) % CAST_SHIFTS.length] });
+        used.set(pick.voice, used.get(pick.voice) + 1);
+      }
+      return assigned.get(name);
+    };
+    const ctx = { speakers, speaker: null, open: false };
     const segments = [];
     const meta = [];
-    paras.forEach((para, pi) => {
-      // headings render without their markdown marker, so offsets must be measured on the visible text
-      const p = para.length < 70 && /^#{1,3}\s/.test(para) ? para.replace(/^#+\s*/, '') : para;
-      const sentences = [...p.matchAll(/[^.!?]+[.!?]+["”’)]*|[^.!?]+$/g)];
-      sentences.forEach((m, si) => {
-        const text = m[0].trim();
-        if (!text) return;
-        const base = m.index + (m[0].length - m[0].trimStart().length);
-        for (let i = 0; i < text.length; i += 230) {
-          segments.push({ text: text.slice(i, i + 230), pause_ms: si === sentences.length - 1 ? 450 : 150 });
-          meta.push({ p: pi, start: base + i });
-        }
+
+    visible.forEach((p, pi) => {
+      // directions and labels become silent lines (shown, never spoken); the feeling a direction asks for goes to the voice
+      splitParagraph(p, ctx).forEach((span) => {
+        const body = p.slice(span.start, span.end);
+        const silent = span.kind === 'silent';
+        const sentences = silent ? [{ 0: body, index: 0 }] : [...body.matchAll(SENTENCE_RE)];
+        sentences.forEach((m, si) => {
+          const text = m[0].trim();
+          if (!text) return;
+          const base = span.start + m.index + (m[0].length - m[0].trimStart().length);
+          chunkAtSpaces(text).forEach(([i, piece]) => {
+            const part = piece.trimEnd();
+            if (!part) return;
+            if (silent) {
+              segments.push({ text: part, silent: true, pause_ms: 120, speaker: span.speaker });
+            } else {
+              segments.push({
+                text: part, pause_ms: si === sentences.length - 1 ? 450 : 150, speaker: span.speaker,
+                emotion: span.emotion, ...castFor(span.speaker),
+              });
+            }
+            meta.push({ p: pi, start: base + i, silent });
+          });
+        });
       });
     });
     segMeta.current = meta;
@@ -317,7 +362,8 @@ function Reader({ docId }) {
   // Light up the word being spoken. It stays lit when paused, marking where playback will resume.
   useEffect(() => narrator.on((s) => {
     const m = segMeta.current[s.segment];
-    if (m && (s.playing || s.charIndex)) showSpokenWord(articleRef.current, m.p, m.start + (s.charIndex || 0));
+    if (m?.silent) clearSpokenWord();
+    else if (m && (s.playing || s.charIndex)) showSpokenWord(articleRef.current, m.p, m.start + (s.charIndex || 0));
   }), [narrator]);
   useEffect(() => clearSpokenWord, []);
 
@@ -334,9 +380,12 @@ function Reader({ docId }) {
     }
   }), [narrator, prefs.audio.autoAdvance, doc, chapterIndex, goChapter, notify]);
 
+  const castCache = useRef({}); // chapter → {name: 'male' | 'female' | null}, judged from the whole document
+
   /** Read the chapter aloud from a paragraph — or, with `fromChar`, from a word inside it. */
-  const startListening = useCallback((fromParagraph, fromChar = 0) => {
-    if (!speechSupported && !natural) { notify('Read-aloud isn’t supported in this browser', 'warning'); return; }
+  const startListening = useCallback(async (fromParagraph, fromChar = 0) => {
+    const neural = nv.neuralFor(chapterLang); // a natural voice for this language (null → the device's own)
+    if (!speechSupported && !neural) { notify('Read-aloud isn’t supported in this browser', 'warning'); return; }
     if (!chapter) return;
     let from = fromParagraph;
     if (from == null) {
@@ -345,15 +394,30 @@ function Reader({ docId }) {
       const visible = ps.find((p) => p.getBoundingClientRect().bottom > (main?.getBoundingClientRect().top || 0) + 120);
       from = visible ? Number(visible.dataset.p) : 0;
     }
-    const script = buildScript(chapter);
+    const langVoices = nv.languages.find((l) => l.code === chapterLang)?.voices || [];
+    const cast = neural && langVoices.length > 1 ? langVoices.map((v) => ({ voice: v.id, gender: v.gender.toLowerCase() })) : [];
+    // a play: judge who is a man and who a woman from the whole book (the cast is cached, so only the first read waits)
+    let gender = {};
+    if (cast.length) {
+      narrator.prime(); // keep this tap's permission to play audio while the cast is fetched
+      const names = [...findSpeakers(splitParagraphs(chapter.content))];
+      if (names.length) {
+        const key = `${docId}:${chapterIndex}`;
+        if (!castCache.current[key]) castCache.current[key] = await api.tts.cast(docId, names).then((r) => r.hints).catch(() => ({}));
+        gender = castCache.current[key];
+      }
+    }
+    const script = buildScript(chapter, cast, gender);
     const meta = segMeta.current;
     let segment = meta.findIndex((m, i) => m.p === from && m.start + script[0].segments[i].text.length > fromChar);
     if (segment < 0) segment = meta.findIndex((m) => m.p >= from);
     const m = meta[Math.max(0, segment)];
     const offset = m && m.p === from ? Math.max(0, fromChar - m.start) : 0;
-    narrator.load(script, { rate: prefs.audio.rate, voice: voiceRef.current, segment: Math.max(0, segment), offset, neural: natural });
+    // device fallback: a voice for the page's language when the device has one, never the English voice for Tamil text
+    const voice = chapterLang === 'en' ? voiceRef.current : pickVoiceForLang(deviceVoices.current, chapterLang);
+    narrator.load(script, { rate: prefs.audio.rate, voice, lang: speechTag(chapterLang), segment: Math.max(0, segment), offset, neural });
     narrator.play();
-  }, [chapter, narrator, buildScript, prefs.audio.rate, getScroller, notify, natural]);
+  }, [chapter, chapterIndex, docId, narrator, buildScript, prefs.audio.rate, getScroller, notify, nv, chapterLang]);
 
   // ─── Tap a word: read from it (jump straight there while playing) ──────────
   const [wordMenu, setWordMenu] = useState(null); // {word, p, start, pos}
@@ -482,7 +546,7 @@ function Reader({ docId }) {
       case 'ask': openAI({ documentId: docId, chapterIndex, selection: text, tab: 'chat', nonce: Date.now() }); break;
       case 'define': openAI({ documentId: docId, chapterIndex, selection: text, tool: 'define', tab: 'tools', nonce: Date.now() }); break;
       case 'diagram': openAI({ documentId: docId, chapterIndex, selection: text, tool: 'diagram', tab: 'tools', nonce: Date.now() }); break;
-      case 'listen': speak(text, { rate: prefs.audio.rate, voice: voiceRef.current }); break;
+      case 'listen': speak(stripDirections(text), { rate: prefs.audio.rate, voice: voiceRef.current }); break;
       case 'translate': window.open(`https://translate.google.com/?sl=auto&tl=${(navigator.language || 'en').slice(0, 2)}&text=${encodeURIComponent(text)}&op=translate`, '_blank', 'noopener'); break;
       case 'copy': navigator.clipboard?.writeText(text).then(() => notify('Copied')); break;
       default:
@@ -624,10 +688,12 @@ function Reader({ docId }) {
         surfaceRef={surfaceRef} articleRef={articleRef} ratioRef={ratioRef} pendingScroll={pendingScroll} pendingFind={pendingFind}
         saveProgress={saveProgress} lastActivity={lastActivity}
         narrator={narrator} listen={listen} startListening={startListening} segMeta={segMeta} onWordTap={onWordTap}
+        lang={chapterLang} onOverview={() => openOverview()}
         offlineMode={offlineMode} saveOffline={saveOffline}
         downloadOriginal={() => api.documents.downloadFile(docId).catch((e) => notify(e.message, 'error'))}
         navigate={navigate} openAI={openAI} notify={notify}
       >
+        {overviewOpen && <OverviewSheet doc={doc} chapterIndex={chapterIndex} chapterTitle={chapter?.title} sourceLang={chapterLang} initialLang={overviewLang} onClose={() => setOverviewOpen(false)} />}
         <SelectionToolbar pos={selection?.pos} onAction={onSelectionAction} />
         <WordMenu menu={wordMenu} onAction={onWordAction} />
         {hlPop && (
@@ -712,6 +778,7 @@ function Reader({ docId }) {
         </aside>
 
         <article className="reading-surface" ref={surfaceRef} style={surfaceStyle} aria-busy={chapterLoading}>
+          {overviewOpen && <OverviewSheet doc={doc} chapterIndex={chapterIndex} chapterTitle={chapter?.title} sourceLang={chapterLang} initialLang={overviewLang} onClose={() => setOverviewOpen(false)} />}
           <SelectionToolbar pos={selection?.pos} onAction={onSelectionAction} />
           <WordMenu menu={wordMenu} onAction={onWordAction} />
           {hlPop && (
@@ -719,7 +786,7 @@ function Reader({ docId }) {
               onUpdate={(patch) => updateHighlight(hlPop.highlight, patch)} onDelete={() => removeHighlight(hlPop.highlight)}
               onExplain={(t) => { setHlPop(null); openAI({ documentId: docId, chapterIndex, selection: t, tool: 'explain', tab: 'tools', nonce: Date.now() }); }} />
           )}
-          <div className="reading-inner" ref={articleRef} onClick={onArticleClick}>
+          <div className="reading-inner" ref={articleRef} onClick={onArticleClick} lang={chapterLang}>
             <div className="chapter-label">SECTION {String(chapterIndex + 1).padStart(2, '0')} <span>•</span> {doc.chapter_count} TOTAL</div>
             <h2>{titleParts[0]}{titleParts[1] && <><br /><em>{titleParts.slice(1).join(' · ')}</em></>}</h2>
             <div className="reading-meta">
@@ -728,7 +795,8 @@ function Reader({ docId }) {
             </div>
             {chapterLoading && !chapter ? <PageLoader label="Loading chapter…" /> : chapter && (
               <ChapterText content={chapter.content} highlights={chapterHighlights} query={searchOpen ? searchQuery : ''}
-                activeParagraph={listen.playing ? listen.paragraph : null} onHighlightClick={onHighlightClick} />
+                activeParagraph={listen.playing ? listen.paragraph : null} onHighlightClick={onHighlightClick}
+                dropcap={chapterLang === 'en'} />
             )}
             <div className="chapter-end">
               {!isLast ? (
@@ -739,6 +807,7 @@ function Reader({ docId }) {
               <div className="chapter-end-actions">
                 <button className="chip" onClick={() => openAI({ documentId: docId, chapterIndex, tool: 'summarize', nonce: Date.now() })}><Sparkles size={12} /> Summarize this section</button>
                 <button className="chip" onClick={() => openAI({ documentId: docId, chapterIndex, tool: 'quiz', nonce: Date.now() })}><CircleHelp size={12} /> Quiz me</button>
+                <button className="chip" onClick={() => openOverview()}><AudioLines size={12} /> Audio overview</button>
               </div>
             </div>
           </div>
@@ -749,6 +818,7 @@ function Reader({ docId }) {
             <span>{Math.round(docProgress)}%</span>
             <button className="icon-ghost sm" onClick={() => goChapter(chapterIndex + 1)} disabled={isLast} aria-label="Next chapter"><ChevronRight size={16} /></button>
             <button className="ai-reader-button" onClick={() => openAI({ documentId: docId, chapterIndex, nonce: Date.now() })}><Sparkles size={14} /> Ask AI</button>
+            <OverviewLauncher languages={nv.languages} value={overviewLang} onOpen={openOverview} onPick={openOverview} />
             <button className={`audio-mini ${listen.playing ? 'playing' : ''}`} onClick={() => (listen.playing ? narrator.pause() : startListening())} aria-label={listen.playing ? 'Pause read-aloud' : 'Read aloud from here'}>
               {listen.playing ? <Pause size={13} /> : <Play size={13} fill="currentColor" />} {listen.playing ? 'Pause' : 'Listen'}
             </button>

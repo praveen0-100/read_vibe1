@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { READING_FONTS } from '../../lib/prefs';
+import { flipPages, snapshotPage } from '../../lib/pageFlip';
 import { wordAtPoint, wordRect } from '../../lib/spokenWord';
 import { Menu } from '../ui';
 import ChapterText from './ChapterText';
@@ -27,6 +28,12 @@ const PAPERS = [
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
+// One tap re-types the whole page: the DK-encyclopedia look (bold sans, justified, tight rhythm) or a classic serif novel
+const STYLE_PRESETS = {
+  encyclopedia: { bookStyle: 'encyclopedia', font: 'sourcesans', fontSize: 17, lineHeight: 1.42, align: 'justify' },
+  classic: { bookStyle: 'classic', font: 'serif', fontSize: 18, lineHeight: 1.75, align: 'left' },
+};
+
 // ─── Display settings (Text · Lighting) ───────────────────────────────────────
 function DisplaySheet({ onClose }) {
   const { prefs, setPrefs } = useApp();
@@ -45,6 +52,13 @@ function DisplaySheet({ onClose }) {
 
       {tab === 'text' ? (
         <div className="mr-sheet-body">
+          <div className="mr-row">
+            <span>Page style</span>
+            <select value={r.bookStyle || 'classic'} onChange={(e) => set(STYLE_PRESETS[e.target.value])} aria-label="Page style">
+              <option value="encyclopedia">Encyclopedia</option>
+              <option value="classic">Classic novel</option>
+            </select>
+          </div>
           <div className="mr-fonts" role="radiogroup" aria-label="Typeface">
             {Object.entries(READING_FONTS).map(([id, f]) => (
               <button key={id} role="radio" aria-checked={r.font === id} className={r.font === id ? 'chosen' : ''} onClick={() => set({ font: id })}>
@@ -72,9 +86,9 @@ function DisplaySheet({ onClose }) {
           </div>
           <div className="mr-row">
             <span>Page turn</span>
-            <select value={r.pageAnim} onChange={(e) => set({ pageAnim: e.target.value })} aria-label="Page turn animation">
+            <select value={r.pageTurn || 'flip'} onChange={(e) => set({ pageTurn: e.target.value })} aria-label="Page turn animation">
+              <option value="flip">Page flip</option>
               <option value="slide">Slide</option>
-              <option value="curl">Page curl</option>
               <option value="fade">Fade</option>
               <option value="none">None</option>
             </select>
@@ -155,11 +169,12 @@ export default function MobileReader({
   doc, chapter, chapterIndex, chapterLoading, highlights, allHighlights, searchQuery, setSearchQuery, searchOpen, setSearchOpen,
   bookmarks, onToggleBookmark, onDeleteBookmark, onHighlightClick, goChapter, setMode,
   surfaceRef, articleRef, ratioRef, pendingScroll, pendingFind, saveProgress, lastActivity,
-  narrator, listen, startListening, segMeta, onWordTap, offlineMode, saveOffline, downloadOriginal, navigate, openAI, notify, children,
+  narrator, listen, startListening, segMeta, onWordTap, lang = 'en', onOverview, offlineMode, saveOffline, downloadOriginal, navigate, openAI, notify, children,
 }) {
   const { prefs } = useApp();
   const r = prefs.reading;
-  const anim = prefs.accessibility.reducedMotion ? 'none' : r.pageAnim;
+  const anim = prefs.accessibility.reducedMotion ? 'none' : (r.pageTurn || 'flip');
+  const dk = r.bookStyle === 'encyclopedia';
 
   const viewportRef = useRef(null);
   const [dims, setDims] = useState({ w: 0, h: 0 });
@@ -167,7 +182,8 @@ export default function MobileReader({
   const [pages, setPages] = useState(1);
   const [instant, setInstant] = useState(true);
   const [tick, setTick] = useState(0);
-  const [dir, setDir] = useState(1);
+  const leafHost = useRef(null);
+  const flipRun = useRef(null);
   const [chrome, setChrome] = useState(false);
   const [sheet, setSheet] = useState(null); // 'display' | 'contents' | 'listen'
   const [scrub, setScrub] = useState(null);
@@ -269,11 +285,32 @@ export default function MobileReader({
 
   // ─── Turning pages ────────────────────────────────────────────────────────
   const goPage = useCallback((p) => {
+    const target = clamp(p, 0, pages - 1);
+    if (target === page) return;
+    flipRun.current?.finish(); // a new turn settles the previous one first
     setInstant(false);
     setTick((t) => t + 1);
-    setDir(p >= page ? 1 : -1);
-    setPage(clamp(p, 0, pages - 1));
-  }, [pages, page]);
+
+    const flow = flowEl();
+    if (anim === 'flip' && Math.abs(target - page) === 1 && leafHost.current && flow) {
+      if (target > page) {
+        // the page underneath is already the new one; the old page lifts off and turns away
+        const face = snapshotPage(flow, page, step);
+        setInstant(true);
+        setPage(target);
+        flipRun.current = flipPages({ host: leafHost.current, face, direction: 1, onDone: () => { flipRun.current = null; } });
+      } else {
+        // the earlier page swings back over the current one, then becomes the current page
+        const face = snapshotPage(flow, target, step);
+        flipRun.current = flipPages({ host: leafHost.current, face, direction: -1, onDone: () => { flipRun.current = null; setInstant(true); setPage(target); } });
+      }
+      return;
+    }
+    setPage(target);
+  }, [pages, page, anim, step]); // eslint-disable-line
+
+  useEffect(() => () => flipRun.current?.finish(), []);
+  useEffect(() => { flipRun.current?.finish(); }, [chapter]);
 
   const turn = useCallback((dir) => {
     if (dir > 0) {
@@ -402,21 +439,30 @@ export default function MobileReader({
   };
 
   return (
-    <div className={`mobile-reader paper-${r.paper} ${chrome ? 'chrome-on' : ''}`} ref={surfaceRef}>
-      <div className={`mr-page ${anim === 'curl' && !instant ? `curl-${dir > 0 ? 'fwd' : 'back'}-${tick % 2}` : ''}`} ref={viewportRef} onClick={onClick} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+    <div className={`mobile-reader paper-${r.paper} ${dk ? 'book-dk' : ''} ${chrome ? 'chrome-on' : ''}`} ref={surfaceRef}>
+      {dk && <span className="mr-rule" aria-hidden="true" />}
+      {dk && (
+        <div className="mr-runhead" aria-hidden="true">
+          <b className="num">{progress.globalPage}</b>
+          <span className="tag">{(doc.tags?.[0] || doc.type || 'reading').toLowerCase()}</span>
+          <b className="topic">◆ {(doc.title || '').toUpperCase()}</b>
+        </div>
+      )}
+      <div className="mr-page" ref={viewportRef} onClick={onClick} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
         onScroll={(e) => { e.currentTarget.scrollLeft = 0; }}>
-        <div ref={articleRef} className={`mr-flow anim-${anim} ${anim === 'fade' ? (tick % 2 ? 'tick-a' : 'tick-b') : ''}`} style={flowStyle} aria-busy={chapterLoading}>
+        <div ref={articleRef} className={`mr-flow anim-${anim} ${anim === 'fade' ? (tick % 2 ? 'tick-a' : 'tick-b') : ''}`} lang={lang} style={flowStyle} aria-busy={chapterLoading}>
           {chapter && (
             <>
               <h2 className="mr-title">{title}</h2>
               <ChapterText content={chapter.content} highlights={highlights} query={searchOpen ? searchQuery : ''}
-                activeParagraph={listen.playing ? listen.paragraph : null} onHighlightClick={onHighlightClick} />
+                activeParagraph={listen.playing ? listen.paragraph : null} onHighlightClick={onHighlightClick}
+                dropcap={!dk && lang === 'en'} lead={dk} />
             </>
           )}
         </div>
-        {anim === 'curl' && !instant && tick > 0 && <span key={tick} className={`mr-curl-shade ${dir > 0 ? 'fwd' : 'back'}`} aria-hidden="true" />}
         {existingBookmark && <span className="mr-ribbon" aria-label="Bookmarked"><BookmarkCheck size={18} /></span>}
       </div>
+      <div className="mr-leafhost" ref={leafHost} aria-hidden="true" />
 
       <footer className="mr-foot" aria-live="off">
         <span>{leftLabel}</span>
@@ -425,7 +471,7 @@ export default function MobileReader({
 
       {listen.playing && sheet !== 'listen' && (
         <button className="mr-nowplaying" onClick={() => setSheet('listen')} aria-label="Open player">
-          <AudioLines size={14} /> Listening · tap to open
+          <AudioLines size={14} /> <span>Listening · tap to open</span>
         </button>
       )}
 
@@ -443,6 +489,7 @@ export default function MobileReader({
           { label: 'Zen mode', icon: Moon, onClick: () => setMode('Zen') },
           { label: 'Vibe mode', icon: AudioLines, onClick: () => setMode('Vibe') },
           '-',
+          { label: 'Audio overview in your language', icon: AudioLines, onClick: () => onOverview?.() },
           { label: 'Generate audiobook', icon: Headphones, onClick: () => navigate(`/audio?tab=generate&doc=${doc.id}`) },
           { label: 'Save for offline reading', icon: CloudDownload, onClick: saveOffline, disabled: offlineMode },
           doc.has_file && { label: 'Download original file', icon: Download, onClick: downloadOriginal },
@@ -486,6 +533,7 @@ export default function MobileReader({
           onBookmark={toggleBookmark} bookmarked={!!existingBookmark}
           moreItems={[
             { label: 'Contents', icon: List, onClick: () => setSheet('contents') },
+            { label: 'Audio overview in your language', icon: AudioLines, onClick: () => onOverview?.() },
             { label: 'Generate audiobook', icon: Headphones, onClick: () => navigate(`/audio?tab=generate&doc=${doc.id}`) },
             { label: 'Back to the page', icon: BookOpen, onClick: () => setSheet(null) },
           ]} />

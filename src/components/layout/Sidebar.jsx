@@ -10,6 +10,7 @@ import { initials } from '../../lib/format';
 import { resolveTheme } from '../../lib/prefs';
 import { Menu } from '../ui';
 import Notifications from './Notifications';
+import QuickActions from './QuickActions';
 
 export const NAV_ITEMS = [
   { to: '/', label: 'Home', icon: Home, end: true },
@@ -138,6 +139,7 @@ export function MobileHeader() {
       </NavLink>
       <div className="mobile-header-actions">
         <button className="icon-ghost" onClick={() => setSearchOpen(true)} aria-label="Search"><Search size={18} /></button>
+        <QuickActions inline />
         <Notifications />
         <NavLink to="/settings" className="mobile-avatar" aria-label="Profile and settings">
           {user?.avatar_url ? <img src={user.avatar_url} alt="" referrerPolicy="no-referrer" /> : initials(user?.name)}

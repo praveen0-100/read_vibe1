@@ -4,9 +4,16 @@
 // speechSynthesis.pause().
 
 import { NeuralClips, createPlayer, unlockAudio, wordTimeline } from './neuralVoice';
+import { deviceDelivery } from './stageDirections';
 
 export const speechSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
 const WPM = 165;
+
+/** A browser voice for a language code ('ta', 'te' …), or null when the device has none. */
+export function pickVoiceForLang(voices, lang) {
+  const l = (lang || '').toLowerCase();
+  return voices.find((v) => v.lang.toLowerCase().replace('_', '-').startsWith(`${l}-in`)) || voices.find((v) => v.lang.toLowerCase().startsWith(l)) || null;
+}
 
 export function loadVoices() {
   if (!speechSupported) return Promise.resolve([]);
@@ -34,7 +41,9 @@ export function pickVoice(voices, preferredName, tone = 'Regular') {
   return ranked[0];
 }
 
-const segSeconds = (seg, rate) => (seg.text.split(/\s+/).length / (WPM * rate)) * 60 + (seg.pause_ms || 0) / 1000;
+// a silent segment (a stage direction, a speaker label) takes only its pause
+const segSeconds = (seg, rate) => (seg.silent ? 0 : (seg.text.split(/\s+/).length / (WPM * rate)) * 60) + (seg.pause_ms || 0) / 1000;
+const deliveryOf = (seg) => (seg.emotion && seg.emotion !== 'neutral') || seg.shift ? { emotion: seg.emotion, shift: seg.shift } : null;
 
 export class Narrator {
   constructor() {
@@ -63,7 +72,7 @@ export class Narrator {
   }
 
   /** `neural: {synth(text, voice) → Promise, voice}` switches to natural voices; omit it for browser voices. */
-  load(script, { rate = 1, pitch = 1, voice = null, chapter = 0, segment = 0, offset = 0, neural = null } = {}) {
+  load(script, { rate = 1, pitch = 1, voice = null, chapter = 0, segment = 0, offset = 0, neural = null, lang = '' } = {}) {
     this.stop();
     this.clips?.dispose();
     this.clips = neural ? new NeuralClips(neural.synth, neural.voice) : null;
@@ -71,6 +80,7 @@ export class Narrator {
     this.rate = rate;
     this.pitch = pitch;
     this.voice = voice;
+    this.lang = lang; // BCP-47 hint (e.g. 'ta-IN') so the browser picks a matching voice when none is chosen
     this.chapter = Math.min(chapter, Math.max(0, this.script.length - 1));
     this.segment = segment;
     this.offset = offset;
@@ -116,6 +126,12 @@ export class Narrator {
     };
   }
 
+  /** Call inside a tap before the script exists: unlocks audio so playback can start later without another gesture. */
+  prime() {
+    this.audio ||= createPlayer();
+    unlockAudio(this.audio);
+  }
+
   play() {
     if (!this.script.length || (!speechSupported && !this.clips)) return;
     if (this.clips) {
@@ -139,7 +155,7 @@ export class Narrator {
 
     let clip;
     try {
-      clip = await clips.get(seg.text);
+      clip = await clips.get(seg.text, seg.voice, deliveryOf(seg));
     } catch (err) {
       if (token !== this.token) return;
       // the voice service is unreachable: carry on with the browser's voice instead of going silent
@@ -152,7 +168,12 @@ export class Narrator {
 
     // warm the next sentences so playback is gapless
     const segs = this.script[this.chapter]?.segments || [];
-    for (let i = 1; i <= 2; i++) if (segs[this.segment + i]) clips.get(segs[this.segment + i].text).catch(() => {});
+    for (let i = 1, warmed = 0; warmed < 2 && this.segment + i < segs.length; i++) {
+      const next = segs[this.segment + i];
+      if (next.silent) continue; // nothing to synthesise for a direction
+      clips.get(next.text, next.voice, deliveryOf(next)).catch(() => {});
+      warmed += 1;
+    }
 
     const audio = this.audio;
     audio.onended = audio.onerror = audio.onloadedmetadata = null;
@@ -207,7 +228,22 @@ export class Narrator {
     this.emit();
   }
 
+  /** A direction or label: show it, say nothing, move on after a beat. */
+  skipSilent(seg) {
+    const token = ++this.token;
+    cancelAnimationFrame(this.raf);
+    this.audio?.pause();
+    if (speechSupported) window.speechSynthesis.cancel();
+    this.offset = 0;
+    this.charIndex = 0;
+    this.segmentStartedAt = performance.now();
+    this.emit();
+    const wait = (seg.pause_ms || 120) / Math.max(0.5, this.rate);
+    setTimeout(() => token === this.token && this.playing && this.advance(), wait);
+  }
+
   speakCurrent() {
+    if (this.current?.silent) { this.skipSilent(this.current); return; }
     if (this.clips) { this.speakNeural(); return; }
     const synth = window.speechSynthesis;
     const token = ++this.token;
@@ -219,9 +255,12 @@ export class Narrator {
     }
     const skip = Math.min(this.offset, Math.max(0, seg.text.length - 1));
     const u = new SpeechSynthesisUtterance(skip ? seg.text.slice(skip) : seg.text);
-    u.rate = Math.max(0.1, Math.min(10, this.rate));
-    u.pitch = Math.max(0, Math.min(2, this.pitch));
+    const feel = deviceDelivery(seg.emotion, seg.shift || 0); // the direction's feeling, on the device's own voice
+    u.rate = Math.max(0.1, Math.min(10, this.rate * feel.rate));
+    u.pitch = Math.max(0, Math.min(2, this.pitch * feel.pitch));
+    u.volume = feel.volume;
     if (this.voice) u.voice = this.voice;
+    else if (this.lang) u.lang = this.lang;
     u.onstart = () => {
       if (token !== this.token) return;
       this.segmentStartedAt = performance.now();

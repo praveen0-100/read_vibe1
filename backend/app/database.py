@@ -8,11 +8,21 @@ from .config import get_settings
 
 settings = get_settings()
 
-_is_sqlite = settings.database_url.startswith("sqlite")
+def _normalise_url(url: str) -> str:
+    """Hosted Postgres (Supabase, Neon, Render) hands out postgres:// URLs; SQLAlchemy needs the driver named."""
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url.removeprefix(prefix)
+    return url
+
+
+_url = _normalise_url(settings.database_url)
+_is_sqlite = _url.startswith("sqlite")
 engine = create_engine(
-    settings.database_url,
+    _url,
     connect_args={"check_same_thread": False} if _is_sqlite else {},
     pool_pre_ping=True,
+    **({} if _is_sqlite else {"pool_size": 5, "max_overflow": 5, "pool_recycle": 280}),
 )
 
 if _is_sqlite:

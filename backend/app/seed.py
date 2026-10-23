@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import random
+import threading
 from datetime import timedelta
 
 from sqlalchemy import select
@@ -117,7 +118,15 @@ Ambient sound is neither universally helpful nor universally harmful. Predictabl
 """
 
 
+_seed_lock = threading.Lock()  # startup seeding and /auth/demo must not both create the account
+
+
 def seed_demo(db: Session) -> None:
+    with _seed_lock:
+        _seed_demo(db)
+
+
+def _seed_demo(db: Session) -> None:
     if db.scalar(select(User).where(User.email == DEMO_EMAIL)):
         return
     log.info("Seeding demo account %s", DEMO_EMAIL)

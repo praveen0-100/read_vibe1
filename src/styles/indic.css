@@ -1,0 +1,61 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Indian-language typography. Elements carry a `lang` attribute (the reader sets it from the text's script), which
+   picks a Noto family built for that script, taller lines (vowel signs sit above and below the line), and turns off
+   hyphenation and justification — neither suits these scripts.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:lang(ta) { --indic: 'Noto Sans Tamil', 'Latha', 'Nirmala UI', 'Tamil Sangam MN', sans-serif; }
+:lang(te) { --indic: 'Noto Sans Telugu', 'Gautami', 'Nirmala UI', 'Telugu Sangam MN', sans-serif; }
+:lang(ml) { --indic: 'Noto Sans Malayalam', 'Kartika', 'Nirmala UI', 'Malayalam Sangam MN', sans-serif; }
+:lang(kn) { --indic: 'Noto Sans Kannada', 'Tunga', 'Nirmala UI', 'Kannada Sangam MN', sans-serif; }
+:lang(hi), :lang(mr) { --indic: 'Noto Sans Devanagari', 'Mangal', 'Nirmala UI', 'Devanagari Sangam MN', sans-serif; }
+:lang(bn) { --indic: 'Noto Sans Bengali', 'Vrinda', 'Nirmala UI', 'Bangla Sangam MN', sans-serif; }
+:lang(gu) { --indic: 'Noto Sans Gujarati', 'Shruti', 'Nirmala UI', 'Gujarati Sangam MN', sans-serif; }
+:lang(pa) { --indic: 'Noto Sans Gurmukhi', 'Raavi', 'Nirmala UI', 'Gurmukhi Sangam MN', sans-serif; }
+:lang(or) { --indic: 'Noto Sans Oriya', 'Kalinga', 'Nirmala UI', 'Oriya Sangam MN', sans-serif; }
+:lang(ur) { --indic: 'Noto Nastaliq Urdu', 'Jameel Noori Nastaleeq', 'Nirmala UI', serif; }
+
+:lang(ta), :lang(te), :lang(ml), :lang(kn), :lang(hi), :lang(mr), :lang(bn), :lang(gu), :lang(pa), :lang(or), :lang(ur) {
+  font-family: var(--indic), var(--font-ui, sans-serif);
+  font-synthesis: none;
+}
+
+/* body copy: reading surface, paged reader, transcript */
+:is(.reading-inner, .mr-flow, .lyrics, .ov-sheet [lang]):lang(ta),
+:is(.reading-inner, .mr-flow, .lyrics):lang(te),
+:is(.reading-inner, .mr-flow, .lyrics):lang(ml),
+:is(.reading-inner, .mr-flow, .lyrics):lang(kn),
+:is(.reading-inner, .mr-flow, .lyrics):lang(hi),
+:is(.reading-inner, .mr-flow, .lyrics):lang(mr),
+:is(.reading-inner, .mr-flow, .lyrics):lang(bn),
+:is(.reading-inner, .mr-flow, .lyrics):lang(gu),
+:is(.reading-inner, .mr-flow, .lyrics):lang(pa),
+:is(.reading-inner, .mr-flow, .lyrics):lang(or) {
+  hyphens: manual; -webkit-hyphens: manual;
+  --read-align: left;
+}
+:is(.reading-inner, .mr-flow):is(:lang(ta), :lang(te), :lang(ml), :lang(kn), :lang(hi), :lang(mr), :lang(bn), :lang(gu), :lang(pa), :lang(or)) .article-copy p {
+  text-align: left; hyphens: manual; line-height: max(var(--read-lh, 1.7), 1.85);
+}
+.mr-flow:is(:lang(ta), :lang(te), :lang(ml), :lang(kn), :lang(hi), :lang(mr), :lang(bn), :lang(gu), :lang(pa), :lang(or)) { line-height: max(var(--read-lh, 1.7), 1.85); }
+
+/* headings keep the script's own face instead of Montserrat / Playfair, which have no Indic glyphs */
+.mr-flow:is(:lang(ta), :lang(te), :lang(ml), :lang(kn), :lang(hi), :lang(mr), :lang(bn), :lang(gu), :lang(pa), :lang(or), :lang(ur)) :is(.mr-title, .in-chapter-heading, .lead),
+.reading-inner:is(:lang(ta), :lang(te), :lang(ml), :lang(kn), :lang(hi), :lang(mr), :lang(bn), :lang(gu), :lang(pa), :lang(or), :lang(ur)) :is(h2, h3, em) {
+  font-family: var(--indic), sans-serif; font-style: normal; letter-spacing: 0; text-transform: none; line-height: 1.4;
+}
+.book-dk .mr-flow:is(:lang(ta), :lang(te), :lang(ml), :lang(kn), :lang(hi), :lang(mr), :lang(bn), :lang(gu), :lang(pa), :lang(or)) .mr-title { font-size: 2em; font-weight: 800; }
+
+/* transcript lines: a touch taller than Latin text */
+.lyrics:is(:lang(ta), :lang(te), :lang(ml), :lang(kn), :lang(hi), :lang(mr), :lang(bn), :lang(gu), :lang(pa), :lang(or)) .lyric-line { line-height: 1.6; letter-spacing: 0; }
+.lyrics:is(:lang(ta), :lang(te), :lang(ml), :lang(kn)) .lyric-line { font-weight: 600; }
+.ov-sheet :is(h2, .native, .ov-pill [lang]):is(:lang(ta), :lang(te), :lang(ml), :lang(kn), :lang(hi), :lang(mr), :lang(bn), :lang(gu), :lang(pa), :lang(or)) { line-height: 1.4; letter-spacing: 0; }
+
+/* Urdu reads right to left */
+.lyrics:lang(ur), .ov-hero h2:lang(ur) { direction: rtl; text-align: right; line-height: 2.1; }
+.mr-flow:lang(ur) .article-copy p, .reading-inner:lang(ur) .article-copy p { direction: rtl; text-align: right; line-height: 2.2; }
+
+/* No drop caps: the Latin display font has no Indic glyphs (a box appears), and conjunct letters don't suit floating initials */
+.mr-flow:is(:lang(ta), :lang(te), :lang(ml), :lang(kn), :lang(hi), :lang(mr), :lang(bn), :lang(gu), :lang(pa), :lang(or), :lang(ur)) .in-chapter-heading + p::first-letter,
+.mr-flow:is(:lang(ta), :lang(te), :lang(ml), :lang(kn), :lang(hi), :lang(mr), :lang(bn), :lang(gu), :lang(pa), :lang(or), :lang(ur)) .article-copy.with-dropcap > p:first-child::first-letter {
+  float: none; font: inherit; line-height: inherit; margin: 0; color: inherit;
+}

@@ -207,7 +207,6 @@
   .mini-reading .mini-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--line); }
   .mini-reading .mini-bar i { display: block; height: 100%; background: var(--accent); }
   .app:has(.mini-reading) .page-shell { padding-bottom: 150px; }
-  .app:has(.mini-reading) .quick-actions { bottom: calc(136px + env(safe-area-inset-bottom)); }
 
   /* Home: large title and swipeable shelves, like a media app */
   .home-page .topbar h1 { font-size: 32px; letter-spacing: -.8px; line-height: 1.1; }
@@ -276,7 +275,6 @@
 }
 @media (max-width: 680px) {
   .am-row { scroll-padding-left: 16px; }
-  .app:has(.am-home) .quick-actions { display: none; }
   .app:has(.am-home) .page-shell { padding-bottom: 150px; }
 
   /* mini player: flat bar docked on the tab bar */
@@ -305,30 +303,11 @@
 .mr-listen .ls-progress .mr-scrub { height: 20px; }
 .mr-listen .ls-progress .mr-scrub::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; }
 
-/* Page curl: the new page folds in from the spine while a soft shadow sweeps across */
-.mr-page { background: var(--paper-bg); transition: transform .22s ease, border-radius .22s ease, box-shadow .22s ease; }
-.mr-page[class*="curl-fwd"] { transform-origin: 100% 50%; }
-.mr-page[class*="curl-back"] { transform-origin: 0 50%; }
-.mr-page.curl-fwd-0 { animation: curl-fwd-a .42s cubic-bezier(.3, .7, .3, 1); }
-.mr-page.curl-fwd-1 { animation: curl-fwd-b .42s cubic-bezier(.3, .7, .3, 1); }
-.mr-page.curl-back-0 { animation: curl-back-a .42s cubic-bezier(.3, .7, .3, 1); }
-.mr-page.curl-back-1 { animation: curl-back-b .42s cubic-bezier(.3, .7, .3, 1); }
-@keyframes curl-fwd-a { from { transform: perspective(1100px) rotateY(32deg) skewY(-3deg); } to { transform: none; } }
-@keyframes curl-fwd-b { from { transform: perspective(1100px) rotateY(32deg) skewY(-3deg); } to { transform: none; } }
-@keyframes curl-back-a { from { transform: perspective(1100px) rotateY(-32deg) skewY(3deg); } to { transform: none; } }
-@keyframes curl-back-b { from { transform: perspective(1100px) rotateY(-32deg) skewY(3deg); } to { transform: none; } }
-.mr-curl-shade { position: absolute; top: 0; bottom: 0; width: 38%; pointer-events: none; z-index: 4; }
-.mr-curl-shade.fwd { right: 0; background: linear-gradient(to left, transparent, rgba(0, 0, 0, .28) 55%, transparent); animation: curl-sweep-fwd .42s ease-out forwards; }
-.mr-curl-shade.back { left: 0; background: linear-gradient(to right, transparent, rgba(0, 0, 0, .28) 55%, transparent); animation: curl-sweep-back .42s ease-out forwards; }
-@keyframes curl-sweep-fwd { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-260%); opacity: 0; } }
-@keyframes curl-sweep-back { from { transform: translateX(0); opacity: 1; } to { transform: translateX(260%); opacity: 0; } }
-
 /* With the toolbars up the page becomes a card on a dark table */
 .mobile-reader.chrome-on { background: var(--chrome-bg); }
-.mobile-reader.chrome-on .mr-page { transform: scale(.93); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .45); }
+.mobile-reader.chrome-on .mr-page { transform: scale(.93); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, .45), 1px 0 0 rgba(255, 255, 255, .22), 2px 0 0 rgba(0, 0, 0, .4), 3px 0 0 rgba(255, 255, 255, .14), 4px 0 0 rgba(0, 0, 0, .34), 5px 0 0 rgba(255, 255, 255, .08); }
 .mobile-reader.chrome-on .mr-foot { opacity: 0; }
 .mr-foot { transition: opacity .2s; }
-@media (prefers-reduced-motion: reduce) { .mr-page, .mr-curl-shade { animation: none !important; } }
 
 /* ─── Read-aloud: spoken word, word menu ───────────────────────────────────── */
 ::highlight(rv-word) { background-color: color-mix(in srgb, var(--accent, #e8956f) 38%, transparent); color: inherit; text-decoration: underline; text-decoration-thickness: 2px; text-decoration-color: var(--accent, #e8956f); text-underline-offset: 3px; }
@@ -351,3 +330,43 @@
 .lyric-line.current .lyric-word:hover { opacity: .85; }
 .player-lyrics .lyric-line { color: var(--text); }
 @media (prefers-reduced-motion: reduce) { .lyric-line, .lyric-word { transition: none; } }
+
+/* ─── Real page flip: a hinged leaf with lighting that follows its angle (lib/pageFlip.js) ───────────── */
+.mr-leafhost { position: absolute; left: 0; right: 0; top: calc(44px + env(safe-area-inset-top)); bottom: calc(40px + env(safe-area-inset-bottom)); z-index: 7; pointer-events: none; perspective: 2200px; perspective-origin: 50% 50%; }
+.mr-leaf { position: absolute; inset: 0; transform-origin: 0 50%; transform-style: preserve-3d; will-change: transform; }
+.mr-leaf-front, .mr-leaf-back { position: absolute; inset: 0; overflow: hidden; background: var(--paper-bg); backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.mr-leaf-back { transform: rotateY(180deg); background: linear-gradient(to right, color-mix(in srgb, var(--paper-bg) 88%, #000), var(--paper-bg) 55%); }
+.mr-face { position: absolute; inset: 0; overflow: hidden; background: var(--paper-bg); }
+.mr-leaf-shade { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
+.mr-leaf-shade.front { background: linear-gradient(to right, rgba(0, 0, 0, 0) 30%, rgba(0, 0, 0, .55) 100%); } /* darker toward the free edge */
+.mr-leaf-shade.back { background: linear-gradient(to right, rgba(0, 0, 0, .5), rgba(0, 0, 0, 0) 70%); }
+.mr-cast { position: absolute; top: 0; bottom: 0; left: 0; width: 0; opacity: 0; pointer-events: none; filter: blur(2px); background: linear-gradient(to right, rgba(0, 0, 0, .42), rgba(0, 0, 0, .16) 45%, rgba(0, 0, 0, 0)); }
+.mr-leafhost.flipping::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 14px; background: linear-gradient(to right, rgba(0, 0, 0, .22), transparent); }
+
+/* book gutter: the page curves into the spine */
+.mobile-reader .mr-page::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 26px; z-index: 2; pointer-events: none; background: linear-gradient(to right, rgba(0, 0, 0, .13), rgba(0, 0, 0, .04) 45%, transparent); }
+.mobile-reader.paper-night .mr-page::before { background: linear-gradient(to right, rgba(0, 0, 0, .55), rgba(0, 0, 0, .18) 45%, transparent); }
+
+/* ─── Encyclopedia page style (DK "Knowledge Encyclopedia": red running header, bold sans, tight rhythm) ─── */
+.mobile-reader.book-dk { --dk-red: #de1f4a; --dk-head: 'Montserrat', 'Source Sans 3', Helvetica, Arial, sans-serif; --paper-accent: #de1f4a; }
+.mobile-reader.book-dk.paper-white { --paper-text: #1a1a1a; --paper-muted: #6b6b6b; }
+.mobile-reader.book-dk.paper-paper { --paper-text: #1a1a1a; --paper-muted: #6b6b6b; }
+.mobile-reader.book-dk.paper-night { --paper-bg: #0b0d14; --paper-text: #f4f5f8; --paper-muted: #b8bcc8; --paper-accent: #ff4d73; --paper-line: #262a38; }
+
+.mr-rule { position: absolute; top: 0; left: 0; right: 0; height: 6px; background: #de1f4a; z-index: 3; pointer-events: none; }
+.mr-runhead { position: absolute; z-index: 3; left: max(22px, env(safe-area-inset-left)); right: max(22px, env(safe-area-inset-right)); top: calc(15px + env(safe-area-inset-top)); display: flex; align-items: baseline; gap: 10px; white-space: nowrap; overflow: hidden; font: 500 12px/1 var(--dk-head); pointer-events: none; transition: opacity .2s; }
+.mr-runhead .num { color: #de1f4a; font-weight: 800; font-size: 13px; font-variant-numeric: tabular-nums; }
+.mr-runhead .tag { color: var(--paper-muted); flex-shrink: 0; }
+.mr-runhead .topic { color: var(--paper-text); font-weight: 700; letter-spacing: .03em; overflow: hidden; text-overflow: ellipsis; }
+.mobile-reader.chrome-on .mr-runhead, .mobile-reader.chrome-on .mr-rule { opacity: 0; }
+
+.book-dk .mr-flow { text-align: var(--read-align, justify); hyphens: auto; -webkit-hyphens: auto; }
+.book-dk .mr-flow .mr-title { font-family: var(--dk-head); font-weight: 800; font-size: 2.3em; line-height: 1; letter-spacing: -.025em; text-align: left; border: 0; padding: 0; margin: .1em 0 .5em; }
+.book-dk .mr-flow .article-copy p { margin: 0 0 .55em; text-indent: 0; }
+.book-dk .mr-flow .article-copy p + p { text-indent: 0; }
+.book-dk .mr-flow .article-copy p.lead { font-weight: 700; font-size: 1.07em; line-height: 1.34; margin-bottom: .85em; text-align: left; }
+.book-dk .mr-flow .in-chapter-heading { font-family: var(--dk-head); font-weight: 800; text-transform: uppercase; letter-spacing: .035em; font-size: .88em; line-height: 1.2; text-align: left; margin: 1.35em 0 .45em; }
+.book-dk .mr-flow .in-chapter-heading + p { text-indent: 0; }
+.book-dk .mr-flow .article-copy blockquote { border-left: 3px solid #de1f4a; padding-left: .9em; margin: .9em 0; font-weight: 600; font-style: normal; }
+.book-dk .mr-foot { font-family: var(--dk-head); font-size: 11px; font-weight: 500; }
+.book-dk .mr-ribbon { color: #de1f4a; }

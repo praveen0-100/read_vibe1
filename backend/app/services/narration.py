@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from . import nlp
+from . import directions, nlp
 
 TONES = {
     "Regular": {
@@ -81,6 +81,10 @@ def build_script(chapters: list[tuple[int, str, str]], tone: str) -> tuple[list[
         segments = [{"text": _INTROS[tone].format(title=title), "pause_ms": cfg["paragraph_pause"], "kind": "intro"}]
         words = 0
         for para in nlp.paragraphs(content):
+            # before sentence splitting: a direction like "[biff breaks from happy. willy starts up the stairs. ]" spans sentences
+            para = directions.strip_for_speech(para)
+            if not para:
+                continue
             sents = nlp.sentences(para) or [para]
             for s_i, sent in enumerate(sents):
                 spoken = _speakable(sent)

@@ -2,7 +2,11 @@
 // Thin, typed-error wrapper around fetch. Every request carries the JWT; a 401
 // clears the session and notifies the app so it can route to the login screen.
 
-export const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+// Deployed builds talk to the API host directly: the Vercel rewrite adds a hop and gives up before a sleeping free-tier
+// API has finished waking. Local dev keeps the same-origin `/api` proxy from vite.config.js.
+const DEPLOYED_API = 'https://readvibe-api.onrender.com/api';
+const isLocalHost = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname);
+export const API_BASE = (import.meta.env.VITE_API_URL || (import.meta.env.PROD && !isLocalHost ? DEPLOYED_API : '/api')).replace(/\/$/, '');
 const TOKEN_KEY = 'rv.token';
 
 export class ApiError extends Error {
@@ -17,6 +21,26 @@ export class ApiError extends Error {
 
 let unauthorizedHandler = null;
 export const onUnauthorized = (fn) => { unauthorizedHandler = fn; };
+
+// ─── Server wake-up status ────────────────────────────────────────────────────
+// Free hosting puts the API to sleep when idle; the first request can take ~30 s. While we retry, the UI can say so.
+let waking = false;
+const wakeListeners = new Set();
+const setWaking = (v) => { if (v !== waking) { waking = v; wakeListeners.forEach((fn) => fn(v)); } };
+export const isWaking = () => waking;
+export const onWaking = (fn) => { wakeListeners.add(fn); return () => wakeListeners.delete(fn); };
+
+const sleep = (ms, signal) => new Promise((resolve, reject) => {
+  const t = setTimeout(resolve, ms);
+  signal?.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('Aborted', 'AbortError')); }, { once: true });
+});
+const RETRY_STATUS = new Set([502, 503, 504]);
+const RETRY_DELAYS = [1200, 2500, 4000, 6000, 8000, 10000]; // ≈ 32 s of patience in total
+const ATTEMPT_TIMEOUT = 25000;
+
+/** Ask the API to wake up ahead of time (called as soon as the app loads). */
+let warmPromise = null;
+export const warmUp = () => (warmPromise ||= request('/health', { retry: true }).then(() => true, () => { warmPromise = null; return false; }));
 
 export const tokenStore = {
   get: () => { try { return localStorage.getItem(TOKEN_KEY); } catch { return null; } },
@@ -42,23 +66,44 @@ async function parseError(res) {
   return new ApiError(message, res.status, data);
 }
 
-export async function request(path, { method = 'GET', body, query, signal, raw = false } = {}) {
+export async function request(path, { method = 'GET', body, query, signal, raw = false, retry } = {}) {
   const url = new URL(`${API_BASE}${path}`, window.location.origin);
   if (query) Object.entries(query).forEach(([k, v]) => v !== undefined && v !== null && v !== '' && url.searchParams.set(k, v));
   const isForm = body instanceof FormData;
+  // Reads, and the sign-in calls (the server never processed them if it was still asleep), are safe to retry.
+  const canRetry = retry ?? (method === 'GET' || path.startsWith('/auth/'));
   let res;
-  try {
-    res = await fetch(url, {
-      method,
-      signal,
-      headers: authHeaders(body && !isForm ? { 'Content-Type': 'application/json' } : {}),
-      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
-    });
-  } catch (err) {
-    if (err.name === 'AbortError') throw err;
-    throw new ApiError(`Can’t reach the ReadVibe API at ${API_BASE}. Check your connection and make sure the API server is running and configured for this app.`, 0);
+  for (let attempt = 0; ; attempt++) {
+    const timeout = new AbortController();
+    const timer = setTimeout(() => timeout.abort(), isForm || path.includes('/export') ? 0x7fffffff : ATTEMPT_TIMEOUT * (canRetry ? 1 : 3));
+    const onAbort = () => timeout.abort();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    let failure = null;
+    try {
+      res = await fetch(url, {
+        method,
+        signal: timeout.signal,
+        headers: authHeaders(body && !isForm ? { 'Content-Type': 'application/json' } : {}),
+        body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
+      });
+      if (!RETRY_STATUS.has(res.status)) { setWaking(false); break; }
+      failure = res;
+    } catch (err) {
+      if (signal?.aborted) throw err; // the caller cancelled — not a failure
+      failure = err;
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    }
+    if (!canRetry || attempt >= RETRY_DELAYS.length) {
+      setWaking(false);
+      if (failure instanceof Response) { res = failure; break; }
+      throw new ApiError('The ReadVibe server isn’t responding right now. It may be waking up — please try again in a few seconds.', 0);
+    }
+    setWaking(true);
+    await sleep(RETRY_DELAYS[attempt], signal);
   }
-  if (res.status === 401 && path !== '/auth/login') {
+  if (res.status === 401 && path !== '/auth/login' && path !== '/auth/google') {
     tokenStore.clear();
     unauthorizedHandler?.();
   }
@@ -167,6 +212,7 @@ export const api = {
   },
 
   ai: {
+    overview: (data) => post('/ai/overview', data),
     status: () => get('/ai/status'),
     summarize: (document_id, chapter_index, depth) => post('/ai/summarize', { document_id, chapter_index, depth }),
     explain: (text, mode, document_id) => post('/ai/explain', { text, mode, document_id }),
@@ -184,7 +230,9 @@ export const api = {
   tts: {
     status: () => get('/tts/status'),
     voices: () => get('/tts/voices'),
-    synthesize: (text, voice) => post('/tts/synthesize', { text, voice }),
+    synthesize: (text, voice, delivery) => post('/tts/synthesize', { text, voice, emotion: delivery?.emotion, pitch_shift: delivery?.shift || 0 }),
+    languages: () => get('/tts/languages'),
+    cast: (docId, names) => post(`/documents/${docId}/cast`, { names }),
   },
 
   audio: {

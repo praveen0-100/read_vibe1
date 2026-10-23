@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from ..config import get_settings
 from ..deps import DB, CurrentUser
@@ -33,7 +34,11 @@ def register(body: RegisterIn, db: DB):
         raise HTTPException(status_code=409, detail="An account with this email already exists")
     user = User(email=email, name=body.name.strip(), password_hash=hash_password(body.password), preferences={})
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:  # two submits raced past the check above
+        db.rollback()
+        raise HTTPException(status_code=409, detail="An account with this email already exists") from None
     return _token_response(user)
 
 

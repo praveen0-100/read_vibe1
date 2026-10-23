@@ -28,7 +28,7 @@ html { -webkit-text-size-adjust: 100%; }
   .mobile-nav, .mobile-header { padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); }
   .page-shell { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
   .library-grid, .notes-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
-  .mr-page, .mr-foot { left: max(0px, env(safe-area-inset-left)); right: max(0px, env(safe-area-inset-right)); }
+  .mr-page, .mr-leafhost, .mr-foot { left: max(0px, env(safe-area-inset-left)); right: max(0px, env(safe-area-inset-right)); }
   .mr-foot { left: max(22px, env(safe-area-inset-left)); right: max(22px, env(safe-area-inset-right)); }
   .mr-display { width: min(370px, calc(100vw - 16px)); right: max(8px, env(safe-area-inset-right)); }
 }
@@ -86,7 +86,8 @@ html { -webkit-text-size-adjust: 100%; }
   /* reader chrome gets slimmer */
   .mr-top { padding-top: calc(2px + env(safe-area-inset-top)); padding-bottom: 2px; }
   .mr-bottom { padding-top: 4px; padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
-  .mr-page { top: 40px; bottom: 32px; }
+  .mr-page, .mr-leafhost { top: 40px; bottom: 32px; }
+  .mr-runhead { top: 12px; }
   .mr-contents { max-height: 86vh; }
 }
 
@@ -169,3 +170,37 @@ html.tv ::-webkit-scrollbar { display: none; }
   :root { --line: rgba(255, 255, 255, .35); --line-2: rgba(255, 255, 255, .5); }
   :root[data-theme="light"] { --line: rgba(0, 0, 0, .4); --line-2: rgba(0, 0, 0, .6); }
 }
+
+
+/* ─── Nothing overlaps: the phone dock, end-of-page room, toasts, quick actions ───────────────────────────── */
+.dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; display: flex; flex-direction: column; pointer-events: none; }
+.dock > * { pointer-events: auto; }
+/* the mini player and the tab bar are stacked by the dock, not placed with matching magic numbers */
+.dock .mobile-nav { position: static; }
+.dock .mini-reading { position: relative; left: auto; right: auto; bottom: auto; margin: 0; }
+
+@media (max-width: 680px) {
+  /* reserve exactly the dock's height after the last thing on every page */
+  #main::after { content: ''; display: block; height: var(--dock-h, 0px); flex-shrink: 0; }
+  .page-shell, .app:has(.mini-reading) .page-shell, .app:has(.am-home) .page-shell { padding-bottom: 28px; }
+  .toast-stack, .app:has(.mini-reading) .toast-stack { bottom: calc(var(--dock-h, 0px) + 12px); }
+  .app.in-reader .toast-stack { bottom: 16px; }
+
+  /* the floating "+" moves into the header on phones */
+  .quick-actions:not(.inline) { display: none !important; }
+}
+.quick-actions.inline { position: relative; right: auto; bottom: auto; z-index: 60; display: block; }
+.quick-actions.inline .quick-fab { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; box-shadow: none; background: var(--accent-soft); color: var(--accent-text); }
+.quick-actions.inline .quick-menu { position: absolute; top: calc(100% + 8px); right: 0; width: max-content; min-width: 214px; display: grid; gap: 2px; justify-items: stretch; padding: 6px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 14px; box-shadow: var(--shadow-lg); }
+.quick-actions.inline .quick-menu button { display: flex; flex-direction: row-reverse; justify-content: flex-end; align-items: center; gap: 12px; width: 100%; padding: 8px 10px; border-radius: 10px; font-size: 13.5px; text-align: left; }
+.quick-actions.inline .quick-menu button span { background: none; border: 0; box-shadow: none; padding: 0; }
+.quick-actions.inline .quick-menu button i { width: 30px; height: 30px; box-shadow: none; border: 0; background: var(--accent-soft); }
+.quick-actions.inline .quick-menu button:hover { background: var(--panel-2); }
+
+/* ─── Paged reader: floating bits stay out of the text column ─────────────────────────────────────────────── */
+/* the text column ends 22px from the edge; the 18px bookmark ribbon lives in that margin instead of on the first line */
+.mr-ribbon { right: 3px; }
+/* "Listening" is a small chip in the footer row (beside the percentage), not a pill floating over the last line */
+.mr-nowplaying { left: auto; transform: none; right: calc(max(22px, env(safe-area-inset-right)) + 52px); bottom: calc(4px + env(safe-area-inset-bottom)); padding: 6px 11px; gap: 6px; }
+.mr-nowplaying svg { flex-shrink: 0; }
+@media (max-width: 680px) { .mr-nowplaying span { display: none; } }

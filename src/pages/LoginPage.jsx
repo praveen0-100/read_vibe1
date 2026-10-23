@@ -1,8 +1,9 @@
 // ─── Sign in / sign up ────────────────────────────────────────────────────────
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRight, AudioLines, BookOpen, Brain, Eye, EyeOff, Loader2, Moon, Sparkles } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { isWaking, onWaking } from '../api/client';
 import { Field } from '../components/ui';
 import GoogleSignIn from '../components/auth/GoogleSignIn';
 
@@ -23,6 +24,8 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState('');
   const dest = location.state?.from?.pathname || '/';
+  const [waking, setWaking] = useState(isWaking);
+  useEffect(() => onWaking(setWaking), []);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -104,6 +107,11 @@ export default function LoginPage() {
             </div>
           </Field>
 
+          {waking && (
+            <div className="form-hint" role="status">
+              <Loader2 size={13} className="spin" /> Waking the ReadVibe server — free hosting sleeps when idle. This can take up to half a minute, and your request will go through automatically.
+            </div>
+          )}
           {error && <div className="form-error" role="alert">{error}</div>}
 
           <button className="primary-button full-width" disabled={!!busy || !form.email || !form.password || (mode === 'register' && !form.name)}>

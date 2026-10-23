@@ -1,15 +1,19 @@
 // ─── ReadVibe application state ──────────────────────────────────────────────
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api, onUnauthorized, tokenStore } from '../api/client';
-import { loadLocalPrefs, mergePrefs, resolveTheme, saveLocalPrefs } from '../lib/prefs';
+import { loadLocalPrefs, mergePrefs, resolveTheme, saveLocalPrefs, upgradePrefs } from '../lib/prefs';
 
 const AppCtx = createContext(null);
+const USER_KEY = 'rv.user';
+// The last signed-in profile is kept so a returning reader sees the app at once instead of a spinner while a sleeping server wakes.
+const cachedUser = () => { try { return tokenStore.get() ? JSON.parse(localStorage.getItem(USER_KEY)) : null; } catch { return null; } };
+const cacheUser = (u) => { try { u ? localStorage.setItem(USER_KEY, JSON.stringify(u)) : localStorage.removeItem(USER_KEY); } catch { /* storage unavailable */ } };
 let toastSeq = 0;
 
 export function AppProvider({ children }) {
   // ─── Auth ──────────────────────────────────────────────────────────────────
-  const [user, setUser] = useState(null);
-  const [authStatus, setAuthStatus] = useState(tokenStore.get() ? 'loading' : 'anon');
+  const [user, setUser] = useState(cachedUser);
+  const [authStatus, setAuthStatus] = useState(() => (!tokenStore.get() ? 'anon' : cachedUser() ? 'authed' : 'loading'));
 
   // ─── Preferences ───────────────────────────────────────────────────────────
   const [prefs, setPrefsState] = useState(loadLocalPrefs);
@@ -108,9 +112,10 @@ export function AppProvider({ children }) {
   // ─── Session bootstrap ─────────────────────────────────────────────────────
   const finishLogin = useCallback((res) => {
     tokenStore.set(res.access_token);
+    cacheUser(res.user);
     setUser(res.user);
     if (res.user?.preferences && Object.keys(res.user.preferences).length) {
-      const merged = mergePrefs(res.user.preferences);
+      const merged = mergePrefs(upgradePrefs(res.user.preferences));
       setPrefsState(merged);
       saveLocalPrefs(merged);
     }
@@ -121,6 +126,7 @@ export function AppProvider({ children }) {
 
   const logout = useCallback(() => {
     tokenStore.clear();
+    cacheUser(null);
     window.google?.accounts?.id?.disableAutoSelect(); // don't silently re-sign-in with Google
     setUser(null);
     setJobs([]);
@@ -129,13 +135,14 @@ export function AppProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    onUnauthorized(() => { setUser(null); setAuthStatus('anon'); });
+    onUnauthorized(() => { cacheUser(null); setUser(null); setAuthStatus('anon'); });
     if (!tokenStore.get()) return;
     api.auth.me()
       .then((u) => {
+        cacheUser(u);
         setUser(u);
         if (u.preferences && Object.keys(u.preferences).length) {
-          const merged = mergePrefs(loadLocalPrefs(), u.preferences);
+          const merged = mergePrefs(loadLocalPrefs(), upgradePrefs(u.preferences));
           setPrefsState(merged);
           saveLocalPrefs(merged);
         }
@@ -144,8 +151,8 @@ export function AppProvider({ children }) {
       })
       .catch((err) => {
         // Keep the session when merely offline; drop it only when the token is rejected.
-        if (err.status === 401) setAuthStatus('anon');
-        else { setUser({ name: 'Reader', email: '', offline: true }); setAuthStatus('authed'); }
+        if (err.status === 401) { cacheUser(null); setAuthStatus('anon'); }
+        else { setUser((u) => u || { name: 'Reader', email: '', offline: true }); setAuthStatus('authed'); }
       });
   }, [loadJobs]);
 

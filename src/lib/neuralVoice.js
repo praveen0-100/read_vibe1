@@ -18,16 +18,18 @@ export class NeuralClips {
   constructor(synth, voice) {
     this.synth = synth;
     this.voice = voice;
-    this.clips = new Map(); // text → Promise<{url, words, timing}>
+    this.clips = new Map(); // `${voice}|${text}` → Promise<{url, words, timing}>
   }
 
   /** Promise of {url, words:[[charOffset, length, start, duration]], timing:'ms'|'fraction'} for a sentence. */
-  get(text) {
-    let hit = this.clips.get(text);
+  /** `delivery`: {emotion, shift} — how the line should sound (see lib/stageDirections, backend tts.PRESETS). */
+  get(text, voice = this.voice, delivery = null) {
+    const key = `${voice}|${delivery?.emotion || ''}|${delivery?.shift || 0}|${text}`;
+    let hit = this.clips.get(key);
     if (hit) return hit;
-    hit = this.synth(text, this.voice).then((r) => ({ url: toBlobUrl(r.audio, r.mime), words: r.words || [], timing: r.timing }));
-    hit.catch(() => this.clips.delete(text)); // let a later attempt retry
-    this.clips.set(text, hit);
+    hit = this.synth(text, voice, delivery).then((r) => ({ url: toBlobUrl(r.audio, r.mime), words: r.words || [], timing: r.timing }));
+    hit.catch(() => this.clips.delete(key)); // let a later attempt retry
+    this.clips.set(key, hit);
     if (this.clips.size > MAX_CLIPS) {
       const [oldest] = this.clips.keys();
       this.clips.get(oldest)?.then((c) => URL.revokeObjectURL(c.url), () => {});

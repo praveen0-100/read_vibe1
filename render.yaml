@@ -17,8 +17,9 @@ services:
         value: production
       - key: READVIBE_JWT_SECRET
         generateValue: true
-      - key: READVIBE_DATABASE_URL
-        value: sqlite:////data/readvibe.db
+      # DATABASE: the free plan's disk is wiped on every restart, so SQLite (the default) loses all accounts.
+      # In the Render dashboard add READVIBE_DATABASE_URL = a free hosted Postgres URL (Supabase / Neon:
+      # postgresql://user:pass@host:5432/db). It is left out of this file so a re-sync never overwrites it.
       - key: READVIBE_STORAGE_DIR
         value: /data/storage
       - key: READVIBE_MAX_UPLOAD_MB
@@ -30,3 +31,5 @@ services:
         sync: false          # set in the dashboard to enable Google sign-in
       - key: READVIBE_ANTHROPIC_API_KEY
         sync: false          # optional: Claude-powered AI; local engine otherwise
+      - key: READVIBE_TRANSLATE_EMAIL
+        sync: false          # optional: any real e-mail address lifts the free translation allowance (~5k -> ~50k characters/day)

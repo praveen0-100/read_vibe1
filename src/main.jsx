@@ -1,12 +1,11 @@
 // ─── ReadVibe app root ────────────────────────────────────────────────────────
-import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { BookOpen, Headphones, Plus, Sparkles, Upload, X } from 'lucide-react';
 import { AppProvider, useApp } from './context/AppContext';
-import { useClickOutside } from './hooks/useAsync';
 import Sidebar, { MobileHeader, MobileNav } from './components/layout/Sidebar';
 import MiniReading from './components/layout/MiniReading';
+import QuickActions from './components/layout/QuickActions';
 import AIPanel from './components/ai/AIPanel';
 import SearchOverlay from './components/search/SearchOverlay';
 import UploadModal from './components/upload/UploadModal';
@@ -15,8 +14,11 @@ import ErrorBoundary from './components/ErrorBoundary';
 import LoginPage from './pages/LoginPage';
 import './styles/app.css';
 import './styles/mobile.css';
+import './styles/overview.css';
+import './styles/indic.css';
 import './styles/responsive.css';
 import { installUiScale } from './lib/uiScale';
+import { warmUp } from './api/client';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const LibraryPage = lazy(() => import('./pages/LibraryPage'));
@@ -28,41 +30,25 @@ const NotesPage = lazy(() => import('./pages/NotesPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
-function QuickActions() {
-  const { setUploadOpen, openAI } = useApp();
-  const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  useClickOutside(ref, () => setOpen(false), open);
-  const actions = [
-    { label: 'Upload document', icon: Upload, run: () => setUploadOpen(true) },
-    { label: 'Continue reading', icon: BookOpen, run: () => navigate('/read') },
-    { label: 'Generate audio', icon: Headphones, run: () => navigate('/audio?tab=generate') },
-    { label: 'Ask AI', icon: Sparkles, run: () => openAI({ tab: 'chat' }) },
-  ];
-  return (
-    <div className={`quick-actions ${open ? 'open' : ''}`} ref={ref}>
-      {open && (
-        <div className="quick-menu" role="menu">
-          {actions.map((a) => (
-            <button key={a.label} role="menuitem" onClick={() => { setOpen(false); a.run(); }}>
-              <span>{a.label}</span><i><a.icon size={16} /></i>
-            </button>
-          ))}
-        </div>
-      )}
-      <button className="quick-fab" onClick={() => setOpen((o) => !o)} aria-label={open ? 'Close quick actions' : 'Quick actions'} aria-expanded={open}>
-        {open ? <X size={22} /> : <Plus size={22} />}
-      </button>
-    </div>
-  );
-}
-
 function Shell() {
   const { authStatus, setSearchOpen, setUploadOpen, openAI, closeAI, toggleSidebar, sidebarCollapsed, ai } = useApp();
   const location = useLocation();
   const navigate = useNavigate();
   const inReader = location.pathname.startsWith('/read');
+
+  // The phone dock (mini player stacked on the tab bar) is one box; its measured height becomes --dock-h so every page can
+  // reserve exactly that much room at its end and toasts sit just above it.
+  const [dock, setDock] = useState(null); // a state-backed ref: the dock only exists once signed in, so measure the moment it attaches
+  useEffect(() => {
+    const el = dock;
+    const root = document.documentElement;
+    if (!el) { root.style.removeProperty('--dock-h'); return undefined; }
+    const publish = () => root.style.setProperty('--dock-h', `${el.offsetHeight}px`);
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+    return () => { ro.disconnect(); root.style.removeProperty('--dock-h'); };
+  }, [dock]);
 
   // The scroll container persists across routes, so start each page at the top.
   useEffect(() => {
@@ -118,8 +104,12 @@ function Shell() {
             </Suspense>
           </ErrorBoundary>
         </main>
-        {!inReader && <MiniReading />}
-        {!inReader && <MobileNav />}
+        {!inReader && (
+          <div className="dock" ref={setDock}>
+            <MiniReading />
+            <MobileNav />
+          </div>
+        )}
       </div>
       <AIPanel />
       <SearchOverlay />
@@ -144,6 +134,7 @@ function Root() {
 }
 
 installUiScale();
+warmUp(); // start waking a sleeping API while the app itself loads
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>

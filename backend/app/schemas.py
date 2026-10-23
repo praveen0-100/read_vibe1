@@ -259,6 +259,17 @@ class ExportIn(BaseModel):
         return v.lower()
 
 
+class CastIn(BaseModel):
+    names: list[str] = Field(max_length=40)
+
+
 class TTSIn(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
     voice: str | None = Field(default=None, max_length=120)
+    emotion: str | None = Field(default=None, max_length=20)  # how the line should sound (see services/tts.PRESETS)
+    pitch_shift: int = Field(default=0, ge=-20, le=20)  # Hz; keeps characters in a dialogue apart
+
+
+class OverviewIn(AIScope):
+    language: str = Field(min_length=2, max_length=5)
+    format: Literal["conversation", "narrative"] = "conversation"

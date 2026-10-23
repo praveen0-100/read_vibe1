@@ -123,15 +123,22 @@ function AudioSettings() {
   const [voices, setVoices] = useState([]);
   const [neural, setNeural] = useState([]); // natural voices offered by the server
   const [testing, setTesting] = useState(false);
+  const [langs, setLangs] = useState([]); // language catalogue: Tamil, Telugu, Malayalam, Kannada first
   useEffect(() => { loadVoices().then(setVoices); }, []);
+  useEffect(() => { api.tts.languages().then(setLangs).catch(() => setLangs([])); }, []);
   useEffect(() => { api.tts.voices().then(setNeural).catch(() => setNeural([])); }, []);
   const au = prefs.audio;
   const natural = neural.length > 0 && au.engine !== 'device';
-  const groups = useMemo(() => {
-    const out = new Map();
-    neural.filter((v) => v.featured).forEach((v) => out.set(v.group, [...(out.get(v.group) || []), v]));
-    return [...out.entries()];
-  }, [neural]);
+  const previewLang = async (l, voice) => {
+    setTesting(true);
+    try {
+      const r = await api.tts.synthesize(l.sample, voice);
+      const audio = new Audio(`data:${r.mime};base64,${r.audio}`);
+      audio.playbackRate = au.rate;
+      audio.onended = () => setTesting(false);
+      await audio.play();
+    } catch { setTesting(false); }
+  };
   const test = async () => {
     const line = 'This is how ReadVibe will read to you.';
     if (!natural) { speak(line, { rate: au.rate, voice: pickVoice(voices, au.voice, au.tone) }); return; }
@@ -149,16 +156,24 @@ function AudioSettings() {
       {neural.length > 0 && (
         <Switch label="Natural voices" description="Human-sounding narration with real accents. Turn off to use your device’s own voices offline." checked={au.engine !== 'device'} onChange={(v) => setPrefs({ audio: { engine: v ? 'natural' : 'device' } })} />
       )}
-      {natural && (
-        <label className="setting-line">Voice &amp; accent
-          <select value={au.naturalVoice} onChange={(e) => setPrefs({ audio: { naturalVoice: e.target.value } })}>
-            {groups.map(([group, list]) => (
-              <optgroup key={group} label={group}>
-                {list.map((v) => <option key={v.id} value={v.id}>{v.name} · {v.gender}{v.style ? ` · ${v.style}` : ''}</option>)}
-              </optgroup>
-            ))}
-          </select>
-        </label>
+      {natural && langs.length > 0 && (
+        <div className="voice-langs" role="group" aria-label="Voices by language">
+          <div className="voice-langs-head"><strong>Voices by language</strong><small>Documents are read in their own language automatically — Southern languages first.</small></div>
+          {langs.filter((l) => l.has_voice).map((l) => {
+            const options = neural.filter((v) => v.lang === l.code);
+            const chosen = l.code === 'en' ? au.naturalVoice : (au.langVoices?.[l.code] || l.voices[0]?.id);
+            return (
+              <div key={l.code} className="voice-lang-row">
+                <span className="voice-lang-name"><b lang={l.code}>{l.native}</b><small>{l.name}</small></span>
+                <select value={chosen} aria-label={`${l.name} voice`}
+                  onChange={(e) => setPrefs({ audio: l.code === 'en' ? { naturalVoice: e.target.value } : { langVoices: { ...au.langVoices, [l.code]: e.target.value } } })}>
+                  {(options.length ? options : l.voices.map((v) => ({ ...v, id: v.id }))).map((v) => <option key={v.id} value={v.id}>{v.name} · {v.gender}</option>)}
+                </select>
+                <button className="secondary-button sm" onClick={() => previewLang(l, chosen)} disabled={testing} aria-label={`Preview ${l.name} voice`}><Play size={12} /></button>
+              </div>
+            );
+          })}
+        </div>
       )}
       <Segmented size="sm" value={au.tone} onChange={(v) => setPrefs({ audio: { tone: v } })} label="Default tone" options={['Regular', 'Humor', 'Tough']} />
       <Slider label="Default speed" value={au.rate} min={0.5} max={3} step={0.25} onChange={(v) => setPrefs({ audio: { rate: v } })} format={(v) => `${v}×`} />

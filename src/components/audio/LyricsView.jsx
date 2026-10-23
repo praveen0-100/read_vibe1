@@ -7,18 +7,24 @@ const WORD = /\S+\s*/g;
 /** [{text, start}] — each word with trailing space, and its offset inside the sentence. */
 const wordsOf = (text) => [...text.matchAll(WORD)].map((m) => ({ text: m[0], start: m.index }));
 
-const Line = memo(function Line({ text, index, distance, char, onSeek }) {
+const Line = memo(function Line({ text, index, distance, char, who, speaker, silent, onSeek }) {
   const current = distance === 0;
-  const words = useMemo(() => (current ? wordsOf(text) : null), [current, text]);
+  const words = useMemo(() => (current && !silent ? wordsOf(text) : null), [current, silent, text]);
   const opacity = current ? 1 : Math.max(0.16, 0.62 - (distance - 1) * 0.14);
   const blur = current || distance < 3 ? 0 : Math.min(3.5, (distance - 2) * 0.9);
   return (
-    <div className={`lyric-line ${current ? 'current' : ''}`} style={{ opacity, filter: blur ? `blur(${blur}px)` : undefined }}
+    <div className={`lyric-line ${current ? 'current' : ''} ${silent ? 'lyric-direction' : ''}`} style={{ opacity, filter: blur ? `blur(${blur}px)` : undefined }}
       aria-current={current ? 'true' : undefined}>
-      {current ? words.map((w, i) => {
+      {who && <span className={`lyric-who ${speaker}`}>{who}</span>}
+      {current && !silent ? words.map((w, i) => {
         const next = words[i + 1]?.start ?? Infinity;
         const state = char >= next ? 'sung' : char >= w.start ? 'now' : 'next';
-        return <button key={w.start} type="button" className={`lyric-word ${state}`} onClick={() => onSeek(index, w.start)}>{w.text}</button>;
+        // the space sits outside the button: a button's own trailing whitespace is trimmed, which glued words together
+        return (
+          <React.Fragment key={w.start}>
+            <button type="button" className={`lyric-word ${state}`} onClick={() => onSeek(index, w.start)}>{w.text.trimEnd()}</button>{' '}
+          </React.Fragment>
+        );
       }) : (
         <button type="button" className="lyric-whole" onClick={() => onSeek(index, 0)}>{text}</button>
       )}
@@ -26,7 +32,8 @@ const Line = memo(function Line({ text, index, distance, char, onSeek }) {
   );
 });
 
-export default function LyricsView({ narrator, reducedMotion = false, className = '' }) {
+/** `speakers`: {host_a: {name}, …} — shows who is speaking at the start of each turn. `lang`: language code of the text. */
+export default function LyricsView({ narrator, reducedMotion = false, className = '', lang, speakers }) {
   const [pos, setPos] = useState(() => ({ chapter: narrator.chapter, segment: narrator.segment, playing: narrator.playing, char: narrator.charIndex || 0 }));
   const boxRef = useRef(null);
   const currentRef = useRef(null);
@@ -54,13 +61,14 @@ export default function LyricsView({ narrator, reducedMotion = false, className 
   if (!segments.length) return <div className={`lyrics ${className}`}><p className="lyrics-empty">Nothing to show yet.</p></div>;
 
   return (
-    <div className={`lyrics ${className}`} ref={boxRef} aria-label="Synced text">
+    <div className={`lyrics ${className}`} ref={boxRef} lang={lang} aria-label="Synced text">
       {!pos.playing && pos.segment === 0 && !pos.char && <div className="lyrics-dots" aria-hidden="true"><i /><i /><i /></div>}
       {segments.map((seg, i) => {
         const distance = Math.abs(i - pos.segment);
         return (
           <div key={i} ref={distance === 0 ? currentRef : undefined} className="lyric-wrap">
-            <Line text={seg.text} index={i} distance={Math.min(distance, 8)} char={distance === 0 ? pos.char : 0} onSeek={seek} />
+            <Line text={seg.text} index={i} distance={Math.min(distance, 8)} char={distance === 0 ? pos.char : 0}
+              who={speakers && seg.first ? speakers[seg.speaker]?.name : null} speaker={seg.speaker} silent={seg.silent} onSeek={seek} />
           </div>
         );
       })}

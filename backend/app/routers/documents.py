@@ -11,6 +11,7 @@ from ..deps import DB, CurrentUser, get_owned, get_owned_document
 from ..models import Audiobook, Bookmark, Chapter, Document, Highlight, utcnow
 from ..schemas import (
     BookmarkCreate,
+    CastIn,
     DocumentCreateText,
     DocumentUpdate,
     HighlightCreate,
@@ -18,7 +19,7 @@ from ..schemas import (
     ProgressUpdate,
 )
 from ..serializers import bookmark_out, document_out, highlight_out
-from ..services import extraction, ingest, storage
+from ..services import cast, extraction, ingest, storage
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -264,3 +265,11 @@ def delete_bookmark(bookmark_id: str, user: CurrentUser, db: DB):
     b = get_owned(db, Bookmark, user, bookmark_id, "Bookmark")
     db.delete(b)
     db.commit()
+
+
+@router.post("/{doc_id}/cast")
+def cast_hints(doc_id: str, body: CastIn, user: CurrentUser, db: DB):
+    """Which of these characters are men and which are women, from the whole document's own words (None = unclear)."""
+    doc = get_owned_document(db, user, doc_id)
+    text = "\n".join(c.content for c in doc.chapters)[:1_500_000]
+    return {"hints": cast.hints(text, body.names)}

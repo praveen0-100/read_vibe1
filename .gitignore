@@ -13,3 +13,7 @@ __pycache__/
 # Runtime data (database, uploaded files, recordings)
 backend/data/
 *.part
+
+# Local dev logs
+.api.log
+.tmp-*

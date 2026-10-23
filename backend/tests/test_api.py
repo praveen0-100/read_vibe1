@@ -354,7 +354,7 @@ def test_tts_aligns_words_and_caches(client, auth, monkeypatch):
 
     calls = []
 
-    async def fake_edge(text, voice):
+    async def fake_edge(text, voice, delivery):
         calls.append(voice)
         words = [(0, 300, "Hello"), (300, 250, "world,"), (550, 200, "again")]
         return b"ID3fake-mp3", tts._align(text, words), "ms"
@@ -378,3 +378,11 @@ def test_tts_rejects_unknown_provider_and_requires_auth(client, auth):
     assert client.post("/api/tts/synthesize", json={"text": "hi"}).status_code == 401
     r = client.post("/api/tts/synthesize", headers=auth, json={"text": "hi", "voice": "nope:voice"})
     assert r.status_code == 502 and "isn’t available" in r.json()["detail"]
+
+
+def test_hosted_postgres_urls_are_normalised():
+    from app.database import _normalise_url
+
+    assert _normalise_url("postgres://u:p@h:5432/db") == "postgresql+psycopg://u:p@h:5432/db"
+    assert _normalise_url("postgresql://u:p@h/db") == "postgresql+psycopg://u:p@h/db"
+    assert _normalise_url("sqlite:////data/x.db") == "sqlite:////data/x.db"

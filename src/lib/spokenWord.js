@@ -4,7 +4,7 @@
 
 export const supportsHighlights = typeof CSS !== 'undefined' && 'highlights' in CSS && typeof Highlight !== 'undefined';
 
-const WORD_CHAR = /[\p{L}\p{N}'’_-]/u;
+const WORD_CHAR = /[\p{L}\p{M}\p{N}'’_\-\u200c\u200d]/u; // \p{M}: vowel signs of Indian scripts belong to the word
 const TOLERANCE = 4; // px of slack around a word's box when hit-testing a tap
 
 /** DOM Range covering [from, to) of an element's text content. */

@@ -14,6 +14,9 @@ SUPPORTED_FORMATS = {"pdf", "epub", "docx", "pptx", "odt", "txt", "md", "markdow
 _CHAPTER_RE = re.compile(
     r"^\s*(?:(?:chapter|part|book|section)\s+(?:[0-9]+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|"
     r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b.{0,80}"
+    # "Chapter N" in Indian languages: Tamil, Telugu, Malayalam, Kannada, Hindi/Marathi, Bengali, Gujarati, Punjabi, Odia, Urdu
+    r"|(?:அத்தியாயம்|பாகம்|பகுதி|అధ్యాయం|భాగం|അധ്യായം|ഭാഗം|ಅಧ್ಯಾಯ|ಭಾಗ|अध्याय|भाग|অধ্যায়|પ્રકરણ|ਅਧਿਆਇ|ଅଧ୍ୟାୟ|باب|فصل)"
+    r"\s*[0-9०-९০-৯੦-੯૦-૯௦-௯౦-౯೦-೯൦-൯]+.{0,80}"
     r"|(?:abstract|introduction|background|related work|literature review|methodology|methods|results|discussion|"
     r"conclusions?|references|acknowledg(?:e)?ments|prologue|epilogue|preface|foreword|appendix(?:\s+[a-z0-9]+)?)\s*$"
     r"|[0-9]{1,2}\.?\s+[A-Z][A-Za-z ,:'&-]{2,70}$)",

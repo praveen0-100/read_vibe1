@@ -28,16 +28,25 @@ log = logging.getLogger("readvibe")
 settings = get_settings()
 
 
+def _seed_in_background() -> None:
+    from .seed import seed_demo
+
+    try:
+        with SessionLocal() as db:
+            seed_demo(db)
+    except Exception:  # noqa: BLE001
+        log.exception("Demo seeding failed")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     if settings.environment == "production" and settings.jwt_secret.startswith("change-me"):
         raise RuntimeError("Set READVIBE_JWT_SECRET to a long random value before running in production")
     init_db()
     if settings.seed_demo_data:
-        from .seed import seed_demo
-
-        with SessionLocal() as db:
-            seed_demo(db)
+        # Seeding hashes passwords and builds documents; do it off the startup path so the port opens (and a
+        # sleeping free-tier instance answers its first request) sooner. /auth/demo seeds on demand as a fallback.
+        threading.Thread(target=_seed_in_background, daemon=True, name="seed-demo").start()
     log.info("ReadVibe API %s ready · AI provider: %s", __version__, llm.provider_name())
     yield
 

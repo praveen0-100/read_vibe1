@@ -282,6 +282,8 @@ input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border-radius
 .warning-line.info { color: var(--info); }
 .warning-line svg { margin-top: 2px; }
 .ok-line { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--success); }
+.form-hint { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; line-height: 1.45; color: var(--text-2, inherit); background: color-mix(in srgb, var(--accent, orange) 10%, transparent); border-radius: var(--radius-sm); padding: 8px 10px; }
+.form-hint > svg { flex: none; margin-top: 2px; }
 .form-error { font-size: 12px; color: var(--error); background: color-mix(in srgb, var(--error) 10%, transparent); border-radius: var(--radius-sm); padding: 8px 10px; }
 
 /* Tags */
@@ -557,7 +559,7 @@ button.doc-card:hover:not(:disabled), .doc-card:has(.doc-card-main:hover) { bord
 .audio-icon { color: var(--blue); }
 .fav-icon { color: var(--amber); }
 .pin-icon { color: var(--accent); }
-.doc-more { position: absolute; right: 8px; top: 8px; opacity: .55; transition: opacity var(--t); }
+.doc-more { flex-shrink: 0; align-self: flex-start; margin: -4px -4px 0 0; opacity: .55; transition: opacity var(--t); } /* in the flow: the card's text never runs underneath it */
 .doc-card:hover .doc-more, .doc-more:focus-within { opacity: 1; }
 
 /* ─── Library ─────────────────────────────────────────────────────────────── */
@@ -1461,7 +1463,6 @@ mark.search-hit { background: #ffd54a; color: #1a1400; border-radius: 2px; }
   .continue-content { gap: 16px; }
   .book-cover { width: 92px; height: 126px; padding: 11px 9px; }
   .continue-copy h2 { font-size: 20px; }
-  .quick-actions { right: 16px; bottom: calc(76px + env(safe-area-inset-bottom)); }
   .library-grid, .notes-grid { grid-template-columns: 1fr; }
   .search-field { width: 100%; }
   .library-toolbar { flex-direction: column; align-items: stretch; }

@@ -25,7 +25,7 @@ function highlightRanges(para, hl) {
   return [];
 }
 
-function Paragraph({ text, index, highlights, query, active, onHighlightClick }) {
+function Paragraph({ text, index, highlights, query, active, lead, onHighlightClick }) {
   const nodes = useMemo(() => {
     const ranges = [];
     highlights.forEach((h) => highlightRanges(text, h).forEach(([s, e]) => ranges.push({ s, e, h })));
@@ -61,17 +61,18 @@ function Paragraph({ text, index, highlights, query, active, onHighlightClick })
   const isHeading = text.length < 70 && /^#{1,3}\s/.test(text);
   if (isHeading) return <h3 data-p={index} className="in-chapter-heading">{text.replace(/^#+\s*/, '')}</h3>;
   const Tag = isQuote ? 'blockquote' : 'p';
-  return <Tag data-p={index} className={active ? 'reading-now' : undefined}>{nodes}</Tag>;
+  const isLead = lead && Tag === 'p' && text.split(' ').length <= 70;
+  return <Tag data-p={index} className={[active && 'reading-now', isLead && 'lead'].filter(Boolean).join(' ') || undefined}>{nodes}</Tag>;
 }
 
 const MemoParagraph = memo(Paragraph);
 
-function ChapterText({ content, highlights, query, activeParagraph, onHighlightClick, dropcap = true }) {
+function ChapterText({ content, highlights, query, activeParagraph, onHighlightClick, dropcap = true, lead = false }) {
   const paragraphs = useMemo(() => content.split(/\n\s*\n/).map(norm).filter(Boolean), [content]);
   return (
     <div className={`article-copy ${dropcap ? 'with-dropcap' : ''}`}>
       {paragraphs.map((p, i) => (
-        <MemoParagraph key={i} index={i} text={p} highlights={highlights} query={query} active={activeParagraph === i} onHighlightClick={onHighlightClick} />
+        <MemoParagraph key={i} index={i} text={p} highlights={highlights} query={query} active={activeParagraph === i} lead={lead && i === 0} onHighlightClick={onHighlightClick} />
       ))}
     </div>
   );
