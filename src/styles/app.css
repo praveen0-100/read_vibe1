@@ -483,6 +483,17 @@ input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border-radius
 .auth-card h2 { font-size: 24px; margin-bottom: 6px; }
 .auth-divider { display: flex; align-items: center; gap: 10px; color: var(--muted-2); font-size: 11px; }
 .auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.legal-page { height: 100vh; overflow-y: auto; background: var(--bg); color: var(--text); padding: 32px 16px 64px; }
+.legal-card { max-width: 720px; margin: 0 auto; line-height: 1.65; font-size: 14.5px; }
+.legal-card h1 { font-size: 30px; margin: 18px 0 4px; }
+.legal-card h2 { font-size: 16px; margin: 26px 0 6px; }
+.legal-card ul { padding-left: 20px; display: grid; gap: 6px; }
+.legal-card a { color: var(--accent); }
+.legal-back { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; text-decoration: none; }
+.legal-updated, .legal-other { color: var(--muted); font-size: 13px; }
+.legal-other { margin-top: 32px; }
+.auth-legal { text-align: center; font-size: 11.5px; color: var(--muted); }
+.auth-legal a { color: inherit; text-decoration: underline; }
 .auth-switch { text-align: center; font-size: 12.5px; color: var(--muted); }
 .auth-switch button { color: var(--accent); font-weight: 600; }
 

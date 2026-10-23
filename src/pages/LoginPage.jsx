@@ -1,6 +1,6 @@
 // ─── Sign in / sign up ────────────────────────────────────────────────────────
 import React, { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRight, AudioLines, BookOpen, Brain, Eye, EyeOff, Loader2, Moon, Sparkles } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { isWaking, onWaking } from '../api/client';
@@ -132,6 +132,7 @@ export default function LoginPage() {
               {mode === 'login' ? 'Create an account' : 'Sign in'}
             </button>
           </p>
+          <p className="auth-legal">By continuing you agree to our <Link to="/terms">Terms</Link> and <Link to="/privacy">Privacy Policy</Link>.</p>
         </form>
       </section>
     </div>

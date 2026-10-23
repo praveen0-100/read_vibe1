@@ -12,6 +12,7 @@ import UploadModal from './components/upload/UploadModal';
 import { ConfirmDialog, PageLoader, Toasts } from './components/ui';
 import ErrorBoundary from './components/ErrorBoundary';
 import LoginPage from './pages/LoginPage';
+import LegalPage from './pages/LegalPage';
 import './styles/app.css';
 import './styles/mobile.css';
 import './styles/overview.css';
@@ -125,6 +126,8 @@ function Root() {
     <>
       <Routes>
         <Route path="/login" element={authStatus === 'authed' ? <Navigate to="/" replace /> : <LoginPage />} />
+        <Route path="/privacy" element={<LegalPage kind="privacy" />} />
+        <Route path="/terms" element={<LegalPage kind="terms" />} />
         <Route path="/*" element={<Shell />} />
       </Routes>
       <Toasts />
