@@ -16,6 +16,7 @@ import LegalPage from './pages/LegalPage';
 import './styles/app.css';
 import './styles/mobile.css';
 import './styles/overview.css';
+import './styles/album.css';
 import './styles/indic.css';
 import './styles/responsive.css';
 import { installUiScale } from './lib/uiScale';

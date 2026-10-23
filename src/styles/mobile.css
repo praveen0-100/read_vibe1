@@ -136,7 +136,7 @@
 
 /* ─── Read-aloud player with synced text ───────────────────────────────────── */
 .mr-listen {
-  position: absolute; inset: 0; z-index: 30; display: flex; flex-direction: column; color: #fff;
+  position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; color: #fff; overflow: hidden auto; overscroll-behavior: contain;
   padding: calc(14px + env(safe-area-inset-top)) 22px calc(18px + env(safe-area-inset-bottom));
   background: linear-gradient(165deg, color-mix(in srgb, var(--accent) 38%, #2b1a12) 0%, #3a2519 42%, color-mix(in srgb, var(--accent) 30%, #4a2c16) 100%);
   animation: rise .22s var(--ease);
@@ -149,7 +149,7 @@
 .ls-mini-text strong { font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ls-mini-text span { font-size: 15px; color: rgba(255, 255, 255, .72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ls-cover { flex: 1; display: grid; align-content: center; justify-items: center; gap: 28px; min-height: 0; }
-.ls-art { zoom: 2.1; filter: drop-shadow(0 18px 30px rgba(0, 0, 0, .4)); }
+.ls-art { filter: drop-shadow(0 18px 30px rgba(0, 0, 0, .4)); }
 .ls-meta { justify-self: stretch; }
 .ls-meta h2 { font: 600 21px/1.25 var(--font-ui); color: #fff; margin: 0 0 4px; }
 .ls-meta p { color: rgba(255, 255, 255, .7); font-size: 15px; }
@@ -167,7 +167,7 @@
 .ls-progress .mr-scrub::-webkit-slider-runnable-track { background: linear-gradient(to right, rgba(255, 220, 200, .95) var(--fill, 0%), rgba(255, 255, 255, .28) var(--fill, 0%)); }
 .ls-progress .mr-scrub::-webkit-slider-thumb { width: 0; height: 0; margin: 0; }
 .ls-progress .mr-scrub::-moz-range-thumb { width: 0; height: 0; }
-.ls-times { display: flex; justify-content: space-between; font-size: 14px; color: rgba(255, 255, 255, .6); margin-top: -2px; font-variant-numeric: tabular-nums; }
+.ls-times { display: flex; justify-content: center; font-size: 14px; color: rgba(255, 255, 255, .6); margin-top: -2px; font-variant-numeric: tabular-nums; }
 .ls-controls { display: flex; justify-content: space-around; align-items: center; padding: 16px 12px 10px; }
 .ls-controls button { color: #fff; display: grid; place-items: center; width: 72px; height: 72px; border-radius: 50%; }
 .ls-controls button:disabled { opacity: .35; }
@@ -297,7 +297,8 @@
 .ls-meta-text { min-width: 0; flex: 1; }
 .ls-meta h2 { font-size: 22px; }
 .ls-meta p { color: rgba(255, 220, 200, .85); font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ls-art { zoom: 2.4; }
+/* Cover sized from the viewport (no `zoom`, which pushed it past the right edge on narrow phones) */
+.ls-art { width: min(78vw, 340px, 40dvh); max-width: 100%; }
 .ls-badge { padding: 4px 12px; border-radius: 8px; background: rgba(255, 255, 255, .16); color: rgba(255, 255, 255, .85); font-size: 13px; font-weight: 600; margin-top: -2px; }
 .ls-times { align-items: center; }
 .mr-listen .ls-progress .mr-scrub { height: 20px; }

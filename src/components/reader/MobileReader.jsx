@@ -169,7 +169,7 @@ export default function MobileReader({
   doc, chapter, chapterIndex, chapterLoading, highlights, allHighlights, searchQuery, setSearchQuery, searchOpen, setSearchOpen,
   bookmarks, onToggleBookmark, onDeleteBookmark, onHighlightClick, goChapter, setMode,
   surfaceRef, articleRef, ratioRef, pendingScroll, pendingFind, saveProgress, lastActivity,
-  narrator, listen, startListening, segMeta, onWordTap, lang = 'en', onOverview, offlineMode, saveOffline, downloadOriginal, navigate, openAI, notify, children,
+  narrator, listen, startListening, segMeta, onWordTap, lang = 'en', onOverview, languageToggle, offlineMode, saveOffline, downloadOriginal, navigate, openAI, notify, children,
 }) {
   const { prefs } = useApp();
   const r = prefs.reading;
@@ -500,6 +500,7 @@ export default function MobileReader({
       {/* bottom chrome: contents + page scrubber */}
       <div className="mr-bar mr-bottom" aria-hidden={!chrome}>
         <button onClick={() => setSheet('contents')} aria-label="Contents" tabIndex={chrome ? 0 : -1}><List size={20} /></button>
+        {languageToggle}
         <input type="range" className="mr-scrub" min={1} max={progress.totalPages} value={scrub ?? progress.globalPage} aria-label="Page"
           tabIndex={chrome ? 0 : -1} style={{ '--fill': `${(((scrub ?? progress.globalPage) - 1) / Math.max(1, progress.totalPages - 1)) * 100}%` }}
           onChange={(e) => setScrub(+e.target.value)}

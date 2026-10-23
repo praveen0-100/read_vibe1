@@ -213,6 +213,7 @@ export const api = {
 
   ai: {
     overview: (data) => post('/ai/overview', data),
+    translate: (texts, target, source = 'en') => post('/ai/translate', { texts, target, source }),
     status: () => get('/ai/status'),
     summarize: (document_id, chapter_index, depth) => post('/ai/summarize', { document_id, chapter_index, depth }),
     explain: (text, mode, document_id) => post('/ai/explain', { text, mode, document_id }),

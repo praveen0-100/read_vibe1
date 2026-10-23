@@ -19,6 +19,8 @@ import { chunkAtSpaces, detectLanguage, SENTENCE_RE, speechTag } from '../lib/la
 import { findSpeakers, splitParagraph, stripDirections } from '../lib/stageDirections';
 import { useNaturalVoice } from '../hooks/useNaturalVoice';
 import OverviewLauncher from '../components/audio/OverviewLauncher';
+import ReadLanguage from '../components/reader/ReadLanguage';
+import { useChapterTranslation } from '../hooks/useChapterTranslation';
 import OverviewSheet from '../components/audio/OverviewSheet';
 import { clearSpokenWord, showSpokenWord, wordAtPoint } from '../lib/spokenWord';
 import { VibePlayer } from '../lib/vibeMusic';
@@ -77,7 +79,13 @@ function Reader({ docId }) {
   const [offlineMode, setOfflineMode] = useState(false);
   const offlinePkg = useRef(null);
   const [chapterIndex, setChapterIndex] = useState(null);
-  const [chapter, setChapter] = useState(null);
+  const [rawChapter, setChapter] = useState(null);
+  // the reader's chosen language for this document ('orig' = as written); the page, read-aloud and transcript all follow it
+  const langKey = `readvibe.readlang.${docId}`;
+  const [readLang, setReadLangState] = useState(() => { try { return localStorage.getItem(langKey) || 'orig'; } catch { return 'orig'; } });
+  const setReadLang = (code) => { setReadLangState(code); try { localStorage.setItem(langKey, code); } catch { /* private mode */ } };
+  const sourceLang = useMemo(() => detectLanguage(rawChapter?.content), [rawChapter]);
+  const { chapter, status: tr } = useChapterTranslation(rawChapter, readLang, sourceLang);
   const [chapterLoading, setChapterLoading] = useState(false);
   const chapterCache = useRef(new Map());
   const [highlights, setHighlights] = useState([]);
@@ -189,7 +197,7 @@ function Reader({ docId }) {
     pendingScroll.current = null;
     const top = el.getBoundingClientRect().top + main.scrollTop - main.getBoundingClientRect().top;
     main.scrollTop = r > 0.01 ? top + r * (el.scrollHeight - main.clientHeight * 0.6) - main.clientHeight * 0.25 : Math.max(0, top - 140);
-  }, [chapter, getScroller]);
+  }, [rawChapter, getScroller]);
 
   const saveTimer = useRef(null);
   const saveProgress = useCallback((immediate = false) => {
@@ -291,6 +299,14 @@ function Reader({ docId }) {
   const segParagraphs = useRef([]);
   const voiceRef = useRef(null);
   const nv = useNaturalVoice();
+  useEffect(() => { if (tr.error) notify(`Translation failed: ${tr.error}`, 'error'); }, [tr.error]); // eslint-disable-line
+  useEffect(() => { if (tr.note) notify(tr.note, 'warning'); }, [tr.note]); // eslint-disable-line
+  const langToggle = (compact) => (
+    <ReadLanguage languages={nv.languages} value={readLang} onChange={setReadLang} status={tr} sourceLang={sourceLang} compact={compact} />
+  );
+  const translateBanner = tr.running && (
+    <div className="translate-banner" role="status"><Loader2 size={14} className="spin" /> Translating this page… <span className="tb-bar"><i style={{ width: `${tr.progress}%` }} /></span> {tr.progress}%</div>
+  );
   const deviceVoices = useRef([]);
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [overviewLang, setOverviewLang] = useState(null); // null until the user picks one: the dropdown then shows its placeholder
@@ -688,12 +704,13 @@ function Reader({ docId }) {
         surfaceRef={surfaceRef} articleRef={articleRef} ratioRef={ratioRef} pendingScroll={pendingScroll} pendingFind={pendingFind}
         saveProgress={saveProgress} lastActivity={lastActivity}
         narrator={narrator} listen={listen} startListening={startListening} segMeta={segMeta} onWordTap={onWordTap}
-        lang={chapterLang} onOverview={() => openOverview()}
+        lang={chapterLang} onOverview={() => openOverview()} languageToggle={langToggle(true)}
         offlineMode={offlineMode} saveOffline={saveOffline}
         downloadOriginal={() => api.documents.downloadFile(docId).catch((e) => notify(e.message, 'error'))}
         navigate={navigate} openAI={openAI} notify={notify}
       >
-        {overviewOpen && <OverviewSheet doc={doc} chapterIndex={chapterIndex} chapterTitle={chapter?.title} sourceLang={chapterLang} initialLang={overviewLang} onClose={() => setOverviewOpen(false)} />}
+        {translateBanner}
+        {overviewOpen && <OverviewSheet doc={doc} chapterIndex={chapterIndex} chapterTitle={chapter?.title} sourceLang={sourceLang} initialLang={overviewLang} onClose={() => setOverviewOpen(false)} />}
         <SelectionToolbar pos={selection?.pos} onAction={onSelectionAction} />
         <WordMenu menu={wordMenu} onAction={onWordAction} />
         {hlPop && (
@@ -713,6 +730,7 @@ function Reader({ docId }) {
       {mode === 'Vibe' && <VibeVisualizer playing={music.playing} getLevels={getLevels} hue={vibePreset.hue} intensity={prefs.vibe.intensity} />}
       {r.ruler && ruler != null && <div className="reading-ruler" style={{ top: ruler - 22 }} aria-hidden="true" />}
 
+      {translateBanner}
       <header className="reader-top">
         <button className="back-button" onClick={() => navigate('/library')} aria-label="Back to library"><ArrowLeft size={17} /></button>
         <div className="reader-title">
@@ -721,6 +739,7 @@ function Reader({ docId }) {
         </div>
         {offlineMode && <span className="offline-chip"><WifiOff size={12} /> Offline copy</span>}
         <div className="reader-actions">
+          {langToggle(false)}
           <button className="toc-toggle" onClick={() => setTocOpen((o) => !o)} aria-label="Contents" aria-expanded={tocOpen}><List size={17} /></button>
           <button onClick={() => setSearchOpen((s) => !s)} aria-label="Search in document (Ctrl+F)" className={searchOpen ? 'active' : ''}><Search size={17} /></button>
           <button onClick={toggleBookmark} aria-label={currentBookmark ? 'Remove bookmark (B)' : 'Bookmark this position (B)'} className={currentBookmark ? 'active' : ''}>
@@ -778,7 +797,7 @@ function Reader({ docId }) {
         </aside>
 
         <article className="reading-surface" ref={surfaceRef} style={surfaceStyle} aria-busy={chapterLoading}>
-          {overviewOpen && <OverviewSheet doc={doc} chapterIndex={chapterIndex} chapterTitle={chapter?.title} sourceLang={chapterLang} initialLang={overviewLang} onClose={() => setOverviewOpen(false)} />}
+          {overviewOpen && <OverviewSheet doc={doc} chapterIndex={chapterIndex} chapterTitle={chapter?.title} sourceLang={sourceLang} initialLang={overviewLang} onClose={() => setOverviewOpen(false)} />}
           <SelectionToolbar pos={selection?.pos} onAction={onSelectionAction} />
           <WordMenu menu={wordMenu} onAction={onWordAction} />
           {hlPop && (

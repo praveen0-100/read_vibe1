@@ -2,17 +2,27 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  BookOpen, Bookmark, Check, ChevronDown, Clock, Download, FastForward, Headphones, Loader2, Pause, Play, Plus,
-  Quote, Rewind, SkipBack, SkipForward, Smile, Trash2, Users, Volume2, Zap,
+  BookOpen, Bookmark, Check, ChevronDown, Clock, Download, FastForward, Headphones, ListMusic, ListPlus, Loader2, Pause, Play, Plus,
+  Quote, Repeat, Repeat1, Rewind, Shuffle, SkipBack, SkipForward, Smile, Trash2, Users, Volume2, Zap,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
 import { useQuery } from '../hooks/useAsync';
-import { formatClock, formatDuration, timeAgo } from '../lib/format';
-import { loadVoices, Narrator, pickVoice, speak, speechSupported } from '../lib/speech';
+import { formatClock, formatDuration } from '../lib/format';
+import { playlistActions, usePlaylists } from '../lib/playlists';
+import { queueActions, slim, useQueue } from '../lib/queue';
+import { detectLanguage, speechTag } from '../lib/languages';
+import { loadVoices, Narrator, pickVoice, pickVoiceForLang, speak, speechSupported } from '../lib/speech';
+import { useNaturalVoice } from '../hooks/useNaturalVoice';
+import { useScriptTranslation } from '../hooks/useScriptTranslation';
+import ReadLanguage from '../components/reader/ReadLanguage';
 import { Cover, EmptyState, ErrorState, Menu, PageLoader, ProgressBar, Skeleton, Switch, Tabs } from '../components/ui';
+import AlbumArt from '../components/audio/AlbumArt';
 import CollabStudio from '../components/audio/CollabStudio';
 import LyricsView from '../components/audio/LyricsView';
+import { AlbumGrid, NewPlaylistModal, PlaylistsView } from '../components/audio/LibraryViews';
+import QueuePanel from '../components/audio/QueuePanel';
+import PowerSeek from '../components/audio/PowerSeek';
 
 const TONE_META = {
   Regular: { icon: BookOpen, badge: 'Most used', color: 'var(--accent)' },
@@ -29,8 +39,10 @@ function useVoices() {
 }
 
 // ─── Player ───────────────────────────────────────────────────────────────────
-function Player({ bookId, onBack }) {
+function Player({ bookId, visible = true, autoplay = false, library = [], onNavigate, onOpen, onNewPlaylist, onPlayingChange }) {
   const { prefs, setPrefs, notify } = useApp();
+  const { queue, history, shuffle, repeat } = useQueue();
+  const { lists } = usePlaylists();
   const voices = useVoices();
   const book = useQuery(() => api.audio.get(bookId), [bookId]);
   const narrator = useMemo(() => new Narrator(), []);
@@ -43,25 +55,58 @@ function Player({ bookId, onBack }) {
   const [bookmarks, setBookmarks] = useState([]);
   const listened = useRef(0);
   const saveRef = useRef(null);
+  const autoplayed = useRef(false);
+  const nv = useNaturalVoice();
+  const [tlang, setTlangState] = useState(() => { try { return localStorage.getItem('readvibe.audiolang') || 'orig'; } catch { return 'orig'; } });
+  const setTlang = (code) => { setTlangState(code); try { localStorage.setItem('readvibe.audiolang', code); } catch { /* private mode */ } };
+  const sourceLang = useMemo(() => detectLanguage((book.data?.script || []).slice(0, 2).flatMap((c) => c.segments.slice(0, 20).map((x) => x.text)).join(' ')), [book.data]);
+  const { script: viewScript, status: tr } = useScriptTranslation(book.data?.script, tlang, sourceLang);
+  const viewLang = tr.ready ? tlang : sourceLang;
+  useEffect(() => { if (tr.error) notify(`Translation failed: ${tr.error}`, 'error'); }, [tr.error]); // eslint-disable-line
+  useEffect(() => { if (tr.note) notify(tr.note, 'warning'); }, [tr.note]); // eslint-disable-line
 
   useEffect(() => () => narrator.destroy(), [narrator]);
+  // goes to the next album in the queue; returns false when there is none
+  const goNext = useRef(() => false);
+  goNext.current = (auto) => {
+    if (!book.data) return false;
+    const id = queueActions.advance(book.data, { auto });
+    if (!id) return false;
+    onNavigate(id, { autoplay: true });
+    return true;
+  };
   useEffect(() => narrator.on((s) => {
     setSt(s);
     setCharIndex(s.charIndex ?? null);
     if (s.chapterEnded != null && sleep === -1) { narrator.pause(); notify('Sleep timer: stopped at the end of the chapter', 'info'); setSleep(0); }
-    if (s.finished) notify('Audiobook finished 🎧');
+    if (s.finished) {
+      if (sleep === -1) { setSleep(0); notify('Sleep timer: stopped at the end of the audiobook', 'info'); return; }
+      if (!goNext.current(true)) notify('Audiobook finished 🎧');
+    }
   }), [narrator, sleep, notify]);
+
+  const playingNow = !!st.playing;
+  useEffect(() => { onPlayingChange?.(playingNow); }, [playingNow]); // eslint-disable-line
 
   // load script once book + voices are known
   useEffect(() => {
     const b = book.data;
     if (!b || b.status !== 'ready') return;
-    const voice = pickVoice(voices, b.voice || prefs.audio.voice, b.tone);
-    narrator.load(b.script, { rate: b.rate * rate, pitch: b.pitch, voice, chapter: b.position_chapter, segment: b.position_segment });
+    const foreign = viewLang !== 'en';
+    const voice = foreign ? pickVoiceForLang(voices, viewLang) : pickVoice(voices, b.voice || prefs.audio.voice, b.tone);
+    // a re-load (translation arrived, voices appeared) keeps the listener's place and keeps playing
+    const live = narrator.script.length > 0;
+    const wasPlaying = live && narrator.playing;
+    narrator.load(viewScript, {
+      rate: b.rate * rate, pitch: b.pitch, voice, lang: speechTag(viewLang), neural: foreign ? nv.neuralFor(viewLang) : null,
+      chapter: live ? narrator.chapter : b.position_chapter, segment: live ? narrator.segment : b.position_segment,
+    });
+    if (wasPlaying) narrator.play();
     narrator.autoAdvance = prefs.audio.autoAdvance;
+    if (autoplay && !autoplayed.current) { autoplayed.current = true; narrator.play(); }
     setBookmarks(b.bookmarks || []);
     totalListened.current = b.listened_seconds || 0;
-  }, [book.data, voices.length]); // eslint-disable-line
+  }, [book.data, voices.length, viewScript, viewLang, nv.languages.length]); // eslint-disable-line
 
   // persist position
   const totalListened = useRef(0);
@@ -107,15 +152,36 @@ function Player({ bookId, onBack }) {
 
   // keyboard
   useEffect(() => {
+    if (!visible) return undefined;
     const onKey = (e) => {
+      if (/input|textarea|select|button/i.test(e.target.tagName) && e.key === ' ') return;
       if (/input|textarea|select/i.test(e.target.tagName)) return;
       if (e.key === ' ') { e.preventDefault(); narrator.toggle(); }
       if (e.key === 'ArrowLeft') narrator.skip(-10);
       if (e.key === 'ArrowRight') narrator.skip(30);
+      if (e.key.toLowerCase() === 'n' && e.shiftKey) goNext.current(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [narrator]);
+  }, [narrator, visible]);
+
+  // lock-screen / headset / browser media keys + "now playing" card
+  useEffect(() => {
+    const b = book.data;
+    if (!b || !('mediaSession' in navigator)) return undefined;
+    const ms = navigator.mediaSession;
+    try {
+      ms.metadata = new window.MediaMetadata({ title: st.chapterTitle || b.title, artist: `${b.tone} narration`, album: b.title });
+      ms.playbackState = st.playing ? 'playing' : 'paused';
+      ms.setActionHandler('play', () => narrator.play());
+      ms.setActionHandler('pause', () => narrator.pause());
+      ms.setActionHandler('seekbackward', () => narrator.skip(-10));
+      ms.setActionHandler('seekforward', () => narrator.skip(30));
+      ms.setActionHandler('previoustrack', () => (narrator.chapter > 0 ? narrator.seek(narrator.chapter - 1, 0) : narrator.seek(0, 0)));
+      ms.setActionHandler('nexttrack', () => (narrator.chapter < b.script.length - 1 ? narrator.seek(narrator.chapter + 1, 0) : goNext.current(false)));
+    } catch { /* unsupported action */ }
+    return undefined;
+  }, [book.data, st.chapterTitle, st.playing, narrator]);
 
   if (book.error) return <ErrorState error={book.error} onRetry={book.reload} />;
   if (!book.data) return <PageLoader label="Loading audiobook…" />;
@@ -146,21 +212,54 @@ function Player({ bookId, onBack }) {
     setBookmarks(next);
     api.audio.update(bookId, { bookmarks: next }).catch(() => {});
   };
-  const current = st.text || b.script[st.chapter]?.segments[st.segment]?.text || '';
+  const current = st.text || viewScript[st.chapter]?.segments[st.segment]?.text || '';
   const voiceName = narrator.voice?.name || '';
 
+  const me = slim(b);
+  const canNext = queue.length > 0 || (repeat === 'all' && history.length > 0);
+  const atEnd = st.chapter >= b.script.length - 1;
+  const atStart = st.chapter === 0 && st.segment < 3;
+  const prevTrack = () => {
+    if (!atStart) { narrator.seek(narrator.segment > 2 ? narrator.chapter : narrator.chapter - 1, 0); return; }
+    const id = queueActions.previous(b);
+    if (id) onNavigate(id, { autoplay: true });
+  };
+  const nextTrack = () => (atEnd ? goNext.current(false) : narrator.seek(narrator.chapter + 1, 0));
+  const RepeatIcon = repeat === 'one' ? Repeat1 : Repeat;
+
   return (
-    <div className="audio-player">
-      <div className="player-track">
-        <div className={`player-cover cover-${b.color}`}><Headphones size={30} /><span className="tone-tag">{b.tone}</span></div>
+    <>
+      {tr.running && <div className="translate-banner" role="status"><Loader2 size={14} className="spin" /> Translating the transcript &amp; narration… <span className="tb-bar"><i style={{ width: `${tr.progress}%` }} /></span> {tr.progress}%</div>}
+      {!visible && (
+        <div className="mini-now" role="region" aria-label="Now playing">
+          <AlbumArt title={b.title} color={b.color} size="xs" playing={st.playing} bare />
+          <div className="mn-info"><strong>{b.title}</strong><small>{st.chapterTitle} · {b.tone} narration</small></div>
+          <button className="mn-play" onClick={() => narrator.toggle()} aria-label={st.playing ? 'Pause' : 'Play'}>{st.playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}</button>
+          <button onClick={nextTrack} aria-label="Next" disabled={atEnd && !canNext}><SkipForward size={17} /></button>
+          <button onClick={onOpen} aria-label="Open player"><ChevronDown size={17} style={{ transform: 'rotate(180deg)' }} /></button>
+          <div className="mn-bar"><i style={{ width: `${(elapsed / Math.max(1, total)) * 100}%` }} /></div>
+        </div>
+      )}
+    <div className="audio-player" style={visible ? undefined : { display: 'none' }}>
+      <div className="player-hero">
+        <div className={`player-glow pal-${b.color}`}>
+          <AlbumArt title={b.title} kicker={`${b.tone} narration`} color={b.color} size="lg" playing={st.playing} />
+        </div>
         <div className="player-info">
           <div className="eyebrow">NOW PLAYING</div>
           <h3>{b.title}</h3>
-          <p>{b.tone} narration · {st.chapterTitle}</p>
-        </div>
-        <div className="player-right-actions">
-          <button onClick={addBookmark} aria-label="Bookmark this moment"><Bookmark size={17} /></button>
-          <button onClick={() => api.audio.downloadScript(bookId).catch((e) => notify(e.message, 'error'))} aria-label="Download narration script"><Download size={17} /></button>
+          <p>{st.chapterTitle} · {b.tone} narration · {formatDuration(b.duration_seconds)}</p>
+          <div className="player-right-actions">
+            <button onClick={addBookmark} aria-label="Bookmark this moment" title="Bookmark this moment"><Bookmark size={17} /></button>
+            <button onClick={() => api.audio.downloadScript(bookId).catch((e) => notify(e.message, 'error'))} aria-label="Download narration script" title="Download narration script"><Download size={17} /></button>
+            <Menu label="Add to playlist" align="right" trigger={<span className="player-menu-btn"><ListPlus size={17} /></span>} items={[
+              { label: 'Play next', onClick: () => queueActions.add(b, { next: true }) },
+              { label: 'Add to queue', onClick: () => queueActions.add(b) },
+              '-',
+              ...lists.slice(0, 6).map((l) => ({ label: `Add to “${l.name}”${l.ids.includes(b.id) ? ' ✓' : ''}`, disabled: l.ids.includes(b.id), onClick: () => playlistActions.add(l.id, b.id) })),
+              { label: 'New playlist…', onClick: () => onNewPlaylist(b.id) },
+            ]} />
+          </div>
         </div>
       </div>
 
@@ -175,26 +274,24 @@ function Player({ bookId, onBack }) {
         </div>
       )}
 
-      <div className="player-progress-wrap">
-        <span className="time-label">{formatClock(elapsed)}</span>
-        <input type="range" className="seek" min={0} max={Math.max(1, Math.round(total))} value={Math.round(elapsed)} aria-label="Seek"
-          onChange={(e) => narrator.seekTime(+e.target.value)} style={{ '--fill': `${(elapsed / Math.max(1, total)) * 100}%` }} />
-        <span className="time-label">-{formatClock(total - elapsed)}</span>
-      </div>
+      <PowerSeek value={elapsed} max={total} seed={b.title + b.tone} playing={st.playing} onSeek={(t) => narrator.seekTime(t)} />
 
       <div className="player-controls">
+        <button className={shuffle ? 'ctl-on' : ''} onClick={queueActions.toggleShuffle} aria-pressed={shuffle} aria-label="Shuffle queue" title="Shuffle queue"><Shuffle size={17} /></button>
         <button onClick={() => narrator.skip(-10)} aria-label="Back 10 seconds" title="Back 10s (←)"><Rewind size={18} /><small>10</small></button>
-        <button onClick={() => narrator.seek(narrator.segment > 2 ? narrator.chapter : narrator.chapter - 1, 0)} aria-label="Previous chapter" disabled={st.chapter === 0 && st.segment < 3}><SkipBack size={22} /></button>
+        <button onClick={prevTrack} aria-label={atStart ? 'Previous album' : 'Previous chapter'} title={atStart ? 'Previous album' : 'Previous chapter'} disabled={atStart && history.length === 0}><SkipBack size={22} /></button>
         <button className="play-main" onClick={() => narrator.toggle()} aria-label={st.playing ? 'Pause' : 'Play'}>
           {st.playing ? <Pause size={26} fill="currentColor" /> : <Play size={26} fill="currentColor" />}
         </button>
-        <button onClick={() => narrator.seek(narrator.chapter + 1, 0)} aria-label="Next chapter" disabled={st.chapter >= b.script.length - 1}><SkipForward size={22} /></button>
+        <button onClick={nextTrack} aria-label={atEnd ? 'Next album in queue' : 'Next chapter'} title={atEnd ? 'Next album in queue (Shift+N)' : 'Next chapter'} disabled={atEnd && !canNext}><SkipForward size={22} /></button>
         <button onClick={() => narrator.skip(30)} aria-label="Forward 30 seconds" title="Forward 30s (→)"><FastForward size={18} /><small>30</small></button>
+        <button className={repeat !== 'off' ? 'ctl-on' : ''} onClick={queueActions.cycleRepeat} aria-label={`Repeat: ${repeat}`} title={`Repeat: ${repeat}`}><RepeatIcon size={17} /></button>
       </div>
 
       <div className="player-footer">
         <Menu trigger={<span className="speed-btn">{rate}× <ChevronDown size={13} /></span>} label="Playback speed" align="up"
           items={SPEEDS.map((s) => ({ label: `${s}×`, checked: s === rate, onClick: () => changeRate(s) }))} />
+        <ReadLanguage languages={nv.languages} value={tlang} onChange={setTlang} status={tr} sourceLang={sourceLang} align="up" />
         {voices.length > 0 && (
           <select className="voice-select" value={voiceName} onChange={(e) => changeVoice(e.target.value)} aria-label="Voice">
             {voices.filter((v) => /^en/i.test(v.lang) || v.name === voiceName).map((v) => <option key={v.name} value={v.name}>{v.name.replace(/Microsoft |Google /, '')}</option>)}
@@ -204,11 +301,11 @@ function Player({ bookId, onBack }) {
           items={SLEEP.map((m) => ({ label: m === 0 ? 'Off' : m === -1 ? 'End of chapter' : `${m} minutes`, checked: sleep === m, onClick: () => setSleep(m) }))} />
       </div>
 
-      <div className="player-columns">
+      <div className="player-columns with-queue">
         <div className="player-chapters">
           <div className="eyebrow">CHAPTERS</div>
           <div className="chapter-list-scroll">
-            {b.script.map((ch, i) => (
+            {viewScript.map((ch, i) => (
               <button key={i} className={`chapter-row ${st.chapter === i ? 'active' : ''}`} onClick={() => { narrator.seek(i, 0); if (!st.playing) narrator.play(); }}>
                 <span className="ch-num">{String(i + 1).padStart(2, '0')}</span>
                 <span className="ch-name">{ch.title}</span>
@@ -228,9 +325,10 @@ function Player({ bookId, onBack }) {
             </div>
           ))}
         </div>
+        <QueuePanel current={me} playing={st.playing} library={library} compact onPlay={(id) => { queueActions.remove(id); onNavigate(id, { autoplay: true }); }} />
       </div>
-      {onBack && <button className="text-button" onClick={onBack}>← All audiobooks</button>}
     </div>
+    </>
   );
 }
 
@@ -376,49 +474,50 @@ function Generate({ initialDoc, onReady }) {
   );
 }
 
-// ─── Saved ────────────────────────────────────────────────────────────────────
-function Saved({ onPlay, onGenerate }) {
-  const { notify, confirm, dataVersion } = useApp();
-  const books = useQuery(() => api.audio.list(), [dataVersion]);
-  if (books.error) return <ErrorState error={books.error} onRetry={books.reload} />;
-  if (!books.data) return <Skeleton h={200} />;
-  if (!books.data.length) return <EmptyState icon={Headphones} title="Turn a document into an audiobook." description="Generated audiobooks appear here and remember where you stopped." action="Generate audio" onAction={onGenerate} />;
-  const remove = async (b) => {
-    if (!(await confirm({ title: `Delete the ${b.tone} audiobook of “${b.title}”?`, confirmLabel: 'Delete', danger: true }))) return;
-    await api.audio.remove(b.id).catch((e) => notify(e.message, 'error'));
-    books.setData((l) => l.filter((x) => x.id !== b.id));
-  };
-  return (
-    <div className="saved-audiobooks">
-      {books.data.map((b) => (
-        <div key={b.id} className="saved-ab-card">
-          <div className={`saved-ab-cover cover-${b.color}`}><Headphones size={22} /></div>
-          <div className="saved-ab-info">
-            <strong>{b.title}</strong>
-            <small>{b.tone} · {formatDuration(b.duration_seconds)} · {b.chapters.length} chapters · {timeAgo(b.created_at)}</small>
-            <ProgressBar value={b.progress} thin />
-          </div>
-          {b.status === 'ready' ? (
-            <button className="play-circle" onClick={() => onPlay(b.id)} aria-label={`Play ${b.title}`}><Play size={15} fill="currentColor" /></button>
-          ) : <span className="status processing"><Loader2 size={13} className="spin" /> {b.status}</span>}
-          <Menu trigger={<span className="icon-ghost sm">⋯</span>} items={[
-            { label: 'Download script', icon: Download, onClick: () => api.audio.downloadScript(b.id) },
-            { label: 'Delete', icon: Trash2, danger: true, onClick: () => remove(b) },
-          ]} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export default function AudioStudioPage() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
-  const books = useQuery(() => api.audio.list(), []);
-  const tab = params.get('tab') || (params.get('book') ? 'player' : 'player');
-  const bookId = params.get('book') || (books.data || []).find((b) => b.status === 'ready')?.id;
-  const setTab = (t) => setParams(t === 'player' && bookId ? { tab: t, book: bookId } : { tab: t });
-  const play = (id) => setParams({ tab: 'player', book: id });
+  const { notify, confirm, dataVersion } = useApp();
+  const books = useQuery(() => api.audio.list(), [dataVersion]);
+  const { queue } = useQueue();
+  const tab = params.get('tab') || 'player';
+  const [active, setActive] = useState(params.get('book'));
+  const [run, setRun] = useState({ nonce: 0, autoplay: false });
+  const [playing, setPlaying] = useState(false);
+  const [newPl, setNewPl] = useState({ open: false, seed: null });
+  const [openPl, setOpenPl] = useState(null);
+  const list = books.data || [];
+  const bookId = active || list.find((b) => b.status === 'ready')?.id;
+
+  // deep links (?book=…) and cleanup of albums that were deleted
+  const urlBook = params.get('book');
+  useEffect(() => { if (urlBook) { setActive(urlBook); setRun((r) => ({ nonce: r.nonce + 1, autoplay: false })); } }, [urlBook]);
+  useEffect(() => {
+    if (!books.data) return;
+    const ids = new Set(books.data.map((b) => b.id));
+    queueActions.prune(ids);
+    playlistActions.prune(ids);
+  }, [books.data]);
+
+  const setTab = (t) => setParams({ tab: t });
+  const playAlbum = (id, { autoplay = true } = {}) => {
+    if (!id) return;
+    queueActions.remove(id);
+    setActive(id);
+    setRun((r) => ({ nonce: r.nonce + 1, autoplay }));
+    setParams({ tab: 'player' });
+  };
+  const openNewPlaylist = (seed) => setNewPl({ open: true, seed });
+
+  const removeAlbum = async (b) => {
+    if (!(await confirm({ title: `Delete the ${b.tone} audiobook of “${b.title}”?`, confirmLabel: 'Delete', danger: true }))) return;
+    try {
+      await api.audio.remove(b.id);
+      books.setData((l) => l.filter((x) => x.id !== b.id));
+      if (b.id === bookId) setActive(null);
+    } catch (e) { notify(e.message, 'error'); }
+  };
+  const current = list.find((b) => b.id === bookId);
 
   return (
     <div className="page-shell audio-page">
@@ -434,20 +533,35 @@ export default function AudioStudioPage() {
 
       <Tabs value={tab} onChange={setTab} className="library-tabs" tabs={[
         { id: 'player', label: 'Player', icon: Headphones },
+        { id: 'queue', label: 'Queue', icon: ListMusic, count: queue.length || undefined },
+        { id: 'saved', label: 'Albums', count: list.length || undefined },
+        { id: 'playlists', label: 'Playlists', icon: ListMusic },
         { id: 'generate', label: 'Generate', icon: Plus },
-        { id: 'saved', label: 'Saved audiobooks', count: books.data?.length || undefined },
         { id: 'collab', label: 'Collaborative studio', icon: Users },
       ]} />
 
-      {tab === 'player' && (
-        bookId ? <Player key={bookId} bookId={bookId} />
-          : books.loading ? <Skeleton h={300} />
+      {/* The player stays mounted on every tab so audio keeps playing while you browse. */}
+      {bookId && <Player key={`${bookId}:${run.nonce}`} bookId={bookId} autoplay={run.autoplay} visible={tab === 'player'} library={list}
+        onNavigate={(id, o) => playAlbum(id, o)} onOpen={() => setTab('player')} onNewPlaylist={openNewPlaylist} onPlayingChange={setPlaying} />}
+      {tab === 'player' && !bookId && (
+        books.loading ? <Skeleton h={300} />
           : <EmptyState icon={Headphones} title="Turn a document into an audiobook." description="Choose humor, tough or regular narration — ReadVibe prepares it in the background." action="Generate audiobook" onAction={() => setTab('generate')} />
       )}
-      {tab === 'generate' && <Generate initialDoc={params.get('doc')} onReady={(id) => { books.reload(); play(id); }} />}
-      {tab === 'saved' && <Saved onPlay={play} onGenerate={() => setTab('generate')} />}
+      {tab === 'queue' && (
+        <div className="audio-player">
+          <QueuePanel current={current && slim(current)} playing={playing} library={list} onPlay={(id) => playAlbum(id)} />
+        </div>
+      )}
+      {tab === 'generate' && <Generate initialDoc={params.get('doc')} onReady={(id) => { books.reload(); playAlbum(id, { autoplay: false }); }} />}
+      {tab === 'saved' && (books.error ? <ErrorState error={books.error} onRetry={books.reload} /> : !books.data ? <Skeleton h={200} />
+        : <AlbumGrid books={list} playingId={bookId} playing={playing} onPlay={(id) => playAlbum(id)} onGenerate={() => setTab('generate')}
+          onDelete={{ remove: removeAlbum, download: (b) => api.audio.downloadScript(b.id).catch((e) => notify(e.message, 'error')) }} onNewPlaylist={openNewPlaylist} />)}
+      {tab === 'playlists' && <PlaylistsView books={list} playingId={bookId} playing={playing} onPlay={(id) => playAlbum(id)} onNewPlaylist={openNewPlaylist} openId={openPl} setOpenId={setOpenPl} />}
       {tab === 'collab' && <CollabStudio onOpenDoc={(id) => navigate(`/read/${id}`)} />}
-      {tab === 'player' && <p className="fineprint"><Check size={11} /> Narration uses your device’s speech engine, so it works offline. Shortcuts: Space play/pause · ← back 10s · → forward 30s.</p>}
+      {tab === 'player' && <p className="fineprint"><Check size={11} /> Narration uses your device’s speech engine, so it works offline. Shortcuts: Space play/pause · ← back 10s · → forward 30s · Shift+N next album.</p>}
+
+      <NewPlaylistModal open={newPl.open} seedBookId={newPl.seed} onClose={() => setNewPl({ open: false, seed: null })}
+        onCreated={(id) => { setOpenPl(id); if (!newPl.seed) setTab('playlists'); else notify('Playlist created'); }} />
     </div>
   );
 }

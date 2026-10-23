@@ -5,6 +5,8 @@ import { useApp } from '../../context/AppContext';
 import { formatClock } from '../../lib/format';
 import { Cover, Menu } from '../ui';
 import LyricsView from '../audio/LyricsView';
+import AlbumArt from '../audio/AlbumArt';
+import PowerSeek from '../audio/PowerSeek';
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 const SLEEP = [0, 15, 30, 60];
@@ -61,7 +63,7 @@ export default function ListenSheet({ doc, title, narrator, listen, onStart, onC
           : <div className="lyrics"><p className="lyrics-empty">Press play to start reading aloud.</p></div>
       ) : (
         <div className="ls-cover">
-          <div className="ls-art"><Cover doc={doc} size="lg" /></div>
+          <div className="ls-art"><AlbumArt title={doc.title} kicker={doc.author} color={doc.color || 'coral'} size="lg" playing={listen.playing} /></div>
           <div className="ls-meta">
             <div className="ls-meta-text"><h2>{title}</h2><p>{doc.title} · {doc.author}</p></div>
             {actions}
@@ -70,9 +72,8 @@ export default function ListenSheet({ doc, title, narrator, listen, onStart, onC
       )}
 
       <div className="ls-progress">
-        <input type="range" className="mr-scrub" min={0} max={Math.max(1, Math.round(total))} value={Math.round(elapsed)} aria-label="Seek"
-          disabled={!loaded} style={{ '--fill': `${(elapsed / Math.max(1, total)) * 100}%` }} onChange={(e) => narrator.seekTime(+e.target.value)} />
-        <div className="ls-times"><span>{formatClock(elapsed)}</span><span className="ls-badge">{rate}× speed</span><span>-{formatClock(Math.max(0, total - elapsed))}</span></div>
+        <PowerSeek value={elapsed} max={total} seed={`${doc.title}|${title}`} playing={listen.playing} disabled={!loaded} onSeek={(t) => narrator.seekTime(t)} />
+        <div className="ls-times"><span className="ls-badge">{rate}× speed</span></div>
       </div>
 
       <div className="ls-controls">

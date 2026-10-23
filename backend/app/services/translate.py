@@ -126,3 +126,88 @@ def translate_many(texts: list[str], target: str, source: str = "en") -> list[st
         return []
     with ThreadPoolExecutor(max_workers=4) as pool:
         return list(pool.map(lambda t: translate_one(t, target, source), texts))
+
+
+# ─── Whole-text translation for the reader & transcripts ─────────────────────────────────────────────────────────
+
+_LLM_SYSTEM = (
+    "You are a professional literary translator. Translate every item into the requested language, keeping its meaning, tone "
+    "and paragraph breaks. Keep names, numbers and markdown markers such as '# ' exactly as they are. Do not add, explain or "
+    "omit anything. Return exactly one translation per input item, in the same order."
+)
+_LLM_SCHEMA = {
+    "type": "object",
+    "properties": {"translations": {"type": "array", "items": {"type": "string"}}},
+    "required": ["translations"],
+    "additionalProperties": False,
+}
+
+
+def _llm_batch(texts: list[str], target: str, source: str) -> list[str]:
+    from . import llm
+
+    lang = languages.get(target)
+    src = languages.get(source)
+    prompt = (f"Translate these {len(texts)} items from {src.name} into {lang.name} ({lang.native}). "
+              "Answer as JSON {\"translations\": [...]} with the same number of items.\n\n" + json.dumps(texts, ensure_ascii=False))
+    out = llm.complete_json(_LLM_SYSTEM, prompt, _LLM_SCHEMA, max_tokens=8000).get("translations", [])
+    if len(out) != len(texts):
+        raise llm.LLMUnavailable("Claude returned the wrong number of translations")
+    return [str(t).strip() for t in out]
+
+
+def translate_texts(texts: list[str], target: str, source: str = "en") -> tuple[list[str | None], str, str | None]:
+    """Translate each text. Returns (translations, engine, note). An item that could not be translated is None.
+
+    Claude is used when a key is configured (best quality, whole paragraphs in one call); otherwise the free providers,
+    which have a daily allowance — then `note` explains what was left untranslated.
+    """
+    from . import llm
+
+    clean = [" ".join((t or "").split()) for t in texts]
+    result: list[str | None] = [None] * len(clean)
+    todo: list[int] = []
+    for i, t in enumerate(clean):
+        if not t or source == target:
+            result[i] = t
+            continue
+        cached = _cache_file(source, target, t)
+        if cached.exists():
+            result[i] = json.loads(cached.read_text("utf-8"))["t"]
+        else:
+            todo.append(i)
+    engine = "cache" if not todo else "free"
+
+    if todo and llm.available():
+        try:
+            for start in range(0, len(todo), 12):
+                idx = todo[start:start + 12]
+                for i, out in zip(idx, _llm_batch([clean[i] for i in idx], target, source)):
+                    result[i] = out
+                    _cache_file(source, target, clean[i]).write_text(json.dumps({"t": out}, ensure_ascii=False), "utf-8")
+            return result, "claude", None
+        except llm.LLMUnavailable as exc:
+            log.warning("Claude translation failed, using the free translator: %s", exc)
+            todo = [i for i in todo if result[i] is None]
+
+    quota = False
+    failure = None
+
+    def one(i: int) -> None:
+        nonlocal quota, failure
+        try:
+            result[i] = translate_one(clean[i], target, source)
+        except TranslateError as exc:
+            quota = quota or exc.quota
+            failure = str(exc)
+
+    if todo:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(one, todo))
+    missing = sum(1 for i in todo if result[i] is None)
+    note = None
+    if missing:
+        note = ("The free translation limit for today is used up, so the rest stays in the original language. "
+                "Try again tomorrow, or set READVIBE_TRANSLATE_EMAIL / an Anthropic key on the server for more."
+                if quota else f"{missing} passage(s) could not be translated: {failure}")
+    return result, engine, note

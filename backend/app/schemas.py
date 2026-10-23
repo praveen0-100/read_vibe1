@@ -273,3 +273,9 @@ class TTSIn(BaseModel):
 class OverviewIn(AIScope):
     language: str = Field(min_length=2, max_length=5)
     format: Literal["conversation", "narrative"] = "conversation"
+
+
+class TranslateIn(BaseModel):
+    texts: list[str] = Field(min_length=1, max_length=80)
+    target: str = Field(min_length=2, max_length=5)
+    source: str = Field(default="en", min_length=2, max_length=5)

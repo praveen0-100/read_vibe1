@@ -87,7 +87,6 @@ export default function Sidebar() {
               </div>
               <Menu label="Account menu" trigger={<span className="icon-ghost sm">⋯</span>} align="up" items={[
                 { label: 'Account settings', icon: User, onClick: () => navigate('/settings?tab=account') },
-                { label: dark ? 'Light mode' : 'Dark mode', icon: dark ? Sun : Moon, onClick: () => setPrefs({ theme: dark ? 'light' : 'dark' }) },
                 '-',
                 { label: 'Sign out', icon: LogOut, onClick: signOut, danger: true },
               ]} />

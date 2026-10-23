@@ -1,5 +1,5 @@
 // ─── Shared UI kit ────────────────────────────────────────────────────────────
-import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCircle, AlertTriangle, ArrowRight, Check, Info, RotateCcw, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
@@ -95,6 +95,28 @@ export function Menu({ trigger, items, align = 'right', label = 'More options' }
   const ref = useRef(null);
   const close = useCallback(() => setOpen(false), []);
   useClickOutside(ref, close, open);
+  // keep the dropdown inside the screen: slide it sideways, flip it above/below, and scroll it when there isn't room
+  const menuRef = useRef(null);
+  const [fit, setFit] = useState(null);
+  useLayoutEffect(() => {
+    if (!open) { setFit(null); return; }
+    const m = menuRef.current;
+    if (!m) return;
+    const pad = 8;
+    const t = m.parentElement.getBoundingClientRect();
+    const k = m.getBoundingClientRect().width / (m.offsetWidth || 1) || 1; // the app may be scaled on very large screens
+    const w = m.offsetWidth * k;
+    const h = m.scrollHeight * k + 2;
+    const room = { up: t.top - pad - 6, down: window.innerHeight - t.bottom - pad - 6 };
+    const want = align === 'up' ? 'up' : 'down';
+    const place = h > room[want] && room[want === 'up' ? 'down' : 'up'] > room[want] ? (want === 'up' ? 'down' : 'up') : want;
+    // horizontal position the menu would have before any shift
+    const natural = align === 'up' || align === 'right' ? t.right - w : t.left;
+    let dx = 0;
+    if (natural < pad) dx = pad - natural;
+    else if (natural + w > window.innerWidth - pad) dx = window.innerWidth - pad - (natural + w);
+    setFit({ place, dx: dx / k, maxH: Math.max(120, Math.floor(room[place] / k)) });
+  }, [open, align]);
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => e.key === 'Escape' && setOpen(false);
@@ -107,7 +129,8 @@ export function Menu({ trigger, items, align = 'right', label = 'More options' }
         {trigger}
       </button>
       {open && (
-        <div className={`menu menu-${align}`} role="menu">
+        <div ref={menuRef} className={`menu menu-${align}`} role="menu"
+          style={fit ? { maxHeight: fit.maxH, overflowY: 'auto', translate: fit.dx ? `${fit.dx}px 0` : undefined, ...(fit.place === 'up' ? { bottom: 'calc(100% + 6px)', top: 'auto' } : { top: 'calc(100% + 6px)', bottom: 'auto' }) } : { visibility: 'hidden' }}>
           {items.filter(Boolean).map((item, i) => item === '-' ? <div key={i} className="menu-sep" /> : (
             <button key={item.label} role="menuitem" className={item.danger ? 'danger' : ''} disabled={item.disabled}
               onClick={() => { setOpen(false); item.onClick?.(); }}>

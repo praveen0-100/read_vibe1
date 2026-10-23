@@ -8,8 +8,8 @@ from sqlalchemy import func, select
 
 from ..deps import DB, CurrentUser, get_owned_document
 from ..models import Highlight
-from ..schemas import ChatIn, CompareIn, DefineIn, DiagramIn, ExplainIn, MindMapIn, OverviewIn, QuizIn, SummarizeIn, VisualIn
-from ..services import ai, llm, nlp, overview
+from ..schemas import ChatIn, CompareIn, DefineIn, DiagramIn, ExplainIn, MindMapIn, OverviewIn, QuizIn, SummarizeIn, TranslateIn, VisualIn
+from ..services import ai, languages, llm, nlp, overview, translate
 
 log = logging.getLogger("readvibe.ai")
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -175,3 +175,13 @@ def audio_overview(body: OverviewIn, user: CurrentUser, db: DB):
         return overview.generate(doc, body.chapter_index, body.language, body.format)
     except overview.OverviewError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/translate")
+def translate_texts(body: TranslateIn, _: CurrentUser):
+    """Translate passages (a chapter's paragraphs, a transcript) into any supported language. Untranslatable items are null."""
+    if sum(len(t) for t in body.texts) > 24000:
+        raise HTTPException(status_code=413, detail="Send smaller batches")
+    target, source = languages.get(body.target).code, languages.get(body.source).code
+    texts, engine, note = translate.translate_texts(body.texts, target, source)
+    return {"language": target, "translations": texts, "engine": engine, "note": note}
