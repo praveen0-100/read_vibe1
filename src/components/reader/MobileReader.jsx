@@ -4,7 +4,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, AudioLines, BookOpen, Bookmark, BookmarkCheck, CloudDownload, Download, Headphones, List, MoreHorizontal, Moon, Search,
-  Sparkles, StickyNote, Trash2, Type, WifiOff, X,
+  Sparkles, StickyNote, Trash2, Type, WifiOff, X, ChevronUp, SlidersHorizontal,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { READING_FONTS } from '../../lib/prefs';
@@ -184,7 +184,7 @@ export default function MobileReader({
   const [tick, setTick] = useState(0);
   const leafHost = useRef(null);
   const flipRun = useRef(null);
-  const [chrome, setChrome] = useState(false);
+  const [chrome, setChrome] = useState(true); // toolbars are visible on entering the reader, like other PDF/document readers
   const [sheet, setSheet] = useState(null); // 'display' | 'contents' | 'listen'
   const [scrub, setScrub] = useState(null);
   const lastChapter = useRef(null);
@@ -357,7 +357,7 @@ export default function MobileReader({
     else {
       // centre of the page: a word opens "Read aloud from here" (or jumps there while listening); empty space shows the toolbars
       const hit = onWordTap && wordAtPoint(e.clientX, e.clientY, flowEl());
-      if (hit) onWordTap(hit); else setChrome(true);
+      if (hit) onWordTap(hit); else setChrome(true); // chrome is hidden here (a tap while shown returns above), so this brings it back
     }
   };
 
@@ -460,7 +460,7 @@ export default function MobileReader({
             </>
           )}
         </div>
-        {existingBookmark && <span className="mr-ribbon" aria-label="Bookmarked"><BookmarkCheck size={18} /></span>}
+        {existingBookmark && <span key={existingBookmark.id} className="bm-ribbon mr-ribbon" role="img" aria-label="Bookmarked" />}
       </div>
       <div className="mr-leafhost" ref={leafHost} aria-hidden="true" />
 
@@ -472,6 +472,13 @@ export default function MobileReader({
       {listen.playing && sheet !== 'listen' && (
         <button className="mr-nowplaying" onClick={() => setSheet('listen')} aria-label="Open player">
           <AudioLines size={14} /> <span>Listening · tap to open</span>
+        </button>
+      )}
+
+      {!sheet && !searchOpen && (
+        <button className="mr-toggle" onClick={() => setChrome((c) => !c)}
+          aria-label={chrome ? 'Hide reader tools' : 'Show reader tools'} aria-pressed={chrome} title={chrome ? 'Hide tools' : 'Show tools'}>
+          {chrome ? <ChevronUp size={18} /> : <SlidersHorizontal size={17} />}
         </button>
       )}
 

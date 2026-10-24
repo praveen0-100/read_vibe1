@@ -13,7 +13,6 @@ import { offline } from '../lib/offline';
 import { READING_FONTS } from '../lib/prefs';
 import { loadVoices, pickVoice, speak, speechSupported } from '../lib/speech';
 import { Field, Segmented, Slider, Switch } from '../components/ui';
-import { VIBE_PRESETS, ZEN_PRESETS } from '../components/reader/Scenes';
 
 const SECTIONS = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
@@ -200,25 +199,17 @@ function VibeSettings() {
   const { prefs, setPrefs } = useApp();
   return (
     <>
-      <Section title="Zen defaults" description="Ambient preset and focus-session lengths.">
-        <label className="setting-line">Preset
-          <select value={prefs.zen.preset} onChange={(e) => setPrefs({ zen: { preset: e.target.value } })}>{ZEN_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.emoji} {p.name}</option>)}</select>
-        </label>
+      <Section title="Zen defaults" description="Music volume and focus-session lengths.">
         <label className="setting-line">Focus length
           <select value={prefs.zen.focusMinutes} onChange={(e) => setPrefs({ zen: { focusMinutes: +e.target.value } })}>{[15, 20, 25, 30, 45, 50, 60].map((m) => <option key={m} value={m}>{m} min</option>)}</select>
         </label>
         <label className="setting-line">Break length
           <select value={prefs.zen.breakMinutes} onChange={(e) => setPrefs({ zen: { breakMinutes: +e.target.value } })}>{[3, 5, 10, 15].map((m) => <option key={m} value={m}>{m} min</option>)}</select>
         </label>
-        <Slider label="Ambient volume" value={prefs.zen.volume} onChange={(v) => setPrefs({ zen: { volume: v } })} format={(v) => `${v}%`} />
+        <Slider label="Music volume" value={prefs.zen.volume} onChange={(v) => setPrefs({ zen: { volume: v } })} format={(v) => `${v}%`} />
       </Section>
       <Section title="Vibe Reader" description="Pick local music inside Vibe mode — files stay on your device. Streaming-service playlists can be connected by a deployment that registers an OAuth app.">
-        <label className="setting-line">Default ambiance
-          <select value={prefs.vibe.preset} onChange={(e) => setPrefs({ vibe: { preset: e.target.value } })}>{VIBE_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.emoji} {p.name}</option>)}</select>
-        </label>
         <Slider label="Text contrast" value={prefs.vibe.contrast} min={50} max={100} onChange={(v) => setPrefs({ vibe: { contrast: v } })} format={(v) => `${v}%`} />
-        <Slider label="Animation intensity" value={prefs.vibe.intensity} onChange={(v) => setPrefs({ vibe: { intensity: v } })} format={(v) => `${v}%`} />
-        <p className="muted small">{prefs.vibe.savedCombos?.length || 0} saved vibe combination(s). Manage them from Vibe mode.</p>
       </Section>
     </>
   );

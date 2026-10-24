@@ -10,7 +10,7 @@ import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
 import { useQuery } from '../hooks/useAsync';
 import { useIsMobile } from '../hooks/useMediaQuery';
-import { AmbientEngine } from '../lib/ambient';
+import { ZenMusic } from '../lib/zenMusic';
 import { formatMinutes } from '../lib/format';
 import { offline } from '../lib/offline';
 import { READING_FONTS, READING_WIDTHS } from '../lib/prefs';
@@ -28,7 +28,7 @@ import { EmptyState, ErrorState, Field, Menu, Modal, PageLoader, ProgressBar } f
 import ChapterText, { splitParagraphs } from '../components/reader/ChapterText';
 import MobileReader from '../components/reader/MobileReader';
 import { DocSearch, HighlightPopover, ReaderSettings, SelectionToolbar, WordMenu, categoryColor } from '../components/reader/ReaderTools';
-import { VibeVisualizer, VIBE_PRESETS, ZEN_PRESETS, ZenBackdrop } from '../components/reader/Scenes';
+import { ZEN_PRESETS, ZenBackdrop } from '../components/reader/Scenes';
 import VibePanel from '../components/reader/VibePanel';
 import ZenPanel, { useFocusTimer } from '../components/reader/ZenPanel';
 
@@ -280,18 +280,18 @@ function Reader({ docId }) {
   };
 
   // ─── Zen & Vibe audio engines ──────────────────────────────────────────────
-  const ambient = useMemo(() => new AmbientEngine(), []);
+  const ambient = useMemo(() => new ZenMusic(), []);
   const [ambientOn, setAmbientOn] = useState(false);
   const player = useMemo(() => new VibePlayer(), []);
   const [music, setMusic] = useState(() => player.state());
   useEffect(() => player.on(setMusic), [player]);
   useEffect(() => () => { ambient.dispose(); player.dispose(); }, [ambient, player]);
   useEffect(() => {
-    if (mode !== 'Zen' && ambientOn) setAmbientOn(false);
+    if (mode !== 'Zen') { ambient.stop(); if (ambientOn) setAmbientOn(false); } // ZenPanel is unmounted outside Zen, so pause the song here
+    if (mode === 'Zen' && !ambientOn) setAmbientOn(true); // Zen starts its music as soon as it opens
     if (mode !== 'Vibe' && player.playing) player.pause();
   }, [mode]); // eslint-disable-line
   const timer = useFocusTimer({ documentId: docId, onPhaseEnd: (phase) => notify(phase === 'focus' ? 'Focus session complete — take a short break.' : 'Break over — back to reading.', 'info') });
-  const getLevels = useCallback((n) => player.levels(n), [player]);
 
   // ─── Read aloud ────────────────────────────────────────────────────────────
   const narrator = useMemo(() => new Narrator(), []);
@@ -662,7 +662,6 @@ function Reader({ docId }) {
     '--vibe-contrast': prefs.vibe.contrast / 100,
   };
   const zenPreset = ZEN_PRESETS.find((p) => p.id === prefs.zen.preset) || ZEN_PRESETS[0];
-  const vibePreset = VIBE_PRESETS.find((p) => p.id === prefs.vibe.preset) || VIBE_PRESETS[0];
   const chapterHighlights = highlights.filter((h) => h.chapter_index === chapterIndex);
   const meta = doc.chapters?.[chapterIndex];
   const isLast = chapterIndex === doc.chapter_count - 1;
@@ -727,7 +726,6 @@ function Reader({ docId }) {
     <div className={`reader-page mode-${mode.toLowerCase()} paper-${r.paper} ${r.focusLine ? 'focus-line' : ''}`}
       onPointerMove={r.ruler ? (e) => setRuler(e.clientY) : undefined}>
       {mode === 'Zen' && <ZenBackdrop palette={zenPreset.palette} />}
-      {mode === 'Vibe' && <VibeVisualizer playing={music.playing} getLevels={getLevels} hue={vibePreset.hue} intensity={prefs.vibe.intensity} />}
       {r.ruler && ruler != null && <div className="reading-ruler" style={{ top: ruler - 22 }} aria-hidden="true" />}
 
       {translateBanner}
@@ -797,6 +795,7 @@ function Reader({ docId }) {
         </aside>
 
         <article className="reading-surface" ref={surfaceRef} style={surfaceStyle} aria-busy={chapterLoading}>
+          {currentBookmark && <span key={currentBookmark.id} className="bm-ribbon" role="img" aria-label="Bookmarked" />}
           {overviewOpen && <OverviewSheet doc={doc} chapterIndex={chapterIndex} chapterTitle={chapter?.title} sourceLang={sourceLang} initialLang={overviewLang} onClose={() => setOverviewOpen(false)} />}
           <SelectionToolbar pos={selection?.pos} onAction={onSelectionAction} />
           <WordMenu menu={wordMenu} onAction={onWordAction} />

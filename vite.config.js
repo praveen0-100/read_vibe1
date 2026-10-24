@@ -8,7 +8,15 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': { target: process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:5000', changeOrigin: true },
+      '/api': {
+        target: process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:5000',
+        changeOrigin: true,
+        // API not running: answer 503 with a readable reason (the client retries 503 until the API is up) instead of a bare 500
+        configure: (proxy) => proxy.on('error', (_err, _req, res) => {
+          if (res.writeHead && !res.headersSent) res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end?.(JSON.stringify({ detail: 'The ReadVibe API is not running. Start everything with `npm run dev` (it launches the API on :5000 and the web app together).' }));
+        }),
+      },
     },
   },
   build: {
