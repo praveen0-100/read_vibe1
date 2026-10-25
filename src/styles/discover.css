@@ -80,3 +80,6 @@
   .dc-grid { grid-template-columns: 1fr; }
   .discover-page { padding-bottom: 120px; }
 }
+
+.dc-card:has(.dc-new) .dc-info { padding-top: 22px; }
+.dc-new { top: 8px; }

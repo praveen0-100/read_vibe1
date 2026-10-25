@@ -31,7 +31,7 @@ const mapGutenberg = (b) => ({
   source: 'gutenberg', id: String(b.id), rank: b.id, title: b.title,
   author: flipName(b.authors?.[0]?.name) || 'Unknown',
   cover: b.formats?.['image/jpeg'] || null,
-  meta: `${(b.download_count || 0).toLocaleString()} downloads`,
+  meta: b.download_count ? `${b.download_count.toLocaleString()} downloads` : 'Newly added',
   tags: (b.subjects || []).slice(0, 3).map((s) => s.split(' -- ')[0]),
   readUrl: `https://www.gutenberg.org/ebooks/${b.id}`,
 });
