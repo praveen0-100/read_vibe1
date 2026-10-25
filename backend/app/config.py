@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     debug: bool = False
 
     database_url: str = f"sqlite:///{(BASE_DIR / 'data' / 'readvibe.db').as_posix()}"
+    # Used only when READVIBE_DATABASE_URL contains nothing but the database password (see database._expand_bare_password):
+    # the ReadVibe Supabase project's IPv4 session pooler, which is reachable from Render.
+    db_host: str = "aws-0-us-west-1.pooler.supabase.com"
+    db_port: int = 5432
+    db_user: str = "readvibe.kbuqlibtndllrwewjnht"
+    db_name: str = "postgres"
     storage_dir: Path = BASE_DIR / "data" / "storage"
 
     jwt_secret: str = "change-me-in-production-use-a-long-random-string"

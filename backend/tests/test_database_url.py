@@ -3,6 +3,7 @@ import pytest
 from sqlalchemy.engine import make_url
 
 from app import database
+from sqlalchemy.engine import make_url as _mu
 
 GOOD = "postgresql+psycopg://readvibe.abc:s3cretpw@aws-0-us-west-1.pooler.supabase.com:5432/postgres?sslmode=require"
 
@@ -52,3 +53,19 @@ def test_fallback_location_is_writable_for_any_user():
     url, _ = database._resolve_url("not a url at all")
     folder = Path(url.removeprefix("sqlite:///")).parent
     assert folder == Path(tempfile.gettempdir()) and folder.exists()
+
+
+def test_bare_password_is_expanded_to_the_pooler_address():
+    url, error = database._resolve_url("abcdef0123456789abcdef0123456789abcd\n")
+    assert error is None
+    parsed = _mu(url)
+    assert parsed.drivername == "postgresql+psycopg"
+    assert parsed.host == "aws-0-us-west-1.pooler.supabase.com" and parsed.port == 5432
+    assert parsed.username == "readvibe.kbuqlibtndllrwewjnht" and parsed.database == "postgres"
+    assert parsed.password == "abcdef0123456789abcdef0123456789abcd"
+    assert parsed.query.get("sslmode") == "require"
+
+
+def test_bare_password_rules_do_not_swallow_other_values():
+    for raw in ("short", "has spaces in it 12345678901234567890", "sqlite:////data/readvibe.db"):
+        assert database._expand_bare_password(raw) is None

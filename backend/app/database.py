@@ -4,6 +4,7 @@ import re
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
+from urllib.parse import quote
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import make_url
@@ -25,9 +26,24 @@ def _clean_url(raw: str) -> str:
     return found.group(0) if found else raw.strip("'\"").strip()
 
 
+_BARE_PASSWORD = re.compile(r"[A-Za-z0-9_-]{16,128}")
+
+
+def _expand_bare_password(raw: str) -> str | None:
+    """READVIBE_DATABASE_URL holding only the database password (no scheme/host): build the full address from the
+    configured pooler host and user. Saves a mistake-prone paste in a dashboard field."""
+    candidate = (raw or "").strip().strip("'\"").strip()
+    if "://" in candidate or not _BARE_PASSWORD.fullmatch(candidate):
+        return None
+    s = get_settings()
+    if not (s.db_host and s.db_user):
+        return None
+    return f"postgresql://{quote(s.db_user, safe='.')}:{quote(candidate, safe='')}@{s.db_host}:{s.db_port}/{s.db_name}?sslmode=require"
+
+
 def _normalise_url(url: str) -> str:
     """Hosted Postgres (Supabase, Neon, Render) hands out postgres:// URLs; SQLAlchemy needs the driver named."""
-    url = _clean_url(url)
+    url = _expand_bare_password(url) or _clean_url(url)
     for prefix in ("postgres://", "postgresql://"):
         if url.startswith(prefix):
             return "postgresql+psycopg://" + url.removeprefix(prefix)
