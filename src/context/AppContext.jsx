@@ -71,6 +71,7 @@ export function AppProvider({ children }) {
   // ─── Background jobs & notifications ───────────────────────────────────────
   const [jobs, setJobs] = useState([]);
   const watchers = useRef(new Map());
+  const recovering = useRef(null);
   const [polling, setPolling] = useState(false);
 
   const loadJobs = useCallback(async () => {
@@ -146,7 +147,18 @@ export function AppProvider({ children }) {
       // The hosted API's database can be reset on a restart, which invalidates old tokens. A demo session has no
       // credentials to lose, so quietly open a fresh one instead of bouncing the visitor to the login page.
       if (isDemoSession()) {
-        api.auth.demo().then((res) => finishLogin(res)).catch(() => { setUser(null); setAuthStatus('anon'); });
+        // One recovery at a time (several requests fail together), with retries in case the API is mid-restart.
+        recovering.current ||= (async () => {
+          for (let attempt = 0; attempt < 4; attempt++) {
+            try {
+              finishLogin(await api.auth.demo());
+              refreshData(); // the page that was loading when the token failed asks again with the new session
+              return;
+            } catch { await new Promise((r) => setTimeout(r, 1500 * (attempt + 1))); }
+          }
+          setUser(null);
+          setAuthStatus('anon');
+        })().finally(() => { recovering.current = null; });
         return;
       }
       setUser(null);
@@ -170,7 +182,7 @@ export function AppProvider({ children }) {
         if (err.status === 401) { if (!isDemoSession()) { cacheUser(null); setAuthStatus('anon'); } }
         else { setUser((u) => u || { name: 'Reader', email: '', offline: true }); setAuthStatus('authed'); }
       });
-  }, [loadJobs, finishLogin]);
+  }, [loadJobs, finishLogin, refreshData]);
 
   const auth = useMemo(() => ({
     login: async (email, password) => { markDemo(false); return finishLogin(await api.auth.login(email, password)); },
