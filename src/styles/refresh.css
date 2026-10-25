@@ -155,3 +155,8 @@ h1, h2, .topbar h1 { font-family: var(--font-serif); font-weight: 500; letter-sp
   .am-title > div { flex: 1; }
   .am-search-btn { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; color: var(--text-2); }
 }
+
+/* Sidebar: keep the footer inside the column — a long email must truncate, not widen the grid track */
+.sidebar-bottom { grid-template-columns: minmax(0, 1fr); }
+.sidebar-bottom > *, .sidebar-nav > * { min-width: 0; }
+.theme-switch { box-sizing: border-box; width: 100%; }
