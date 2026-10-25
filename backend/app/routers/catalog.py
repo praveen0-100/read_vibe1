@@ -8,6 +8,8 @@ import io
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from typing import Literal
 
 import httpx
@@ -191,12 +193,21 @@ def _pg_search(params: dict) -> dict:
     }
 
 
+_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="catalog")
+GUTENDEX_BUDGET = 8  # seconds
+
+
 def _gutendex(params: dict) -> dict:
-    """Gutendex first (it has download counts); the static catalogue when it is slow or down."""
+    """Gutendex first (it has download counts); the static catalogue when it is slow or down.
+
+    The wait is a hard deadline (a per-read timeout resets on every byte a slow server drips out). A request that
+    misses it keeps running in the pool and fills the cache, so the same query is instant next time.
+    """
     _pg_rows()  # warm the fallback in the background
+    fut = _pool.submit(_get_json, "https://gutendex.com/books/", params, 25, 1)
     try:
-        return _get_json("https://gutendex.com/books/", params, timeout=8, attempts=1)
-    except HTTPException:
+        return fut.result(timeout=GUTENDEX_BUDGET)
+    except (FutureTimeout, HTTPException):
         return _pg_search(params)
 
 
@@ -216,21 +227,20 @@ def gutenberg(user: CurrentUser, q: str = Query("", max_length=120), topic: str 
 
 @router.get("/new")
 def new_arrivals(user: CurrentUser):
-    """Newest Gutenberg additions, newest LibriVox recordings and the current top podcasts."""
-    out: dict = {}
-    try:
-        out["gutenberg"] = _gutendex({"sort": "descending", "languages": "en"})
-    except HTTPException:
-        out["gutenberg"] = None
-    try:
-        out["librivox"] = _get_json("https://archive.org/advancedsearch.php", {
+    """Newest Gutenberg additions, newest LibriVox recordings and the current top podcasts (fetched in parallel)."""
+    jobs = {
+        "gutenberg": lambda: _gutendex({"sort": "descending", "languages": "en"}),
+        "librivox": lambda: _get_json("https://archive.org/advancedsearch.php", {
             "q": "collection:librivoxaudio AND mediatype:audio", "fl[]": ["identifier", "title", "creator", "addeddate", "downloads"],
             "sort[]": "addeddate desc", "rows": 24, "output": "json",
-        })
-    except HTTPException:
-        out["librivox"] = None
-    try:
-        out["podcasts"] = _get_json("https://rss.marketingtools.apple.com/api/v2/us/podcasts/top/24/podcasts.json")
-    except HTTPException:
-        out["podcasts"] = None
+        }, 12, 2),
+        "podcasts": lambda: _get_json("https://rss.marketingtools.apple.com/api/v2/us/podcasts/top/24/podcasts.json", None, 12, 2),
+    }
+    futures = {name: _pool.submit(fn) for name, fn in jobs.items()}
+    out: dict = {}
+    for name, fut in futures.items():
+        try:
+            out[name] = fut.result(timeout=30)
+        except (HTTPException, FutureTimeout):
+            out[name] = None
     return out

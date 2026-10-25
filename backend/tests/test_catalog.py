@@ -102,3 +102,14 @@ def test_get_json_serves_stale_cache_when_upstream_fails(monkeypatch):
     monkeypatch.setattr(httpx, "get", lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError("down")))
     monkeypatch.setattr(catalog.time, "sleep", lambda s: None)
     assert catalog._get_json(url) == {"stale": True}
+
+
+def test_slow_gutendex_hits_a_hard_deadline_then_falls_back(monkeypatch, pg_rows):
+    import time
+
+    monkeypatch.setattr(catalog, "GUTENDEX_BUDGET", 0.2)
+    monkeypatch.setattr(catalog, "_get_json", lambda *a, **k: (time.sleep(2), {"results": [{"id": 1}]})[1])
+    start = time.time()
+    out = catalog._gutendex({"search": "alice"})
+    assert time.time() - start < 1.0
+    assert out["results"][0]["id"] == 11  # served from the static catalogue
