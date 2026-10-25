@@ -7,6 +7,9 @@ const AppCtx = createContext(null);
 const USER_KEY = 'rv.user';
 // The last signed-in profile is kept so a returning reader sees the app at once instead of a spinner while a sleeping server wakes.
 const cachedUser = () => { try { return tokenStore.get() ? JSON.parse(localStorage.getItem(USER_KEY)) : null; } catch { return null; } };
+const DEMO_KEY = 'rv.demo';
+const isDemoSession = () => { try { return localStorage.getItem(DEMO_KEY) === '1'; } catch { return false; } };
+const markDemo = (on) => { try { on ? localStorage.setItem(DEMO_KEY, '1') : localStorage.removeItem(DEMO_KEY); } catch { /* storage unavailable */ } };
 const cacheUser = (u) => { try { u ? localStorage.setItem(USER_KEY, JSON.stringify(u)) : localStorage.removeItem(USER_KEY); } catch { /* storage unavailable */ } };
 let toastSeq = 0;
 
@@ -125,6 +128,7 @@ export function AppProvider({ children }) {
   }, [loadJobs]);
 
   const logout = useCallback(() => {
+    markDemo(false);
     tokenStore.clear();
     cacheUser(null);
     window.google?.accounts?.id?.disableAutoSelect(); // don't silently re-sign-in with Google
@@ -135,7 +139,17 @@ export function AppProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    onUnauthorized(() => { cacheUser(null); setUser(null); setAuthStatus('anon'); });
+    onUnauthorized(() => {
+      cacheUser(null);
+      // The hosted API's database can be reset on a restart, which invalidates old tokens. A demo session has no
+      // credentials to lose, so quietly open a fresh one instead of bouncing the visitor to the login page.
+      if (isDemoSession()) {
+        api.auth.demo().then((res) => finishLogin(res)).catch(() => { setUser(null); setAuthStatus('anon'); });
+        return;
+      }
+      setUser(null);
+      setAuthStatus('anon');
+    });
     if (!tokenStore.get()) return;
     api.auth.me()
       .then((u) => {
@@ -151,16 +165,16 @@ export function AppProvider({ children }) {
       })
       .catch((err) => {
         // Keep the session when merely offline; drop it only when the token is rejected.
-        if (err.status === 401) { cacheUser(null); setAuthStatus('anon'); }
+        if (err.status === 401) { if (!isDemoSession()) { cacheUser(null); setAuthStatus('anon'); } }
         else { setUser((u) => u || { name: 'Reader', email: '', offline: true }); setAuthStatus('authed'); }
       });
-  }, [loadJobs]);
+  }, [loadJobs, finishLogin]);
 
   const auth = useMemo(() => ({
-    login: async (email, password) => finishLogin(await api.auth.login(email, password)),
-    register: async (name, email, password) => finishLogin(await api.auth.register(name, email, password)),
-    demo: async () => finishLogin(await api.auth.demo()),
-    google: async (credential) => finishLogin(await api.auth.google(credential)),
+    login: async (email, password) => { markDemo(false); return finishLogin(await api.auth.login(email, password)); },
+    register: async (name, email, password) => { markDemo(false); return finishLogin(await api.auth.register(name, email, password)); },
+    demo: async () => { const res = await api.auth.demo(); markDemo(true); return finishLogin(res); },
+    google: async (credential) => { markDemo(false); return finishLogin(await api.auth.google(credential)); },
     logout,
   }), [finishLogin, logout]);
 
