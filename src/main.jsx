@@ -19,6 +19,8 @@ import './styles/overview.css';
 import './styles/album.css';
 import './styles/indic.css';
 import './styles/responsive.css';
+import './styles/refresh.css';
+import './styles/discover.css';
 import { installUiScale } from './lib/uiScale';
 import { warmUp } from './api/client';
 
@@ -30,6 +32,7 @@ const ResearchPage = lazy(() => import('./pages/ResearchPage'));
 const ResearchProjectPage = lazy(() => import('./pages/ResearchProjectPage'));
 const NotesPage = lazy(() => import('./pages/NotesPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const DiscoverPage = lazy(() => import('./pages/DiscoverPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 function Shell() {
@@ -93,6 +96,7 @@ function Shell() {
             <Suspense fallback={<PageLoader />}>
               <Routes>
                 <Route index element={<HomePage />} />
+                <Route path="discover" element={<DiscoverPage />} />
                 <Route path="library" element={<LibraryPage />} />
                 <Route path="read" element={<ReaderPage />} />
                 <Route path="read/:docId" element={<ReaderPage />} />

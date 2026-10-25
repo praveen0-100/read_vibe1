@@ -2,7 +2,7 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
-  BookOpen, Brain, FileText, Headphones, Home, Library, LogOut, Menu as MenuIcon, Moon,
+  BookOpen, Brain, Compass, FileText, Headphones, Home, Library, LogOut, Menu as MenuIcon, Moon,
   Search, Settings, Sparkles, Sun, User, WifiOff,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
@@ -14,6 +14,7 @@ import QuickActions from './QuickActions';
 
 export const NAV_ITEMS = [
   { to: '/', label: 'Home', icon: Home, end: true },
+  { to: '/discover', label: 'Discover', icon: Compass },
   { to: '/library', label: 'Library', icon: Library },
   { to: '/read', label: 'Read now', icon: BookOpen, dot: true },
   { to: '/audio', label: 'Audio Studio', icon: Headphones },
@@ -110,20 +111,23 @@ export default function Sidebar() {
 }
 
 export function MobileNav() {
-  const { setSearchOpen } = useApp();
-  const items = [NAV_ITEMS[0], NAV_ITEMS[1], NAV_ITEMS[2], NAV_ITEMS[3]];
+  const { setUploadOpen } = useApp();
+  const tab = ({ to, label, icon: Icon, end }) => (
+    <NavLink key={to} to={to} end={end} className={({ isActive }) => (isActive ? 'active' : '')}>
+      <Icon size={22} />
+      <span>{label}</span>
+    </NavLink>
+  );
   return (
     <nav className="mobile-nav" aria-label="Mobile navigation">
-      {items.map(({ to, label, icon: Icon, end }) => (
-        <NavLink key={to} to={to} end={end} className={({ isActive }) => (isActive ? 'active' : '')}>
-          <Icon size={22} />
-          <span>{label === 'Read now' ? 'Read' : label === 'Audio Studio' ? 'Audio' : label}</span>
-        </NavLink>
-      ))}
-      <button type="button" className="nav-search" onClick={() => setSearchOpen(true)}>
-        <Search size={22} />
-        <span>Search</span>
+      {tab({ to: '/', label: 'Today', icon: Home, end: true })}
+      {tab({ to: '/discover', label: 'Discover', icon: Compass })}
+      <button type="button" className="nav-create" onClick={() => setUploadOpen(true)} aria-label="Create — upload a document">
+        <Sparkles size={22} />
+        <span>Create</span>
       </button>
+      {tab({ to: '/audio', label: 'Audio', icon: Headphones })}
+      {tab({ to: '/library', label: 'Library', icon: Library })}
     </nav>
   );
 }

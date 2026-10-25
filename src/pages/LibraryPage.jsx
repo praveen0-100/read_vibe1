@@ -169,7 +169,7 @@ export default function LibraryPage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState('all');
   const [query, setQuery] = useState('');
-  const [tag, setTag] = useState(null);
+  const [tag, setTag] = useState(() => new URLSearchParams(window.location.search).get('tag'));
   const [sort, setSort] = useState(() => localStorage.getItem('rv.lib.sort') || 'recent');
   const [view, setView] = useState(() => localStorage.getItem('rv.lib.view') || 'grid');
   const [editing, setEditing] = useState(null);

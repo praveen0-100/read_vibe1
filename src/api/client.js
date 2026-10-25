@@ -175,6 +175,11 @@ export const api = {
     deleteAccount: () => del('/auth/me'),
   },
 
+  catalog: {
+    gutenberg: (query) => get('/catalog/gutenberg', query),
+    fresh: () => get('/catalog/new'),
+  },
+
   documents: {
     list: (query) => get('/documents', query),
     tags: () => get('/documents/tags'),
@@ -185,6 +190,7 @@ export const api = {
       return upload('/documents/upload', fd, onProgress);
     },
     createText: (data) => post('/documents/text', data),
+    importCatalog: (data) => post('/catalog/import', data),
     update: (id, data) => patch(`/documents/${id}`, data),
     remove: (id) => del(`/documents/${id}`),
     open: (id) => post(`/documents/${id}/open`),
