@@ -32,10 +32,13 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 600
     ai_rate_limit_per_minute: int = 40
 
-    # Optional Claude integration. Without a key the built-in local NLP engine is used.
-    anthropic_api_key: str | None = None
-    anthropic_model: str = "claude-opus-5-5"
-    ai_effort: str = "low"
+    # AI features use free, key-less public LLM endpoints by default (see services/llm.py) and fall back to the built-in
+    # local NLP engine. Point these at any OpenAI-compatible service (Groq, OpenRouter, Ollama, …) to use it first.
+    llm_enabled: bool = True
+    llm_base_url: str | None = None
+    llm_api_key: str | None = None
+    llm_model: str | None = None
+    llm_timeout_seconds: float = 45.0
 
     # Natural read-aloud voices: Microsoft neural voices (edge-tts) work with no key; add an OpenAI key to unlock its voices too.
     openai_api_key: str | None = None

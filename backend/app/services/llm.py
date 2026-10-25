@@ -1,99 +1,186 @@
-"""Optional Claude provider.
+"""Free, key-less LLM access with automatic fail-over.
 
-Enabled when READVIBE_ANTHROPIC_API_KEY (or ANTHROPIC_API_KEY) is set. Every caller must be
-prepared for `LLMUnavailable` and fall back to the local NLP engine.
+Every provider speaks the OpenAI-compatible ``/chat/completions`` protocol, so any of them can be swapped in:
+
+  1. a provider you configure yourself (READVIBE_LLM_BASE_URL / _API_KEY / _MODEL — Groq, OpenRouter, Gemini's
+     OpenAI endpoint, a local Ollama, …), tried first when set;
+  2. Pollinations and LLM7, two free public endpoints that need no account or key.
+
+A provider that fails is skipped for a short cool-down so a dead service never slows every request. Every caller must
+still be prepared for `LLMUnavailable` and fall back to the local NLP engine, which needs no network at all.
 """
 from __future__ import annotations
 
 import json
 import logging
-import os
-from functools import lru_cache
+import re
+import threading
+import time
+from dataclasses import dataclass
+
+import httpx
 
 from ..config import get_settings
 
 log = logging.getLogger("readvibe.llm")
 
-FALLBACK_BETA = "server-side-fallback-2026-07-01"
+COOLDOWN_SECONDS = 90
+RATE_LIMIT_COOLDOWN_SECONDS = 300  # 402/429: the free tier said "enough for now"
+MIN_TOKENS = 1200  # the free models are "thinking" models: their reasoning is spent from the same budget
 
 
 class LLMUnavailable(Exception):
     pass
 
 
-@lru_cache
-def _client():
-    settings = get_settings()
-    key = settings.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
-    if not key:
-        return None
-    try:
-        import anthropic
-    except ImportError:  # pragma: no cover
-        log.warning("anthropic package not installed; using local engine")
-        return None
-    return anthropic.Anthropic(api_key=key, timeout=90.0, max_retries=2)
+@dataclass(frozen=True)
+class Provider:
+    name: str
+    url: str
+    model: str
+    key: str | None = None
+
+
+FREE_PROVIDERS = (
+    Provider("pollinations", "https://text.pollinations.ai/openai", "openai"),
+    Provider("llm7", "https://api.llm7.io/v1/chat/completions", "default", "unused"),
+)
+
+_down_until: dict[str, float] = {}
+_lock = threading.Lock()
+
+
+def _providers() -> list[Provider]:
+    s = get_settings()
+    if not s.llm_enabled:
+        return []
+    out: list[Provider] = []
+    if s.llm_base_url:
+        base = s.llm_base_url.rstrip("/")
+        url = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
+        out.append(Provider("custom", url, s.llm_model or "gpt-4o-mini", s.llm_api_key))
+    out.extend(FREE_PROVIDERS)
+    return out
 
 
 def available() -> bool:
-    return _client() is not None
+    return bool(_providers())
 
 
 def provider_name() -> str:
-    return f"claude ({get_settings().anthropic_model})" if available() else "local"
+    providers = _providers()
+    if not providers:
+        return "local"
+    first = providers[0]
+    return f"{first.name} ({first.model})" if first.name == "custom" else "Free AI"
 
 
-def _call(system: str, messages: list[dict], max_tokens: int, output_format: dict | None = None) -> str:
-    client = _client()
-    if client is None:
-        raise LLMUnavailable("No LLM configured")
-    import anthropic
+def _usable(providers: list[Provider]) -> list[Provider]:
+    now = time.time()
+    with _lock:
+        live = [p for p in providers if _down_until.get(p.name, 0) <= now]
+    return live or providers  # if everything is cooling down, still try (one may have recovered)
 
-    settings = get_settings()
-    output_config: dict = {"effort": settings.ai_effort}
-    if output_format:
-        output_config["format"] = output_format
-    try:
-        response = client.beta.messages.create(
-            model=settings.anthropic_model,
-            max_tokens=max_tokens,
-            system=system,
-            messages=messages,
-            output_config=output_config,
-            betas=[FALLBACK_BETA],
-            fallbacks="default",
-        )
-    except anthropic.RateLimitError as exc:
-        raise LLMUnavailable("Claude rate limit reached") from exc
-    except anthropic.APIStatusError as exc:
-        log.warning("Claude API error %s: %s", exc.status_code, exc.message)
-        raise LLMUnavailable(f"Claude API error {exc.status_code}") from exc
-    except anthropic.APIConnectionError as exc:
-        raise LLMUnavailable("Could not reach Claude") from exc
 
-    if response.stop_reason == "refusal":
-        raise LLMUnavailable("Claude declined this request")
-    text = "".join(b.text for b in response.content if b.type == "text").strip()
+def _mark_down(p: Provider, seconds: int = COOLDOWN_SECONDS) -> None:
+    with _lock:
+        _down_until[p.name] = time.time() + seconds
+
+
+_THINK = re.compile(r"<think>.*?</think>", re.S | re.I)
+
+
+def _post(p: Provider, system: str, messages: list[dict], max_tokens: int) -> str:
+    headers = {"Content-Type": "application/json"}
+    if p.key:
+        headers["Authorization"] = f"Bearer {p.key}"
+    body = {
+        "model": p.model,
+        "messages": [{"role": "system", "content": system}, *messages],
+        "max_tokens": max(max_tokens, MIN_TOKENS),
+        "temperature": 0.4,
+    }
+    res = httpx.post(p.url, json=body, headers=headers, timeout=get_settings().llm_timeout_seconds)
+    res.raise_for_status()
+    data = res.json()
+    content = ((data.get("choices") or [{}])[0].get("message") or {}).get("content")
+    text = _THINK.sub("", content or "").strip()
     if not text:
-        raise LLMUnavailable("Empty response from Claude")
+        raise ValueError("empty response")
     return text
 
 
+def _extract_json(text: str):
+    """Parse the first JSON object in a model reply, tolerating code fences and chatter around it."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", text).strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    start = text.find("{")
+    while start != -1:
+        depth, in_str, esc = 0, False, False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+            elif ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start:i + 1])
+                    except json.JSONDecodeError:
+                        break
+        start = text.find("{", start + 1)
+    raise ValueError("no JSON object in reply")
+
+
+def _run(system: str, messages: list[dict], max_tokens: int, accept=None) -> object:
+    providers = _usable(_providers())
+    if not providers:
+        raise LLMUnavailable("No LLM configured")
+    last = "no provider answered"
+    for p in providers:
+        try:
+            text = _post(p, system, messages, max_tokens)
+            return accept(text) if accept else text
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            last = f"{p.name}: {type(exc).__name__} {exc}"[:200]
+            log.warning("LLM provider %s failed: %s", p.name, last)
+            limited = isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (402, 429)
+            _mark_down(p, RATE_LIMIT_COOLDOWN_SECONDS if limited else COOLDOWN_SECONDS)
+    raise LLMUnavailable(last)
+
+
 def complete_text(system: str, messages: list[dict], max_tokens: int = 4000) -> str:
-    return _call(system, messages, max_tokens)
+    return _run(system, messages, max_tokens)  # type: ignore[return-value]
 
 
 def complete_json(system: str, prompt: str, schema: dict, max_tokens: int = 6000) -> dict:
-    text = _call(
-        system,
-        [{"role": "user", "content": prompt}],
-        max_tokens,
-        output_format={"type": "json_schema", "schema": schema},
+    required = schema.get("required", [])
+    guide = (
+        "Respond with ONE JSON object only — no prose, no code fences, no commentary — that follows this JSON Schema:\n"
+        + json.dumps(schema, ensure_ascii=False)
     )
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise LLMUnavailable("Claude returned malformed JSON") from exc
+
+    def accept(text: str) -> dict:
+        data = _extract_json(text)
+        if not isinstance(data, dict) or any(k not in data for k in required):
+            raise ValueError("reply did not match the schema")
+        return data
+
+    return _run(f"{system}\n\n{guide}", [{"role": "user", "content": prompt}], max_tokens, accept)  # type: ignore[return-value]
 
 
 READER_SYSTEM = (

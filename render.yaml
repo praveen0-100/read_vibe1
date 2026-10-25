@@ -29,7 +29,11 @@ services:
         value: '["https://readvibecodex.vercel.app"]'
       - key: READVIBE_GOOGLE_CLIENT_ID
         sync: false          # set in the dashboard to enable Google sign-in
-      - key: READVIBE_ANTHROPIC_API_KEY
-        sync: false          # optional: Claude-powered AI; local engine otherwise
+      - key: READVIBE_LLM_BASE_URL
+        sync: false          # optional: your own OpenAI-compatible LLM (Groq, OpenRouter…); free public endpoints are used otherwise
+      - key: READVIBE_LLM_API_KEY
+        sync: false
+      - key: READVIBE_LLM_MODEL
+        sync: false
       - key: READVIBE_TRANSLATE_EMAIL
         sync: false          # optional: any real e-mail address lifts the free translation allowance (~5k -> ~50k characters/day)

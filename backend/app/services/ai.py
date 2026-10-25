@@ -1,4 +1,4 @@
-"""AI feature orchestration: picks Claude when configured, the local engine otherwise.
+"""AI feature orchestration: uses the free LLM when it answers, the local engine otherwise.
 
 Both paths return the same JSON shapes so the frontend never needs to care which ran.
 """

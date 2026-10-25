@@ -160,3 +160,37 @@ h1, h2, .topbar h1 { font-family: var(--font-serif); font-weight: 500; letter-sp
 .sidebar-bottom { grid-template-columns: minmax(0, 1fr); }
 .sidebar-bottom > *, .sidebar-nav > * { min-width: 0; }
 .theme-switch { box-sizing: border-box; width: 100%; }
+
+/* ─── Smoothness ────────────────────────────────────────────────────────────────
+   Blur-behind and always-running effects are what make scrolling and page changes stutter on phones and laptops
+   without a strong GPU. Chrome that scrolls over content is now opaque (it looks the same, costs nothing), tabs in the
+   background stop animating, and weaker devices (auto-detected in index.html) drop the remaining blur/blend effects. */
+.mobile-header, .mobile-nav, .mini-reading, .chapter-nav, .reader-top, .mr-bar, .modal-backdrop, .zen-controls, .vibe-controls, .focus-pill {
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+.mobile-header { background: var(--bg); }
+.mobile-nav { background: var(--bg); }
+.modal-backdrop { background: rgba(8, 7, 6, .7); }
+[data-theme='light'] .modal-backdrop { background: rgba(60, 45, 30, .45); }
+[data-hidden='1'] *, [data-hidden='1'] *::before, [data-hidden='1'] *::after { animation-play-state: paused !important; }
+
+/* Long grids paint only what is near the viewport */
+.dc-card, .dc-links a { content-visibility: auto; contain-intrinsic-size: auto 170px; }
+.doc-card, .note-card { content-visibility: auto; contain-intrinsic-size: auto 260px; }
+
+/* Smoother taps/scroll */
+button, a, [role='button'] { touch-action: manipulation; }
+.main, .dc-rail, .am-row, .mr-list, .lyrics { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.skeleton { will-change: auto; }
+
+[data-perf='lite'] *, [data-perf='lite'] *::before, [data-perf='lite'] *::after {
+  -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
+}
+[data-perf='lite'] .aa-blob, [data-perf='lite'] .aa-ring, [data-perf='lite'] .player-glow::before, [data-perf='lite'] .vibe-equalizer-glow {
+  animation: none !important; filter: none !important; mix-blend-mode: normal !important;
+}
+[data-perf='lite'] .aa-sheen, [data-perf='lite'] .zen-waves, [data-perf='lite'] .zen-mist, [data-perf='lite'] .zen-rain { animation: none !important; }
+[data-perf='lite'] .dc-card, [data-perf='lite'] .am-pick, [data-perf='lite'] .continue-card { box-shadow: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
+}

@@ -1,9 +1,9 @@
 # Render's free plan puts the API to sleep after ~15 idle minutes; the next visitor then waits ~30 s.
-# Ping it every 10 minutes so sign-in and registration stay instant.
+# Ping it every 5 minutes so sign-in and registration stay instant.
 name: keep-api-awake
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 jobs:
   ping:

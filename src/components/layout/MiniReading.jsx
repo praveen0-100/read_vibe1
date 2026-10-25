@@ -12,7 +12,7 @@ export default function MiniReading() {
   const location = useLocation();
   const navigate = useNavigate();
   const [dismissed, setDismissed] = useState(null);
-  const docs = useQuery(() => api.documents.list({ sort: 'recent' }), [dataVersion, location.pathname]);
+  const docs = useQuery(() => api.documents.list({ sort: 'recent' }), [dataVersion, location.pathname.startsWith('/read')]);
   const doc = (docs.data || []).find((d) => d.status === 'ready' && d.last_opened_at && Math.round(d.progress) < 100);
   if (!doc || dismissed === doc.id) return null;
   return (

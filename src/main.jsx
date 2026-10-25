@@ -1,14 +1,11 @@
 // ─── ReadVibe app root ────────────────────────────────────────────────────────
-import React, { lazy, Suspense, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
 import Sidebar, { MobileHeader, MobileNav } from './components/layout/Sidebar';
 import MiniReading from './components/layout/MiniReading';
 import QuickActions from './components/layout/QuickActions';
-import AIPanel from './components/ai/AIPanel';
-import SearchOverlay from './components/search/SearchOverlay';
-import UploadModal from './components/upload/UploadModal';
 import { ConfirmDialog, PageLoader, Toasts } from './components/ui';
 import ErrorBoundary from './components/ErrorBoundary';
 import LoginPage from './pages/LoginPage';
@@ -24,22 +21,59 @@ import './styles/discover.css';
 import { installUiScale } from './lib/uiScale';
 import { warmUp } from './api/client';
 
-const HomePage = lazy(() => import('./pages/HomePage'));
-const LibraryPage = lazy(() => import('./pages/LibraryPage'));
-const ReaderPage = lazy(() => import('./pages/ReaderPage'));
-const AudioStudioPage = lazy(() => import('./pages/AudioStudioPage'));
+// Panels that only exist once opened stay out of the first download; they are fetched in the background once the app is idle.
+const loadAIPanel = () => import('./components/ai/AIPanel');
+const loadSearch = () => import('./components/search/SearchOverlay');
+const loadUpload = () => import('./components/upload/UploadModal');
+const AIPanel = lazy(loadAIPanel);
+const SearchOverlay = lazy(loadSearch);
+const UploadModal = lazy(loadUpload);
+
+const loaders = {
+  home: () => import('./pages/HomePage'),
+  discover: () => import('./pages/DiscoverPage'),
+  library: () => import('./pages/LibraryPage'),
+  reader: () => import('./pages/ReaderPage'),
+  audio: () => import('./pages/AudioStudioPage'),
+};
+const HomePage = lazy(loaders.home);
+const LibraryPage = lazy(loaders.library);
+const ReaderPage = lazy(loaders.reader);
+const AudioStudioPage = lazy(loaders.audio);
 const ResearchPage = lazy(() => import('./pages/ResearchPage'));
 const ResearchProjectPage = lazy(() => import('./pages/ResearchProjectPage'));
 const NotesPage = lazy(() => import('./pages/NotesPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
-const DiscoverPage = lazy(() => import('./pages/DiscoverPage'));
+const DiscoverPage = lazy(loaders.discover);
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
+/** Mounts its children the first time `open` becomes true and keeps them mounted afterwards (so closing can animate). */
+function OnFirstOpen({ open, children }) {
+  const seen = useRef(false);
+  if (open) seen.current = true;
+  return seen.current ? <Suspense fallback={null}>{children}</Suspense> : null;
+}
+
+/** Warm the chunks the user is most likely to need next, without competing with the first render. */
+function usePrefetch(enabled) {
+  useEffect(() => {
+    if (!enabled) return undefined;
+    if (navigator.connection?.saveData) return undefined;
+    const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 1500));
+    const cancel = window.cancelIdleCallback || clearTimeout;
+    const id = idle(() => {
+      [loaders.discover, loaders.library, loaders.reader, loaders.audio, loadSearch, loadUpload, loadAIPanel].forEach((load, i) => setTimeout(load, i * 400));
+    }, { timeout: 4000 });
+    return () => cancel(id);
+  }, [enabled]);
+}
+
 function Shell() {
-  const { authStatus, setSearchOpen, setUploadOpen, openAI, closeAI, toggleSidebar, sidebarCollapsed, ai } = useApp();
+  const { authStatus, searchOpen, setSearchOpen, uploadOpen, setUploadOpen, openAI, closeAI, toggleSidebar, sidebarCollapsed, ai } = useApp();
   const location = useLocation();
   const navigate = useNavigate();
   const inReader = location.pathname.startsWith('/read');
+  usePrefetch(authStatus === 'authed');
 
   // The phone dock (mini player stacked on the tab bar) is one box; its measured height becomes --dock-h so every page can
   // reserve exactly that much room at its end and toasts sit just above it.
@@ -117,9 +151,9 @@ function Shell() {
           </div>
         )}
       </div>
-      <AIPanel />
-      <SearchOverlay />
-      <UploadModal />
+      <OnFirstOpen open={ai.open}><AIPanel /></OnFirstOpen>
+      <OnFirstOpen open={searchOpen}><SearchOverlay /></OnFirstOpen>
+      <OnFirstOpen open={uploadOpen}><UploadModal /></OnFirstOpen>
       {!inReader && <QuickActions />}
     </div>
   );

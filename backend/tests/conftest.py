@@ -11,8 +11,7 @@ os.environ["READVIBE_STORAGE_DIR"] = str(Path(_tmp, "storage"))
 os.environ["READVIBE_RESEARCH_ONLINE"] = "false"
 os.environ["READVIBE_RATE_LIMIT_PER_MINUTE"] = "100000"
 os.environ["READVIBE_AI_RATE_LIMIT_PER_MINUTE"] = "100000"
-os.environ["READVIBE_ANTHROPIC_API_KEY"] = ""
-os.environ.pop("ANTHROPIC_API_KEY", None)
+os.environ["READVIBE_LLM_ENABLED"] = "false"  # tests never touch the network LLMs
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

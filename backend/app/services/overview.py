@@ -4,8 +4,8 @@ Two formats:
   * conversation — two hosts talk the material through (curious host + explaining host), like a podcast;
   * narrative    — one storyteller carries the material along as an unfolding story.
 
-The script is written natively (not machine-translated line by line) by Claude, so Tamil sounds like Tamil. Without an
-AI key the only thing that can be done honestly is to narrate a document that is *already* in the requested language
+The script is written natively (not machine-translated line by line) by the LLM, so Tamil sounds like Tamil. Without an
+LLM the only thing that can be done honestly is to narrate a document that is *already* in the requested language
 from its own sentences; anything needing translation says so instead of producing English.
 """
 from __future__ import annotations

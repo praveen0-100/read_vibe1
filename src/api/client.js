@@ -45,7 +45,7 @@ export const warmUp = () => (warmPromise ||= request('/health', { retry: true })
 export const tokenStore = {
   get: () => { try { return localStorage.getItem(TOKEN_KEY); } catch { return null; } },
   set: (t) => { try { localStorage.setItem(TOKEN_KEY, t); } catch { /* storage unavailable */ } },
-  clear: () => { try { localStorage.removeItem(TOKEN_KEY); } catch { /* storage unavailable */ } },
+  clear: () => { invalidateCache(); try { localStorage.removeItem(TOKEN_KEY); } catch { /* storage unavailable */ } },
 };
 
 function authHeaders(extra = {}) {
@@ -123,6 +123,7 @@ export function upload(path, formData, onProgress) {
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(Math.round((e.loaded / e.total) * 100));
     xhr.onload = () => {
+      invalidateCache();
       let data = null;
       try { data = JSON.parse(xhr.responseText); } catch { /* ignore */ }
       if (xhr.status >= 200 && xhr.status < 300) resolve(data);
@@ -152,11 +153,28 @@ export async function download(path, { method = 'GET', body, filename } = {}) {
 export const mediaUrl = (path) => `${API_BASE}${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(tokenStore.get() || '')}`;
 
 // ─── Endpoints ────────────────────────────────────────────────────────────────
-const get = (p, query, opts) => request(p, { query, ...opts });
-const post = (p, body) => request(p, { method: 'POST', body });
-const put = (p, body) => request(p, { method: 'PUT', body });
-const patch = (p, body) => request(p, { method: 'PATCH', body });
-const del = (p) => request(p, { method: 'DELETE' });
+// Reads are de-duplicated while in flight and kept for a few seconds, so two components asking for the same list
+// (or a quick back-and-forth between pages) cost one round trip. Any write clears the cache.
+const READ_TTL = 15000;
+const NO_CACHE = /^\/(jobs|health|auth|tts|ai)(\/|$|\?)/;
+const reads = new Map(); // key -> { at, promise }
+export const invalidateCache = () => reads.clear();
+
+const get = (p, query, opts) => {
+  if (opts?.signal || opts?.raw || NO_CACHE.test(p)) return request(p, { query, ...opts });
+  const key = p + JSON.stringify(query || {});
+  const hit = reads.get(key);
+  if (hit && Date.now() - hit.at < READ_TTL) return hit.promise.then((d) => (d && typeof d === 'object' ? structuredClone(d) : d));
+  const promise = request(p, { query, ...opts });
+  reads.set(key, { at: Date.now(), promise });
+  promise.catch(() => reads.delete(key));
+  return promise.then((d) => (d && typeof d === 'object' ? structuredClone(d) : d));
+};
+const write = (method) => (p, body) => { invalidateCache(); return request(p, { method, body }); };
+const post = write('POST');
+const put = write('PUT');
+const patch = write('PATCH');
+const del = (p) => { invalidateCache(); return request(p, { method: 'DELETE' }); };
 
 export const api = {
   health: () => get('/health'),

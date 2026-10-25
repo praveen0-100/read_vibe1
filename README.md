@@ -4,7 +4,7 @@ An AI-powered reading ecosystem: immersive Reader / Zen / Vibe modes, a document
 multi-tone audiobooks, a collaborative recording studio and a Research Studio that goes from topic to a
 cited, exportable paper.
 
-**Stack:** React 19 + Vite (frontend) · FastAPI + SQLAlchemy (Python API) · SQLite or PostgreSQL · optional Claude.
+**Stack:** React 19 + Vite (frontend) · FastAPI + SQLAlchemy (Python API) · SQLite or PostgreSQL · free AI (no key needed).
 
 ## Quick start (Windows)
 
@@ -34,7 +34,8 @@ Copy `backend/.env.example` to `backend/.env`. All settings use the `READVIBE_` 
 |---|---|
 | `READVIBE_JWT_SECRET` | **Required in production** (the API refuses to start with the default). |
 | `READVIBE_GOOGLE_CLIENT_ID` | Enables **Sign in with Google** (see below). |
-| `READVIBE_ANTHROPIC_API_KEY` | Optional. Uses Claude for AI features; otherwise the built-in local engine runs. |
+| `READVIBE_LLM_BASE_URL` / `_API_KEY` / `_MODEL` | Optional. Your own OpenAI-compatible LLM, tried first. AI features otherwise use free key-less public endpoints, then the built-in local engine. |
+| `READVIBE_LLM_ENABLED` | `false` turns off every network LLM (local engine only). |
 | `READVIBE_DATABASE_URL` | SQLite by default; any SQLAlchemy URL (e.g. PostgreSQL). |
 | `READVIBE_MAX_UPLOAD_MB` | Upload limit — default **5120 (5 GB)**. |
 | `READVIBE_CORS_ORIGINS` | JSON list of allowed frontend origins. |

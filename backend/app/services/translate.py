@@ -152,14 +152,14 @@ def _llm_batch(texts: list[str], target: str, source: str) -> list[str]:
               "Answer as JSON {\"translations\": [...]} with the same number of items.\n\n" + json.dumps(texts, ensure_ascii=False))
     out = llm.complete_json(_LLM_SYSTEM, prompt, _LLM_SCHEMA, max_tokens=8000).get("translations", [])
     if len(out) != len(texts):
-        raise llm.LLMUnavailable("Claude returned the wrong number of translations")
+        raise llm.LLMUnavailable("The model returned the wrong number of translations")
     return [str(t).strip() for t in out]
 
 
 def translate_texts(texts: list[str], target: str, source: str = "en") -> tuple[list[str | None], str, str | None]:
     """Translate each text. Returns (translations, engine, note). An item that could not be translated is None.
 
-    Claude is used when a key is configured (best quality, whole paragraphs in one call); otherwise the free providers,
+    The LLM is tried first (best quality, whole paragraphs in one call); otherwise the free translation providers,
     which have a daily allowance — then `note` explains what was left untranslated.
     """
     from . import llm
@@ -185,9 +185,9 @@ def translate_texts(texts: list[str], target: str, source: str = "en") -> tuple[
                 for i, out in zip(idx, _llm_batch([clean[i] for i in idx], target, source)):
                     result[i] = out
                     _cache_file(source, target, clean[i]).write_text(json.dumps({"t": out}, ensure_ascii=False), "utf-8")
-            return result, "claude", None
+            return result, "ai", None
         except llm.LLMUnavailable as exc:
-            log.warning("Claude translation failed, using the free translator: %s", exc)
+            log.warning("LLM translation failed, using the free translator: %s", exc)
             todo = [i for i in todo if result[i] is None]
 
     quota = False
@@ -208,6 +208,6 @@ def translate_texts(texts: list[str], target: str, source: str = "en") -> tuple[
     note = None
     if missing:
         note = ("The free translation limit for today is used up, so the rest stays in the original language. "
-                "Try again tomorrow, or set READVIBE_TRANSLATE_EMAIL / an Anthropic key on the server for more."
+                "Try again tomorrow, or set READVIBE_TRANSLATE_EMAIL on the server for a larger allowance."
                 if quota else f"{missing} passage(s) could not be translated: {failure}")
     return result, engine, note

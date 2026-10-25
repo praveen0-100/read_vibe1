@@ -20,7 +20,7 @@ const PRIVACY = [
     When you use a feature, the relevant text may be sent to a processor that performs it:
     <ul>
       <li><strong>Read-aloud / audiobooks</strong> — text is sent to a text-to-speech service (Microsoft neural voices, or OpenAI speech if enabled) to produce audio.</li>
-      <li><strong>Translation and Audio Overview</strong> — sentences may be sent to the MyMemory or Google Translate services, and to Anthropic’s Claude if AI is enabled on the server.</li>
+      <li><strong>Translation and Audio Overview</strong> — sentences may be sent to the MyMemory or Google Translate services, and, for AI answers, summaries and translation, to free public AI services (Pollinations, LLM7) or to an AI provider the server operator configures.</li>
       <li><strong>Hosting</strong> — the app is served by Vercel and its API runs on Render.</li>
     </ul>
     Each processor handles data under its own terms and privacy policy.</>],

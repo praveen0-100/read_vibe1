@@ -1,6 +1,6 @@
 // ─── ReadVibe application state ──────────────────────────────────────────────
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { api, onUnauthorized, tokenStore } from '../api/client';
+import { api, invalidateCache, onUnauthorized, tokenStore } from '../api/client';
 import { loadLocalPrefs, mergePrefs, resolveTheme, saveLocalPrefs, upgradePrefs } from '../lib/prefs';
 
 const AppCtx = createContext(null);
@@ -66,7 +66,7 @@ export function AppProvider({ children }) {
 
   // ─── Data version: bump to make pages refetch after background changes ─────
   const [dataVersion, setDataVersion] = useState(0);
-  const refreshData = useCallback(() => setDataVersion((v) => v + 1), []);
+  const refreshData = useCallback(() => { invalidateCache(); setDataVersion((v) => v + 1); }, []);
 
   // ─── Background jobs & notifications ───────────────────────────────────────
   const [jobs, setJobs] = useState([]);
@@ -114,6 +114,7 @@ export function AppProvider({ children }) {
 
   // ─── Session bootstrap ─────────────────────────────────────────────────────
   const finishLogin = useCallback((res) => {
+    invalidateCache(); // never show the previous account's cached lists
     tokenStore.set(res.access_token);
     cacheUser(res.user);
     setUser(res.user);
@@ -129,6 +130,7 @@ export function AppProvider({ children }) {
 
   const logout = useCallback(() => {
     markDemo(false);
+    invalidateCache();
     tokenStore.clear();
     cacheUser(null);
     window.google?.accounts?.id?.disableAutoSelect(); // don't silently re-sign-in with Google
