@@ -17,7 +17,7 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 
 @router.get("/status")
 def ai_status(_: CurrentUser):
-    return {"provider": llm.provider_name(), "llm": llm.available()}
+    return {"provider": llm.provider_name(), "llm": llm.available(), "providers": llm.health()}
 
 
 @router.post("/summarize")

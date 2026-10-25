@@ -47,6 +47,7 @@ FREE_PROVIDERS = (
 )
 
 _down_until: dict[str, float] = {}
+_last_error: dict[str, str] = {}
 _lock = threading.Lock()
 
 
@@ -65,6 +66,15 @@ def _providers() -> list[Provider]:
 
 def available() -> bool:
     return bool(_providers())
+
+
+def health() -> list[dict]:
+    """Per-provider state for the status endpoint (no secrets)."""
+    now = time.time()
+    return [
+        {"name": p.name, "model": p.model, "cooling_down_s": max(0, round(_down_until.get(p.name, 0) - now)), "last_error": _last_error.get(p.name)}
+        for p in _providers()
+    ]
 
 
 def provider_name() -> str:
@@ -157,6 +167,7 @@ def _run(system: str, messages: list[dict], max_tokens: int, accept=None) -> obj
             return accept(text) if accept else text
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             last = f"{p.name}: {type(exc).__name__} {exc}"[:200]
+            _last_error[p.name] = last
             log.warning("LLM provider %s failed: %s", p.name, last)
             limited = isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (402, 429)
             _mark_down(p, RATE_LIMIT_COOLDOWN_SECONDS if limited else COOLDOWN_SECONDS)
