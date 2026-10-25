@@ -43,3 +43,12 @@ def test_unparseable_url_falls_back_instead_of_crashing():
 def test_valid_url_has_no_error():
     url, error = database._resolve_url(" 'postgres://u:p@host:5432/db' ")
     assert url == "postgresql+psycopg://u:p@host:5432/db" and error is None
+
+
+def test_fallback_location_is_writable_for_any_user():
+    import tempfile
+    from pathlib import Path
+
+    url, _ = database._resolve_url("not a url at all")
+    folder = Path(url.removeprefix("sqlite:///")).parent
+    assert folder == Path(tempfile.gettempdir()) and folder.exists()

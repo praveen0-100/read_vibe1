@@ -1,14 +1,16 @@
 """SQLAlchemy engine, session factory and declarative base."""
 import logging
 import re
+import tempfile
 from collections.abc import Iterator
+from pathlib import Path
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from .config import BASE_DIR, get_settings
+from .config import get_settings
 
 settings = get_settings()
 
@@ -49,13 +51,13 @@ def _resolve_url(raw: str) -> tuple[str, str | None]:
         return url, None
     except ArgumentError:
         error = f"READVIBE_DATABASE_URL is not a valid database address ({_describe_problem(raw)})"
-        return f"sqlite:///{(BASE_DIR / 'data' / 'readvibe.db').as_posix()}", error
+        # the temp dir is writable for any user (the container runs as a non-root account that cannot create /app/data)
+        return f"sqlite:///{(Path(tempfile.gettempdir()) / 'readvibe-fallback.db').as_posix()}", error
 
 
 _url, DB_CONFIG_ERROR = _resolve_url(settings.database_url)
 if DB_CONFIG_ERROR:
     log.error("%s — falling back to temporary SQLite storage", DB_CONFIG_ERROR)
-    (BASE_DIR / "data").mkdir(parents=True, exist_ok=True)
 _is_sqlite = _url.startswith("sqlite")
 engine = create_engine(
     _url,
