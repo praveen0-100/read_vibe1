@@ -19,7 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__
 from .config import get_settings
-from .database import SessionLocal, engine, init_db
+from .database import DB_CONFIG_ERROR, SessionLocal, engine, init_db
 from .routers import activity, ai, audio, auth, catalog, documents, notes, research, tts
 from .services import llm
 
@@ -154,6 +154,8 @@ def health():
         "service": "readvibe-api",
         "version": __version__,
         "database": db_ok,
+        "database_engine": engine.dialect.name,
+        "database_config_error": DB_CONFIG_ERROR,
         "ai_provider": llm.provider_name(),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
