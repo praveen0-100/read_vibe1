@@ -223,6 +223,9 @@ def chat(doc: Document, chapter_index: int | None, question: str, history: list[
     local = nlp.answer_question(query, answer_index)
     if llm.available():
         excerpts = "\n\n".join(f"<excerpt chapter=\"{p.chapter_title}\">\n{p.text}\n</excerpt>" for _, p in hits)
+        if not excerpts:  # a generic question ("what is the main idea?") matches no keywords: give the model the opening instead
+            title, text, _ = _scope(doc, chapter_index)
+            excerpts = f"<excerpt chapter=\"{title}\">\n{_trim(text, 1200)}\n</excerpt>"
         messages = [{"role": t["role"], "content": t["content"]} for t in history[-8:] if t.get("content")]
         # The Messages API requires the first message to be from the user.
         while messages and messages[0]["role"] != "user":
