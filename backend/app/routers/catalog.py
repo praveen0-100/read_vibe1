@@ -3,7 +3,10 @@
 The client sends only a source and an identifier; the server builds the download URL itself, so it can
 never be pointed at an arbitrary host.
 """
+import csv
+import io
 import re
+import threading
 import time
 from typing import Literal
 
@@ -95,21 +98,22 @@ CACHE_SECONDS = 15 * 60
 UA = {"User-Agent": "ReadVibe/1.0 (open-book catalogue)"}
 
 
-def _get_json(url: str, params: dict | None = None) -> dict:
+def _get_json(url: str, params: dict | None = None, timeout: float = 25, attempts: int = 3) -> dict:
     key = url + repr(sorted((params or {}).items()))
     hit = _cache.get(key)
     if hit and time.time() - hit[0] < CACHE_SECONDS:
         return hit[1]
     data, exc = None, None
-    for attempt in range(3):  # the free upstreams occasionally drop a request
+    for attempt in range(attempts):  # the free upstreams occasionally drop a request
         try:
-            res = httpx.get(url, params=params, headers=UA, timeout=25, follow_redirects=True)
+            res = httpx.get(url, params=params, headers=UA, timeout=timeout, follow_redirects=True)
             res.raise_for_status()
             data = res.json()
             break
         except (httpx.HTTPError, ValueError) as e:
             exc = e
-            time.sleep(0.6 * (attempt + 1))
+            if attempt + 1 < attempts:
+                time.sleep(0.6 * (attempt + 1))
     if data is None:
         if hit:  # serve stale rather than fail
             return hit[1]
@@ -118,6 +122,83 @@ def _get_json(url: str, params: dict | None = None) -> dict:
         _cache.clear()
     _cache[key] = (time.time(), data)
     return data
+
+
+# ─── Project Gutenberg fallback ─────────────────────────────────────────────────
+# Gutendex is a volunteer-run mirror and is sometimes very slow or down. Gutenberg publishes its whole catalogue as
+# one static CSV; when Gutendex doesn't answer quickly we search that file locally and return the same JSON shape.
+PG_CSV = "https://www.gutenberg.org/cache/epub/feeds/pg_catalog.csv"
+PG_PAGE = 32
+_pg: dict = {"rows": None, "at": 0.0}
+_pg_lock = threading.Lock()
+_YEARS = re.compile(r",?\s*-?\d{3,4}\??\s*-\s*(\d{3,4}\??)?\s*$")
+
+
+def _pg_load() -> None:
+    """Download + parse the catalogue (the file is ~21 MB and Gutenberg serves it slowly, so this runs off-request)."""
+    try:
+        res = httpx.get(PG_CSV, headers=UA, timeout=300, follow_redirects=True)
+        res.raise_for_status()
+        rows = []
+        for r in csv.DictReader(io.StringIO(res.text)):
+            if r.get("Type") != "Text" or "en" not in (r.get("Language") or "").split(";"):
+                continue
+            title = (r.get("Title") or "").split("\n")[0].strip()
+            author = _YEARS.sub("", (r.get("Authors") or "").split(";")[0].strip())
+            subjects = (r.get("Subjects") or "")[:200]
+            if title and r.get("Text#", "").isdigit():
+                rows.append((int(r["Text#"]), title, author, subjects, "", r.get("Issued", ""), f"{title} {author}".lower(), f"{subjects} {r.get('Bookshelves') or ''}".lower()[:400]))
+        _pg.update(rows=rows, at=time.time())
+    except (httpx.HTTPError, csv.Error):
+        pass  # try again on a later request
+    finally:
+        _pg["loading"] = False
+
+
+def _pg_rows() -> list[tuple] | None:
+    """The parsed catalogue, or None while it is still loading (a background load is started on first use / daily)."""
+    with _pg_lock:
+        fresh = _pg["rows"] is not None and time.time() - _pg["at"] < 24 * 3600
+        if not fresh and not _pg.get("loading"):
+            _pg["loading"] = True
+            threading.Thread(target=_pg_load, name="pg-catalogue", daemon=True).start()
+        return _pg["rows"]
+
+
+def _pg_search(params: dict) -> dict:
+    rows = _pg_rows()
+    if rows is None:
+        raise HTTPException(status_code=503, detail="The e-book catalogue is warming up — try again in a minute")
+    q = str(params.get("search", "")).lower().split()
+    topic = str(params.get("topic", "")).lower()
+    hits = [r for r in rows if all(t in r[6] for t in q) and (not topic or topic in r[7])]
+    if params.get("sort") == "descending":
+        hits.sort(key=lambda r: -r[0])
+    else:  # no download counts offline: exact title hits first, then the older classics
+        phrase = " ".join(q)
+        hits.sort(key=lambda r: (0 if phrase and phrase in r[1].lower() else 1, r[0]))
+    page = max(1, int(params.get("page", 1)))
+    start = (page - 1) * PG_PAGE
+    chunk = hits[start:start + PG_PAGE]
+    return {
+        "count": len(hits),
+        "next": "more" if start + PG_PAGE < len(hits) else None,
+        "results": [{
+            "id": r[0], "title": r[1], "authors": [{"name": r[2]}] if r[2] else [],
+            "subjects": [s.strip() for s in r[3].split(";")[:3] if s.strip()], "issued": r[5], "download_count": 0,
+            "formats": {"image/jpeg": f"https://www.gutenberg.org/cache/epub/{r[0]}/pg{r[0]}.cover.medium.jpg"},
+        } for r in chunk],
+    }
+
+
+def _gutendex(params: dict) -> dict:
+    """Gutendex first (it has download counts); the static catalogue when it is slow or down."""
+    _pg_rows()  # warm the fallback in the background
+    try:
+        return _get_json("https://gutendex.com/books/", params, timeout=8, attempts=1)
+    except HTTPException:
+        return _pg_search(params)
+
 
 
 @router.get("/gutenberg")
@@ -130,7 +211,7 @@ def gutenberg(user: CurrentUser, q: str = Query("", max_length=120), topic: str 
         params["search"] = q
     if topic:
         params["topic"] = topic
-    return _get_json("https://gutendex.com/books/", params)
+    return _gutendex(params)
 
 
 @router.get("/new")
@@ -138,7 +219,7 @@ def new_arrivals(user: CurrentUser):
     """Newest Gutenberg additions, newest LibriVox recordings and the current top podcasts."""
     out: dict = {}
     try:
-        out["gutenberg"] = _get_json("https://gutendex.com/books/", {"sort": "descending", "languages": "en"})
+        out["gutenberg"] = _gutendex({"sort": "descending", "languages": "en"})
     except HTTPException:
         out["gutenberg"] = None
     try:

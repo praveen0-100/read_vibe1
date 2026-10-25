@@ -17,3 +17,5 @@ backend/data/
 # Local dev logs
 .api.log
 .tmp-*
+
+.vercel
