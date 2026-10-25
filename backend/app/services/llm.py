@@ -25,7 +25,8 @@ from ..config import get_settings
 log = logging.getLogger("readvibe.llm")
 
 COOLDOWN_SECONDS = 90
-RATE_LIMIT_COOLDOWN_SECONDS = 300  # 402/429: the free tier said "enough for now"
+RATE_LIMIT_COOLDOWN_SECONDS = 120  # 402/429 without a hint: the free tier said "enough for now"
+_RETRY_AFTER = re.compile(r"retry after (\d+)\s*s", re.I)
 MIN_TOKENS = 1200  # the free models are "thinking" models: their reasoning is spent from the same budget
 
 
@@ -42,8 +43,9 @@ class Provider:
 
 
 FREE_PROVIDERS = (
-    Provider("pollinations", "https://text.pollinations.ai/openai", "openai"),
     Provider("llm7", "https://api.llm7.io/v1/chat/completions", "default", "unused"),
+    # Pollinations allows one anonymous reply per 30 s per IP, so it is the second choice on a shared server address.
+    Provider("pollinations", "https://text.pollinations.ai/openai", "openai"),
 )
 
 _down_until: dict[str, float] = {}
@@ -90,6 +92,17 @@ def _usable(providers: list[Provider]) -> list[Provider]:
     with _lock:
         live = [p for p in providers if _down_until.get(p.name, 0) <= now]
     return live or providers  # if everything is cooling down, still try (one may have recovered)
+
+
+def _cooldown_for(exc: Exception) -> int:
+    """How long to leave a provider alone: as long as it asks (Retry-After / "retry after 18s"), else a default."""
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (402, 429):
+        header = exc.response.headers.get("retry-after", "")
+        if header.isdigit():
+            return min(int(header) + 1, 600)
+        hint = _RETRY_AFTER.search(exc.response.text or "")
+        return min(int(hint.group(1)) + 1, 600) if hint else RATE_LIMIT_COOLDOWN_SECONDS
+    return COOLDOWN_SECONDS
 
 
 def _mark_down(p: Provider, seconds: int = COOLDOWN_SECONDS) -> None:
@@ -169,8 +182,7 @@ def _run(system: str, messages: list[dict], max_tokens: int, accept=None) -> obj
             last = f"{p.name}: {type(exc).__name__} {exc}"[:200]
             _last_error[p.name] = last
             log.warning("LLM provider %s failed: %s", p.name, last)
-            limited = isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (402, 429)
-            _mark_down(p, RATE_LIMIT_COOLDOWN_SECONDS if limited else COOLDOWN_SECONDS)
+            _mark_down(p, _cooldown_for(exc))
     raise LLMUnavailable(last)
 
 

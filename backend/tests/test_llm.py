@@ -30,7 +30,7 @@ def test_disabled_means_local_only():
 
 def test_free_providers_are_used_without_any_key(enabled):
     assert llm.available() and llm.provider_name() == "Free AI"
-    assert [p.name for p in llm._providers()] == ["pollinations", "llm7"]
+    assert [p.name for p in llm._providers()] == ["llm7", "pollinations"]
     assert all(p.key in (None, "unused") for p in llm._providers())
 
 
@@ -70,7 +70,7 @@ def test_fails_over_to_the_next_provider_and_cools_the_first_down(enabled, monke
 
     def fake(url, json=None, headers=None, timeout=None):
         calls.append(url)
-        if "pollinations" in url:
+        if "llm7" in url:
             raise httpx.ConnectError("down")
         return httpx.Response(200, json={"choices": [{"message": {"content": "<think>hmm</think>Hello there"}}]}, request=httpx.Request("POST", url))
 
@@ -79,7 +79,7 @@ def test_fails_over_to_the_next_provider_and_cools_the_first_down(enabled, monke
     assert len(calls) == 2
     calls.clear()
     llm.complete_text("s", [{"role": "user", "content": "hi"}])
-    assert calls == ["https://api.llm7.io/v1/chat/completions"]  # pollinations skipped during its cool-down
+    assert calls == ["https://text.pollinations.ai/openai"]  # llm7 skipped during its cool-down
 
 
 def test_wrong_schema_moves_on_then_raises(enabled, monkeypatch):
@@ -92,3 +92,17 @@ def test_http_error_status_raises_unavailable(enabled, monkeypatch):
     monkeypatch.setattr(httpx, "post", _reply("x", status=500))
     with pytest.raises(llm.LLMUnavailable):
         llm.complete_text("s", [{"role": "user", "content": "hi"}])
+
+
+def _status_error(status, text="", headers=None):
+    req = httpx.Request("POST", "https://x.test")
+    return httpx.HTTPStatusError("e", request=req, response=httpx.Response(status, text=text, headers=headers or {}, request=req))
+
+
+def test_cooldown_follows_the_retry_hint():
+    assert llm._cooldown_for(_status_error(402, '{"message":"Free limit reached: 1 reply every 30 seconds per IP. Retry after 18s, or add a key"}')) == 19
+    assert llm._cooldown_for(_status_error(429, "slow down", {"retry-after": "7"})) == 8
+    assert llm._cooldown_for(_status_error(429, "slow down")) == llm.RATE_LIMIT_COOLDOWN_SECONDS
+    assert llm._cooldown_for(_status_error(500)) == llm.COOLDOWN_SECONDS
+    assert llm._cooldown_for(httpx.ConnectError("down")) == llm.COOLDOWN_SECONDS
+    assert llm._cooldown_for(_status_error(429, "Retry after 99999s")) == 600
