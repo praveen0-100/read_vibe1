@@ -74,6 +74,14 @@ class HighlightUpdate(BaseModel):
     note: str | None = None
 
 
+class SketchCreate(BaseModel):
+    chapter_index: int = Field(ge=0)
+    tool: Literal["pen", "marker"] = "pen"
+    color: str = Field(default="#ff3b6b", pattern=r"^#[0-9a-fA-F]{6}$")
+    width: float = Field(default=3, gt=0, le=40)
+    points: list[list[float]] = Field(min_length=1, max_length=5000)
+
+
 class BookmarkCreate(BaseModel):
     chapter_index: int = Field(ge=0)
     scroll_ratio: float = Field(default=0, ge=0, le=1)

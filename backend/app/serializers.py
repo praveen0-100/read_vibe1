@@ -87,6 +87,18 @@ def document_out(doc: Document, *, with_chapters: bool = True, audio_ready: bool
     }
 
 
+def sketch_out(s) -> dict:
+    return {
+        "id": s.id,
+        "document_id": s.document_id,
+        "chapter_index": s.chapter_index,
+        "tool": s.tool,
+        "color": s.color,
+        "width": s.width,
+        "points": s.points,
+    }
+
+
 def highlight_out(h: Highlight) -> dict:
     return {
         "id": h.id,

@@ -91,6 +91,21 @@ class Highlight(TimestampMixin, Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class Sketch(TimestampMixin, Base):
+    """One pen / marker stroke drawn over a chapter page. Points are [x, y, pressure] with x, y in 0..1 of the page."""
+
+    __tablename__ = "sketches"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    chapter_index: Mapped[int] = mapped_column(Integer, default=0)
+    tool: Mapped[str] = mapped_column(String(10), default="pen")
+    color: Mapped[str] = mapped_column(String(9), default="#ff3b6b")
+    width: Mapped[float] = mapped_column(Float, default=3.0)
+    points: Mapped[list] = mapped_column(JSON)
+
+
 class Note(TimestampMixin, Base):
     __tablename__ = "notes"
 

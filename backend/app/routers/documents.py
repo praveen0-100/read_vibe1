@@ -8,7 +8,7 @@ from sqlalchemy import func, or_, select
 
 from ..config import get_settings
 from ..deps import DB, CurrentUser, get_owned, get_owned_document
-from ..models import Audiobook, Bookmark, Chapter, Document, Highlight, utcnow
+from ..models import Audiobook, Bookmark, Chapter, Document, Highlight, Sketch, utcnow
 from ..schemas import (
     BookmarkCreate,
     CastIn,
@@ -17,8 +17,9 @@ from ..schemas import (
     HighlightCreate,
     HighlightUpdate,
     ProgressUpdate,
+    SketchCreate,
 )
-from ..serializers import bookmark_out, document_out, highlight_out
+from ..serializers import bookmark_out, document_out, highlight_out, sketch_out
 from ..services import cast, extraction, ingest, storage
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -240,6 +241,43 @@ def update_highlight(highlight_id: str, body: HighlightUpdate, user: CurrentUser
 def delete_highlight(highlight_id: str, user: CurrentUser, db: DB):
     h = get_owned(db, Highlight, user, highlight_id, "Highlight")
     db.delete(h)
+    db.commit()
+
+
+# ─── Sketches (stylus / pen strokes over a page) ──────────────────────────────
+@router.get("/{document_id}/sketches")
+def list_sketches(document_id: str, user: CurrentUser, db: DB, chapter: int | None = None):
+    doc = get_owned_document(db, user, document_id)
+    q = select(Sketch).where(Sketch.document_id == doc.id, Sketch.owner_id == user.id)
+    if chapter is not None:
+        q = q.where(Sketch.chapter_index == chapter)
+    return [sketch_out(s) for s in db.scalars(q.order_by(Sketch.created_at))]
+
+
+@router.post("/{document_id}/sketches", status_code=201)
+def create_sketch(document_id: str, body: SketchCreate, user: CurrentUser, db: DB):
+    doc = get_owned_document(db, user, document_id)
+    s = Sketch(owner_id=user.id, document_id=doc.id, **body.model_dump())
+    db.add(s)
+    db.commit()
+    return sketch_out(s)
+
+
+@router.delete("/{document_id}/sketches", status_code=204)
+def clear_sketches(document_id: str, user: CurrentUser, db: DB, chapter: int | None = None):
+    doc = get_owned_document(db, user, document_id)
+    q = select(Sketch).where(Sketch.document_id == doc.id, Sketch.owner_id == user.id)
+    if chapter is not None:
+        q = q.where(Sketch.chapter_index == chapter)
+    for s in db.scalars(q):
+        db.delete(s)
+    db.commit()
+
+
+@router.delete("/sketches/{sketch_id}", status_code=204)
+def delete_sketch(sketch_id: str, user: CurrentUser, db: DB):
+    s = get_owned(db, Sketch, user, sketch_id, "Sketch")
+    db.delete(s)
     db.commit()
 
 

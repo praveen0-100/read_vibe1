@@ -87,6 +87,21 @@ def test_upload_rejects_unsupported(client, auth):
     assert r.status_code == 415
 
 
+def test_sketches(client, auth):
+    doc = client.post("/api/documents/text", headers=auth, json={"title": "Ink", "content": DESIGN_THINKING}).json()
+    url = f"/api/documents/{doc['id']}/sketches"
+    pts = [[0.1, 0.1, 0.5], [0.2, 0.15, 0.7]]
+    s = client.post(url, headers=auth, json={"chapter_index": 1, "tool": "marker", "color": "#ffd60a", "width": 12, "points": pts})
+    assert s.status_code == 201 and s.json()["points"] == pts
+    client.post(url, headers=auth, json={"chapter_index": 2, "points": pts})
+    assert len(client.get(url, headers=auth).json()) == 2
+    assert len(client.get(url, headers=auth, params={"chapter": 1}).json()) == 1
+    assert client.post(url, headers=auth, json={"chapter_index": 1, "color": "red", "points": pts}).status_code == 422
+    assert client.delete(f"/api/documents/sketches/{s.json()['id']}", headers=auth).status_code == 204
+    assert client.delete(url, headers=auth, params={"chapter": 2}).status_code == 204
+    assert client.get(url, headers=auth).json() == []
+
+
 def test_highlights_bookmarks_notes(client, auth):
     doc = client.post("/api/documents/text", headers=auth, json={"title": "Design", "content": DESIGN_THINKING}).json()
     h = client.post(f"/api/documents/{doc['id']}/highlights", headers=auth, json={"chapter_index": 1, "text": "affordance", "category": "Definition"})
