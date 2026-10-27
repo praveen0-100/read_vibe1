@@ -11,14 +11,19 @@ export function useQuery(fn, deps = [], { enabled = true, initial = null } = {})
   const fnRef = useRef(fn);
   fnRef.current = fn;
   const seq = useRef(0);
+  const hasData = useRef(initial != null);
 
   const run = useCallback(async () => {
     const id = ++seq.current;
-    setLoading(true);
+    setLoading((l) => l || !hasData.current); // a background reload keeps the page steady instead of flashing a loader
     setError(null);
     try {
       const result = await fnRef.current();
-      if (id === seq.current) setData(result);
+      if (id === seq.current) {
+        hasData.current = true;
+        // identical data → keep the old reference so nothing downstream re-renders
+        setData((prev) => (prev != null && JSON.stringify(prev) === JSON.stringify(result) ? prev : result));
+      }
       return result;
     } catch (err) {
       if (id === seq.current && err?.name !== 'AbortError') setError(err);
@@ -29,6 +34,7 @@ export function useQuery(fn, deps = [], { enabled = true, initial = null } = {})
   }, []);
 
   useEffect(() => {
+    hasData.current = false; // new inputs → a real load
     if (enabled) run();
     else setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps

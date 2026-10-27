@@ -385,7 +385,9 @@ function Reader({ docId }) {
 
   useEffect(() => narrator.on((s) => {
     setListen({ playing: s.playing, paragraph: s.playing || s.segment ? segParagraphs.current[s.segment] ?? null : null });
-    if (s.neuralFailed) notify('Natural voices are unavailable right now — using your device voice.', 'info');
+    if (s.error === 'no-voice') notify('Couldn’t reach the natural voice for this language, and this device has no voice for it. Try again in a moment, or install the language’s voice in your system settings.', 'warning');
+    else if (s.neuralFailed) notify('Natural voices are unavailable right now — using your device voice.', 'info');
+    else if (s.error) notify('Playback failed — check your connection and press play again.', 'warning');
     if (s.finished) {
       clearSpokenWord();
       setListen({ playing: false, paragraph: null });

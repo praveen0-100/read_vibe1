@@ -2,13 +2,14 @@
 // Everything opens inside the app: books import into the reader, audio plays in the built-in player.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BellRing, BookOpen, ExternalLink, GraduationCap, Headphones, Library, Mic, Pause, Play, Search, SkipForward, Sparkles, X } from 'lucide-react';
+import { BellRing, BookOpen, ExternalLink, GraduationCap, Headphones, Library, Mic, FileText, Play, Search, Sparkles, X } from 'lucide-react';
 import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
 import {
   GENRES, RESOURCES, audiobookTracks, fetchFresh, followedUpdates, podcastEpisodes, searchArchiveTexts, searchAudiobooks, searchGutenberg, searchPodcasts,
 } from '../lib/catalog';
 import { EmptyState, Skeleton } from '../components/ui';
+import DiscoverListen from '../components/audio/DiscoverListen';
 
 const TABS = [
   { id: 'new', label: 'New', icon: Sparkles },
@@ -31,12 +32,6 @@ function ago(ms) {
   return h < 1 ? 'just now' : h < 24 ? `${Math.floor(h)}h ago` : `${Math.floor(h / 24)}d ago`;
 }
 
-function fmt(s) {
-  if (!s) return '';
-  const m = Math.round(s / 60);
-  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
-}
-
 function Cover({ item }) {
   const [bad, setBad] = useState(false);
   return (
@@ -48,35 +43,44 @@ function Cover({ item }) {
   );
 }
 
-/** Sticky player for audiobook parts / podcast episodes. */
-function MediaPlayer({ item, tracks, onClose }) {
-  const audio = useRef(null);
-  const [i, setI] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const track = tracks[i];
+/** Full text of an e-book, shown as a transcript; chapters load one at a time. */
+function Transcript({ item, docId, onClose }) {
+  const [chapters, setChapters] = useState([]);
+  const [total, setTotal] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const next = useRef(0);
 
-  useEffect(() => {
-    if (!audio.current || !track) return;
-    audio.current.src = track.url;
-    audio.current.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-  }, [track]);
+  const more = useCallback(async () => {
+    setLoading(true);
+    try {
+      const ch = await api.documents.chapter(docId, next.current);
+      const text = new DOMParser().parseFromString(ch.content || '', 'text/html').body.textContent.trim();
+      next.current += 1;
+      setTotal(ch.total);
+      setChapters((c) => [...c, { title: ch.title, text }]);
+    } catch (e) { setError(e.message || 'Couldn’t load the text'); } finally { setLoading(false); }
+  }, [docId]);
 
-  const toggle = () => (audio.current.paused ? audio.current.play() : audio.current.pause());
+  useEffect(() => { more(); }, [more]);
+  const done = total !== null && next.current >= total;
   return (
-    <div className="dc-player" role="region" aria-label="Now playing">
-      <audio ref={audio} controls onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setI((n) => Math.min(n + 1, tracks.length - 1))} />
+    <div className="dc-transcript" role="dialog" aria-label={`Transcript of ${item.title}`}>
       <div className="dc-player-head">
         <Cover item={item} />
-        <div className="dc-player-text"><strong>{item.title}</strong><small>{track?.title || 'Loading…'} · {i + 1}/{tracks.length}</small></div>
-        <button className="icon-ghost" onClick={toggle} aria-label={playing ? 'Pause' : 'Play'}>{playing ? <Pause size={20} /> : <Play size={20} />}</button>
-        <button className="icon-ghost" onClick={() => setI((n) => Math.min(n + 1, tracks.length - 1))} disabled={i >= tracks.length - 1} aria-label="Next"><SkipForward size={20} /></button>
-        <button className="icon-ghost" onClick={onClose} aria-label="Close player"><X size={20} /></button>
+        <div className="dc-player-text"><strong>{item.title}</strong><small>Transcript · {item.author}</small></div>
+        <button className="icon-ghost" onClick={onClose} aria-label="Close transcript"><X size={20} /></button>
       </div>
-      <ol className="dc-tracks">
-        {tracks.map((t, n) => (
-          <li key={t.url}><button className={n === i ? 'on' : ''} onClick={() => setI(n)}><span>{n + 1}</span><em>{t.title}</em><small>{fmt(t.seconds)}</small></button></li>
+      <div className="dc-transcript-body">
+        {chapters.map((c, n) => (
+          <section key={n}>
+            <h3>{c.title}</h3>
+            {c.text.split(/\n{2,}/).map((para, k) => <p key={k}>{para}</p>)}
+          </section>
         ))}
-      </ol>
+        {error && <p className="dc-note">{error}</p>}
+        {!done && !error && <button className="dc-more" onClick={more} disabled={loading}>{loading ? 'Loading…' : 'Load next chapter'}</button>}
+      </div>
     </div>
   );
 }
@@ -93,6 +97,7 @@ export default function DiscoverPage() {
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState(null);
   const [player, setPlayer] = useState(null);
+  const [transcript, setTranscript] = useState(null);
   const [fresh, setFresh] = useState({ loading: true, error: null, data: null });
   const [follows, setFollows] = useState(() => store.get(FOLLOWS, []));
   const [updates, setUpdates] = useState([]);
@@ -146,21 +151,31 @@ export default function DiscoverPage() {
 
   useEffect(() => { if (tab !== 'learn' && tab !== 'new') { setPage(1); run(1); } }, [run, tab]);
 
-  // One tap: import the title into the library (once) and open it in the in-app reader.
-  const readNow = async (item) => {
+  // Import the title into the library (once) and return its document id.
+  const ensureDoc = async (item) => {
     const key = `${item.source}:${item.id}`;
+    const known = store.get(IMPORTED, {})[key];
+    if (known) {
+      try { await api.documents.get(known); return known; } catch { /* deleted since — import again */ }
+    }
+    const doc = await api.documents.importCatalog({ source: item.source, id: item.id, title: item.title, author: item.author, tags: item.tags || [] });
+    store.set(IMPORTED, { ...store.get(IMPORTED, {}), [key]: doc.id });
+    refreshData?.();
+    return doc.id;
+  };
+
+  // One tap: open it in the in-app reader.
+  const readNow = async (item) => {
     setBusy(item.id);
-    try {
-      const known = store.get(IMPORTED, {})[key];
-      if (known) {
-        try { await api.documents.get(known); navigate(`/read/${known}`); return; } catch { /* deleted since — import again */ }
-      }
-      const doc = await api.documents.importCatalog({ source: item.source, id: item.id, title: item.title, author: item.author, tags: item.tags || [] });
-      store.set(IMPORTED, { ...store.get(IMPORTED, {}), [key]: doc.id });
-      refreshData?.();
-      navigate(`/read/${doc.id}`);
-    } catch (e) {
+    try { navigate(`/read/${await ensureDoc(item)}`); } catch (e) {
       notifyError(e, 'Couldn’t open this title');
+    } finally { setBusy(null); }
+  };
+
+  const showTranscript = async (item) => {
+    setBusy(`t:${item.id}`);
+    try { setTranscript({ item, docId: await ensureDoc(item) }); } catch (e) {
+      notifyError(e, 'Couldn’t load the transcript');
     } finally { setBusy(null); }
   };
 
@@ -187,6 +202,7 @@ export default function DiscoverPage() {
         </div>
         <div className="dc-actions">
           {isBook && <button className="dc-btn" onClick={() => readNow(it)} disabled={busy === it.id}><BookOpen size={14} /> {busy === it.id ? 'Opening…' : 'Read now'}</button>}
+          {isBook && <button className="dc-btn ghost" onClick={() => showTranscript(it)} disabled={busy === `t:${it.id}`}><FileText size={14} /> {busy === `t:${it.id}` ? 'Loading…' : 'Transcript'}</button>}
           {!isBook && <button className="dc-btn" onClick={() => listen(it)} disabled={busy === it.id}><Play size={14} fill="currentColor" /> {busy === it.id ? 'Loading…' : 'Listen'}</button>}
           {it.source === 'podcast' && (
             <button className={`dc-btn ghost ${following ? 'on' : ''}`} onClick={() => toggleFollow(it)} aria-pressed={following}><BellRing size={14} /> {following ? 'Following' : 'Follow'}</button>)}
@@ -289,7 +305,8 @@ export default function DiscoverPage() {
         </div>
       )}
 
-      {player && <MediaPlayer item={player.item} tracks={player.tracks} onClose={() => setPlayer(null)} />}
+      {transcript && <Transcript key={transcript.docId} {...transcript} onClose={() => setTranscript(null)} />}
+      {player && <DiscoverListen item={player.item} tracks={player.tracks} onClose={() => setPlayer(null)} />}
     </div>
   );
 }

@@ -194,3 +194,15 @@ button, a, [role='button'] { touch-action: manipulation; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
 }
+
+/* ─── Smoothness: only art that is large or playing animates; off-screen cards skip layout/paint ─── */
+.album-art:not(.aa-lg):not(.is-playing) .aa-blob,
+.album-art:not(.aa-lg):not(.is-playing) .aa-ring,
+.album-art:not(.aa-lg):not(.is-playing) .aa-sheen,
+.album-art:not(.aa-lg):not(.is-playing) .aa-title { animation: none !important; }
+.album-art:not(.aa-lg):not(.is-playing) .aa-blob { filter: none; mix-blend-mode: normal; }
+.album-art:not(.aa-lg) .aa-grain { display: none; }
+.album-card, .dc-card, .book-card { content-visibility: auto; contain-intrinsic-size: auto 220px; }
+.album-art, .dc-cover img { backface-visibility: hidden; }
+img { content-visibility: auto; }
+@media (prefers-reduced-motion: reduce) { .album-art * { animation: none !important; } }

@@ -77,7 +77,8 @@ export function AppProvider({ children }) {
   const loadJobs = useCallback(async () => {
     try {
       const list = await api.activity.jobs(false);
-      setJobs(list);
+      // keep the old array when nothing changed, so the 1.5 s poll does not re-render every page
+      setJobs((prev) => (JSON.stringify(prev) === JSON.stringify(list) ? prev : list));
       const active = list.filter((j) => j.status === 'queued' || j.status === 'processing');
       for (const [id, cb] of watchers.current) {
         const job = list.find((j) => j.id === id);
@@ -211,7 +212,8 @@ export function AppProvider({ children }) {
     return () => mq.removeEventListener('change', apply);
   }, [prefs.theme, prefs.accent, prefs.accessibility]);
 
-  const value = {
+  // one stable object between changes: consumers only re-render when something they read really changed
+  const value = useMemo(() => ({
     user, setUser, authStatus, auth,
     prefs, setPrefs,
     toasts, notify, notifyError, dismissToast,
@@ -222,7 +224,7 @@ export function AppProvider({ children }) {
     dataVersion, refreshData,
     jobs, loadJobs, trackJob,
     online,
-  };
+  }), [ user, authStatus, auth, prefs, setPrefs, toasts, notify, notifyError, dismissToast, confirm, confirmState, closeConfirm, searchOpen, uploadOpen, ai, openAI, closeAI, sidebarCollapsed, toggleSidebar, dataVersion, refreshData, jobs, loadJobs, trackJob, online ]); // eslint-disable-line react-hooks/exhaustive-deps
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }
 

@@ -1,1 +1,0 @@
-import{K as e,lt as t,n,nt as r,ot as i}from"./index-B6UG423x.js";t();var a=r();function o(){let t=i();return(0,a.jsx)(`div`,{className:`page-shell`,children:(0,a.jsx)(n,{icon:e,title:`This page wandered off the shelf.`,description:`The link may be broken or the item was removed.`,action:`Back to home`,onAction:()=>t(`/`)})})}export{o as default};

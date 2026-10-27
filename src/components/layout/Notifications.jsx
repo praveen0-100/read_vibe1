@@ -1,10 +1,10 @@
 // ─── Notification centre: background jobs (uploads, audiobooks) ──────────────
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Bell, BookOpen, Check, Headphones, Loader2, Trash2, XCircle } from 'lucide-react';
 import { api } from '../../api/client';
 import { useApp } from '../../context/AppContext';
-import { useClickOutside } from '../../hooks/useAsync';
 import { timeAgo } from '../../lib/format';
 import { ProgressBar } from '../ui';
 
@@ -13,8 +13,28 @@ export default function Notifications() {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const navigate = useNavigate();
-  const close = useCallback(() => setOpen(false), []);
-  useClickOutside(ref, close, open);
+  const panelRef = useRef(null);
+  const [pos, setPos] = useState(null);
+
+  // The panel lives on <body>, so no sidebar or page layer can stack above it; it is placed beside the bell.
+  const place = () => {
+    const r = ref.current?.getBoundingClientRect();
+    if (!r) return;
+    const up = r.top > window.innerHeight / 2;
+    const left = Math.min(Math.max(8, r.left - 120), window.innerWidth - 328);
+    setPos(up ? { left, bottom: window.innerHeight - r.top + 8 } : { left, top: r.bottom + 8 });
+  };
+
+  useEffect(() => {
+    if (!open) return undefined;
+    place();
+    const out = (e) => { if (!ref.current?.contains(e.target) && !panelRef.current?.contains(e.target)) setOpen(false); };
+    const esc = (e) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('pointerdown', out);
+    document.addEventListener('keydown', esc);
+    window.addEventListener('resize', place);
+    return () => { document.removeEventListener('pointerdown', out); document.removeEventListener('keydown', esc); window.removeEventListener('resize', place); };
+  }, [open]);
 
   const unseen = jobs.filter((j) => !j.seen && (j.status === 'completed' || j.status === 'failed')).length;
   const active = jobs.filter((j) => j.status === 'queued' || j.status === 'processing').length;
@@ -41,8 +61,8 @@ export default function Notifications() {
         {active ? <Loader2 size={17} className="spin" /> : <Bell size={17} />}
         {(unseen > 0 || active > 0) && <span className="notif-dot">{unseen || ''}</span>}
       </button>
-      {open && (
-        <div className="notif-panel" role="dialog" aria-label="Notifications">
+      {open && pos && createPortal(
+        <div className="notif-panel" ref={panelRef} style={pos} role="dialog" aria-label="Notifications">
           <div className="notif-head">
             <strong>Activity</strong>
             {jobs.some((j) => j.status === 'completed' || j.status === 'failed') && (
@@ -67,7 +87,8 @@ export default function Notifications() {
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

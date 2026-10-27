@@ -22,5 +22,13 @@ export default defineConfig({
   build: {
     sourcemap: false,
     chunkSizeWarningLimit: 900,
+    target: 'es2020',
+    cssCodeSplit: true,
+    rollupOptions: {
+      output: {
+        // stable vendor chunks stay cached across deploys
+        manualChunks: (id) => (id.includes('node_modules') ? (/react-router|@remix-run/.test(id) ? 'router' : /lucide/.test(id) ? 'icons' : /react/.test(id) ? 'react' : undefined) : undefined),
+      },
+    },
   },
 });

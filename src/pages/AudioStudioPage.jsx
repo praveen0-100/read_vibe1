@@ -78,6 +78,9 @@ function Player({ bookId, visible = true, autoplay = false, library = [], onNavi
   useEffect(() => narrator.on((s) => {
     setSt(s);
     setCharIndex(s.charIndex ?? null);
+    if (s.error === 'no-voice') notify('Couldn’t reach the natural voice for this language, and this device has no voice for it. Try again in a moment, or install the language’s voice in your system settings.', 'warning');
+    else if (s.neuralFailed) notify('Natural voices are unavailable right now — using your device voice.', 'info');
+    else if (s.error) notify('Playback failed — check your connection and press play again.', 'warning');
     if (s.chapterEnded != null && sleep === -1) { narrator.pause(); notify('Sleep timer: stopped at the end of the chapter', 'info'); setSleep(0); }
     if (s.finished) {
       if (sleep === -1) { setSleep(0); notify('Sleep timer: stopped at the end of the audiobook', 'info'); return; }
@@ -106,7 +109,7 @@ function Player({ bookId, visible = true, autoplay = false, library = [], onNavi
     if (autoplay && !autoplayed.current) { autoplayed.current = true; narrator.play(); }
     setBookmarks(b.bookmarks || []);
     totalListened.current = b.listened_seconds || 0;
-  }, [book.data, voices.length, viewScript, viewLang, nv.languages.length]); // eslint-disable-line
+  }, [book.data, voices.length, viewScript, viewLang, nv.languages.length, nv.on]); // eslint-disable-line
 
   // persist position
   const totalListened = useRef(0);

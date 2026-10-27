@@ -18,8 +18,9 @@ export async function translateTexts(texts, target, source = 'en', { signal, onP
   let note = null;
   onProgress?.(0, total);
 
+  // cut into batches, then translate up to 3 at once (the sequential version waited a full round-trip per batch)
+  const batches = [];
   for (let at = 0; at < todo.length;) {
-    if (signal?.aborted) break;
     const batch = [];
     let chars = 0;
     while (at < todo.length && batch.length < MAX_ITEMS && (batch.length === 0 || chars + texts[todo[at]].length <= MAX_CHARS)) {
@@ -27,15 +28,23 @@ export async function translateTexts(texts, target, source = 'en', { signal, onP
       batch.push(todo[at]);
       at += 1;
     }
-    const res = await api.ai.translate(batch.map((i) => texts[i]), target, source);
-    if (signal?.aborted) break;
-    batch.forEach((i, k) => {
-      const t = res.translations[k];
-      if (t) { out[i] = t; memo.set(keyOf(source, target, texts[i]), t); }
-    });
-    note = res.note || note;
-    done += batch.length;
-    onProgress?.(done, total);
+    batches.push(batch);
   }
+  let next = 0;
+  const worker = async () => {
+    while (next < batches.length && !signal?.aborted) {
+      const batch = batches[next]; next += 1;
+      const res = await api.ai.translate(batch.map((i) => texts[i]), target, source);
+      if (signal?.aborted) return;
+      batch.forEach((i, k) => {
+        const t = res.translations[k];
+        if (t) { out[i] = t; memo.set(keyOf(source, target, texts[i]), t); }
+      });
+      note = res.note || note;
+      done += batch.length;
+      onProgress?.(done, total);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(3, batches.length) }, worker));
   return { out, note };
 }

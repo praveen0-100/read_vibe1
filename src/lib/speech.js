@@ -155,11 +155,24 @@ export class Narrator {
 
     let clip;
     try {
-      clip = await clips.get(seg.text, seg.voice, deliveryOf(seg));
+      try {
+        clip = await clips.get(seg.text, seg.voice, deliveryOf(seg));
+      } catch (first) {
+        if (token !== this.token) return;
+        await new Promise((r) => setTimeout(r, 700)); // one retry: the voice service often fails once while it wakes
+        if (token !== this.token) return;
+        clip = await clips.get(seg.text, seg.voice, deliveryOf(seg)).catch(() => { throw first; });
+      }
     } catch (err) {
       if (token !== this.token) return;
-      // the voice service is unreachable: carry on with the browser's voice instead of going silent
       this.clips = null;
+      if (this.needsDeviceVoice()) {
+        // the device has no voice for this language: its default (English) voice would garble the text at speed, so stop instead
+        this.playing = false;
+        this.emit({ neuralFailed: err?.message || 'Natural voices are unavailable', error: 'no-voice' });
+        return;
+      }
+      // the voice service is unreachable: carry on with the browser's voice instead of going silent
       this.emit({ neuralFailed: err?.message || 'Natural voices are unavailable' });
       this.speakCurrent();
       return;
@@ -242,9 +255,19 @@ export class Narrator {
     setTimeout(() => token === this.token && this.playing && this.advance(), wait);
   }
 
+  /** True when the text is not English and the device has no voice for it (the default voice would mispronounce it). */
+  needsDeviceVoice() {
+    return !this.voice && !!this.lang && !/^en/i.test(this.lang);
+  }
+
   speakCurrent() {
     if (this.current?.silent) { this.skipSilent(this.current); return; }
     if (this.clips) { this.speakNeural(); return; }
+    if (this.needsDeviceVoice()) {
+      this.playing = false;
+      this.emit({ error: 'no-voice' });
+      return;
+    }
     const synth = window.speechSynthesis;
     const token = ++this.token;
     synth.cancel();
