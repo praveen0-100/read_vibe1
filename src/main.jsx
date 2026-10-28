@@ -18,6 +18,8 @@ import './styles/indic.css';
 import './styles/responsive.css';
 import './styles/refresh.css';
 import './styles/discover.css';
+import './styles/decks.css';
+import './styles/decks-ui.css';
 import { installUiScale } from './lib/uiScale';
 import { warmUp } from './api/client';
 
@@ -45,6 +47,9 @@ const ResearchProjectPage = lazy(() => import('./pages/ResearchProjectPage'));
 const NotesPage = lazy(() => import('./pages/NotesPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const DiscoverPage = lazy(loaders.discover);
+const DecksPage = lazy(() => import('./pages/DecksPage'));
+const DeckEditorPage = lazy(() => import('./pages/DeckEditorPage'));
+const DeckPresentPage = lazy(() => import('./pages/DeckPresentPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 /** Mounts its children the first time `open` becomes true and keeps them mounted afterwards (so closing can animate). */
@@ -106,7 +111,7 @@ function Shell() {
       if (e.key === 'a' && !inReader) (ai.open ? closeAI() : openAI());
       if (e.key === 'g') {
         const next = (ev) => {
-          const map = { h: '/', l: '/library', r: '/read', a: '/audio', s: '/research', n: '/notes', ',': '/settings' };
+          const map = { h: '/', l: '/library', r: '/read', a: '/audio', p: '/decks', s: '/research', n: '/notes', ',': '/settings' };
           if (map[ev.key]) navigate(map[ev.key]);
         };
         window.addEventListener('keydown', next, { once: true });
@@ -135,6 +140,8 @@ function Shell() {
                 <Route path="read" element={<ReaderPage />} />
                 <Route path="read/:docId" element={<ReaderPage />} />
                 <Route path="audio" element={<AudioStudioPage />} />
+                <Route path="decks" element={<DecksPage />} />
+                <Route path="decks/:deckId" element={<DeckEditorPage />} />
                 <Route path="research" element={<ResearchPage />} />
                 <Route path="research/:projectId" element={<ResearchProjectPage />} />
                 <Route path="notes" element={<NotesPage />} />
@@ -165,6 +172,7 @@ function Root() {
     <>
       <Routes>
         <Route path="/login" element={authStatus === 'authed' ? <Navigate to="/" replace /> : <LoginPage />} />
+        <Route path="/present/:deckId" element={<Suspense fallback={<PageLoader />}><DeckPresentPage /></Suspense>} />
         <Route path="/privacy" element={<LegalPage kind="privacy" />} />
         <Route path="/terms" element={<LegalPage kind="terms" />} />
         <Route path="/*" element={<Shell />} />

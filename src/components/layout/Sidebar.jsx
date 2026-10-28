@@ -3,7 +3,7 @@ import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   BookOpen, Brain, Compass, FileText, Headphones, Home, Library, LogOut, Menu as MenuIcon, Moon,
-  Search, Settings, Sparkles, Sun, User, WifiOff,
+  Presentation, Search, Settings, Sparkles, Sun, User, WifiOff,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { initials } from '../../lib/format';
@@ -18,6 +18,7 @@ export const NAV_ITEMS = [
   { to: '/library', label: 'Library', icon: Library },
   { to: '/read', label: 'Read now', icon: BookOpen, dot: true },
   { to: '/audio', label: 'Audio Studio', icon: Headphones },
+  { to: '/decks', label: 'Presentations', icon: Presentation },
   { to: '/research', label: 'Research', icon: Brain },
   { to: '/notes', label: 'Notebook', icon: FileText },
 ];

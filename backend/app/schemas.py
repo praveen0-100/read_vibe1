@@ -180,6 +180,28 @@ class AudiobookCreate(BaseModel):
     chapter_indexes: list[int] | None = None
 
 
+DeckStyle = Literal["executive", "academic", "creative", "technical"]
+DeckTheme = Literal["aurora", "nebula", "solar", "frost"]
+
+
+class DeckCreate(BaseModel):
+    document_id: str
+    chapter_indexes: list[int] | None = None
+    slides: int = Field(default=12, ge=5, le=30)
+    style: DeckStyle = "executive"
+    theme: DeckTheme = "aurora"
+    images: bool = True
+    visuals: bool = True
+    notes: bool = True
+    focus: str = Field(default="", max_length=300)
+
+
+class DeckUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    theme: DeckTheme | None = None
+    slides: list[dict] | None = Field(default=None, max_length=60)
+
+
 class AudiobookUpdate(BaseModel):
     position_chapter: int | None = Field(default=None, ge=0)
     position_segment: int | None = Field(default=None, ge=0)

@@ -252,3 +252,19 @@ class Reference(Base):
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     project: Mapped[ResearchProject] = relationship(back_populates="references")
+
+
+class Deck(TimestampMixin, Base):
+    """A generated presentation. `slides` is a list of layout-tagged slide dicts (see services/deck.py)."""
+
+    __tablename__ = "decks"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    document_id: Mapped[str | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(300))
+    subtitle: Mapped[str] = mapped_column(String(400), default="")
+    theme: Mapped[str] = mapped_column(String(20), default="aurora")
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    slides: Mapped[list] = mapped_column(JSON, default=list)
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)

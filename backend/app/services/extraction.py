@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import io
 import posixpath
+import html
 import re
 import zipfile
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from xml.etree import ElementTree
 
-SUPPORTED_FORMATS = {"pdf", "epub", "docx", "pptx", "odt", "txt", "md", "markdown", "html", "htm", "rtf", "csv"}
+SUPPORTED_FORMATS = {"pdf", "epub", "docx", "pptx", "odt", "txt", "md", "markdown", "html", "htm", "rtf", "csv", "xml", "json", "yaml", "yml", "log", "tex", "rst"}
 
 _CHAPTER_RE = re.compile(
     r"^\s*(?:(?:chapter|part|book|section)\s+(?:[0-9]+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|"
@@ -105,7 +106,7 @@ def _is_heading(line: str) -> bool:
 
 def split_into_chapters(text: str, fallback_title: str = "Section") -> list[ExtractedChapter]:
     """Split plain text into chapters using heading heuristics, falling back to word-count sections."""
-    text = normalize_paragraphs(text)
+    text = normalize_paragraphs(re.sub(r"(?m)^(#{1,3}\s+\S.*)$", r"\n\1\n", text))  # a heading line directly above its text still splits
     paragraphs = [p for p in text.split("\n\n") if p.strip()]
     chapters: list[ExtractedChapter] = []
     current_title: str | None = None
@@ -475,6 +476,15 @@ def _read_rtf(data: bytes) -> str:
     return text.replace("{", "").replace("}", "")
 
 
+def _read_xml(xml: str) -> str:
+    """Readable text of an XML file. Tags are stripped with a regex rather than parsed, so entity-expansion tricks never run."""
+    xml = re.sub(r"<!\[CDATA\[(.*?)\]\]>", lambda m: m.group(1), xml, flags=re.S)
+    xml = re.sub(r"<!--.*?-->|<\?.*?\?>|<!DOCTYPE[^>]*>", " ", xml, flags=re.S)
+    xml = re.sub(r"</(?:p|para|paragraph|title|heading|h\d|section|item|entry|row|li|div|br)\s*>|<br\s*/?>", "\n\n", xml, flags=re.I)
+    text = html.unescape(re.sub(r"<[^>]+>", " ", xml))
+    return normalize_paragraphs(re.sub(r"[ \t]+", " ", text))
+
+
 def extract(filename: str, data) -> ExtractedDocument:
     """`data` is the file's bytes or a path to it on disk (preferred for large uploads)."""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "txt"
@@ -496,6 +506,8 @@ def extract(filename: str, data) -> ExtractedDocument:
             text, _ = html_to_text(raw.decode("utf-8", errors="ignore"))
         elif ext == "rtf":
             text = _read_rtf(raw)
+        elif ext == "xml":
+            text = _read_xml(raw.decode("utf-8", errors="ignore"))
         elif raw.startswith(b"\xff\xfe"):
             text = raw.decode("utf-16", errors="ignore")
         else:

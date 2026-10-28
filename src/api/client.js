@@ -264,6 +264,23 @@ export const api = {
     cast: (docId, names) => post(`/documents/${docId}/cast`, { names }),
   },
 
+  decks: {
+    list: () => get('/decks'),
+    get: (id) => get(`/decks/${id}`),
+    /** From a library document. */
+    create: (data) => post('/decks', data),
+    /** From any readable file (TXT, MD, DOCX, PDF, XML, HTML, EPUB, PPTX…), without adding it to the library. */
+    upload: (file, opts, onProgress) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      Object.entries(opts).forEach(([k, v]) => fd.append(k, String(v)));
+      return upload('/decks/upload', fd, onProgress);
+    },
+    update: (id, data) => patch(`/decks/${id}`, data),
+    remove: (id) => del(`/decks/${id}`),
+    exportPptx: (id) => download(`/decks/${id}/export.pptx`),
+  },
+
   audio: {
     tones: () => get('/audio/tones'),
     preview: (tone, text) => post('/audio/preview', { tone, text }),
