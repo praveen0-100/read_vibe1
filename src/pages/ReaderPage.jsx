@@ -705,7 +705,7 @@ function Reader({ docId }) {
         surfaceRef={surfaceRef} articleRef={articleRef} ratioRef={ratioRef} pendingScroll={pendingScroll} pendingFind={pendingFind}
         saveProgress={saveProgress} lastActivity={lastActivity}
         narrator={narrator} listen={listen} startListening={startListening} segMeta={segMeta} onWordTap={onWordTap}
-        lang={chapterLang} onOverview={() => openOverview()} languageToggle={langToggle(true)}
+        lang={chapterLang} onOverview={() => openOverview()} languageToggle={langToggle(true)} transcriptLanguage={langToggle(false)}
         offlineMode={offlineMode} saveOffline={saveOffline}
         downloadOriginal={() => api.documents.downloadFile(docId).catch((e) => notify(e.message, 'error'))}
         navigate={navigate} openAI={openAI} notify={notify}

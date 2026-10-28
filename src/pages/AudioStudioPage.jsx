@@ -20,6 +20,7 @@ import { Cover, EmptyState, ErrorState, Menu, PageLoader, ProgressBar, Skeleton,
 import AlbumArt from '../components/audio/AlbumArt';
 import CollabStudio from '../components/audio/CollabStudio';
 import LyricsView from '../components/audio/LyricsView';
+import ReaderView from '../components/audio/ReaderView';
 import { AlbumGrid, NewPlaylistModal, PlaylistsView } from '../components/audio/LibraryViews';
 import QueuePanel from '../components/audio/QueuePanel';
 import PowerSeek from '../components/audio/PowerSeek';
@@ -39,7 +40,7 @@ function useVoices() {
 }
 
 // ─── Player ───────────────────────────────────────────────────────────────────
-function Player({ bookId, visible = true, autoplay = false, library = [], onNavigate, onOpen, onNewPlaylist, onPlayingChange }) {
+function Player({ bookId, visible = true, autoplay = false, startChapter = null, library = [], onNavigate, onOpen, onNewPlaylist, onPlayingChange }) {
   const { prefs, setPrefs, notify } = useApp();
   const { queue, history, shuffle, repeat } = useQueue();
   const { lists } = usePlaylists();
@@ -48,7 +49,7 @@ function Player({ bookId, visible = true, autoplay = false, library = [], onNavi
   const narrator = useMemo(() => new Narrator(), []);
   const [st, setSt] = useState(narrator.state());
   const [charIndex, setCharIndex] = useState(null);
-  const [lyrics, setLyrics] = useState(false);
+  const [view, setView] = useState('listen'); // listen | transcript | reader
   const [rate, setRate] = useState(prefs.audio.rate);
   const [sleep, setSleep] = useState(prefs.audio.sleepTimer || 0);
   const [sleepLeft, setSleepLeft] = useState(null);
@@ -102,7 +103,7 @@ function Player({ bookId, visible = true, autoplay = false, library = [], onNavi
     const wasPlaying = live && narrator.playing;
     narrator.load(viewScript, {
       rate: b.rate * rate, pitch: b.pitch, voice, lang: speechTag(viewLang), neural: foreign ? nv.neuralFor(viewLang) : null,
-      chapter: live ? narrator.chapter : b.position_chapter, segment: live ? narrator.segment : b.position_segment,
+      chapter: live ? narrator.chapter : (startChapter ?? b.position_chapter), segment: live ? narrator.segment : (startChapter != null ? 0 : b.position_segment),
     });
     if (wasPlaying) narrator.play();
     narrator.autoAdvance = prefs.audio.autoAdvance;
@@ -266,9 +267,21 @@ function Player({ bookId, visible = true, autoplay = false, library = [], onNavi
         </div>
       </div>
 
-      <button className={`lyrics-chip ${lyrics ? 'on' : ''}`} onClick={() => setLyrics((l) => !l)} aria-pressed={lyrics}><Quote size={14} /> Lyrics</button>
-      {lyrics ? (
-        <div className="player-lyrics"><LyricsView narrator={narrator} reducedMotion={prefs.accessibility.reducedMotion} /></div>
+      <div className="view-switch" role="tablist" aria-label="Player view">
+        {[['listen', 'Listen', Headphones], ['transcript', 'Transcript', Quote], ['reader', 'Reader', BookOpen]].map(([id, label, Icon]) => (
+          <button key={id} role="tab" aria-selected={view === id} className={view === id ? 'on' : ''} onClick={() => setView(id)}><Icon size={14} /> {label}</button>
+        ))}
+      </div>
+      {view !== 'listen' ? (
+        <div className="player-lyrics">
+          <div className="tx-head">
+            <span className="eyebrow">{view === 'reader' ? 'READER' : 'TRANSCRIPT'}</span>
+            <ReadLanguage languages={nv.languages} value={tlang} onChange={setTlang} status={tr} sourceLang={sourceLang} />
+          </div>
+          {view === 'reader'
+            ? <ReaderView narrator={narrator} lang={viewLang} reducedMotion={prefs.accessibility.reducedMotion} />
+            : <LyricsView narrator={narrator} lang={viewLang} reducedMotion={prefs.accessibility.reducedMotion} />}
+        </div>
       ) : (
         <div className="now-reading" aria-live="off">
           {charIndex != null && current
@@ -328,7 +341,7 @@ function Player({ bookId, visible = true, autoplay = false, library = [], onNavi
             </div>
           ))}
         </div>
-        <QueuePanel current={me} playing={st.playing} library={library} compact onPlay={(id) => { queueActions.remove(id); onNavigate(id, { autoplay: true }); }} />
+        <QueuePanel current={me} playing={st.playing} library={library} compact onPlay={(id, o) => { queueActions.remove(id); onNavigate(id, { autoplay: true, chapter: o?.chapter ?? null }); }} />
       </div>
     </div>
     </>
@@ -485,7 +498,7 @@ export default function AudioStudioPage() {
   const { queue } = useQueue();
   const tab = params.get('tab') || 'player';
   const [active, setActive] = useState(params.get('book'));
-  const [run, setRun] = useState({ nonce: 0, autoplay: false });
+  const [run, setRun] = useState({ nonce: 0, autoplay: false, chapter: null });
   const [playing, setPlaying] = useState(false);
   const [newPl, setNewPl] = useState({ open: false, seed: null });
   const [openPl, setOpenPl] = useState(null);
@@ -494,7 +507,7 @@ export default function AudioStudioPage() {
 
   // deep links (?book=…) and cleanup of albums that were deleted
   const urlBook = params.get('book');
-  useEffect(() => { if (urlBook) { setActive(urlBook); setRun((r) => ({ nonce: r.nonce + 1, autoplay: false })); } }, [urlBook]);
+  useEffect(() => { if (urlBook) { setActive(urlBook); setRun((r) => ({ nonce: r.nonce + 1, autoplay: false, chapter: null })); } }, [urlBook]);
   useEffect(() => {
     if (!books.data) return;
     const ids = new Set(books.data.map((b) => b.id));
@@ -503,11 +516,11 @@ export default function AudioStudioPage() {
   }, [books.data]);
 
   const setTab = (t) => setParams({ tab: t });
-  const playAlbum = (id, { autoplay = true } = {}) => {
+  const playAlbum = (id, { autoplay = true, chapter = null } = {}) => {
     if (!id) return;
     queueActions.remove(id);
     setActive(id);
-    setRun((r) => ({ nonce: r.nonce + 1, autoplay }));
+    setRun((r) => ({ nonce: r.nonce + 1, autoplay, chapter }));
     setParams({ tab: 'player' });
   };
   const openNewPlaylist = (seed) => setNewPl({ open: true, seed });
@@ -544,7 +557,7 @@ export default function AudioStudioPage() {
       ]} />
 
       {/* The player stays mounted on every tab so audio keeps playing while you browse. */}
-      {bookId && <Player key={`${bookId}:${run.nonce}`} bookId={bookId} autoplay={run.autoplay} visible={tab === 'player'} library={list}
+      {bookId && <Player key={`${bookId}:${run.nonce}`} bookId={bookId} autoplay={run.autoplay} startChapter={run.chapter} visible={tab === 'player'} library={list}
         onNavigate={(id, o) => playAlbum(id, o)} onOpen={() => setTab('player')} onNewPlaylist={openNewPlaylist} onPlayingChange={setPlaying} />}
       {tab === 'player' && !bookId && (
         books.loading ? <Skeleton h={300} />
@@ -552,7 +565,7 @@ export default function AudioStudioPage() {
       )}
       {tab === 'queue' && (
         <div className="audio-player">
-          <QueuePanel current={current && slim(current)} playing={playing} library={list} onPlay={(id) => playAlbum(id)} />
+          <QueuePanel current={current && slim(current)} playing={playing} library={list} onPlay={(id, o) => playAlbum(id, { chapter: o?.chapter ?? null })} />
         </div>
       )}
       {tab === 'generate' && <Generate initialDoc={params.get('doc')} onReady={(id) => { books.reload(); playAlbum(id, { autoplay: false }); }} />}

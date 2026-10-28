@@ -11,7 +11,7 @@ import PowerSeek from '../audio/PowerSeek';
 const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 const SLEEP = [0, 15, 30, 60];
 
-export default function ListenSheet({ doc, title, narrator, listen, onStart, onContents, onClose, onBookmark, bookmarked, moreItems = [] }) {
+export default function ListenSheet({ doc, title, narrator, listen, onStart, onContents, onClose, onBookmark, bookmarked, moreItems = [], languageControl = null, lang }) {
   const { prefs, setPrefs, notify } = useApp();
   const [lyrics, setLyrics] = useState(false);
   const [sleep, setSleep] = useState(0);
@@ -58,8 +58,14 @@ export default function ListenSheet({ doc, title, narrator, listen, onStart, onC
         {lyrics && actions}
       </header>
 
+      {lyrics && (
+        <div className="tx-head">
+          <span className="eyebrow">TRANSCRIPT</span>
+          {languageControl}
+        </div>
+      )}
       {lyrics ? (
-        loaded ? <LyricsView narrator={narrator} reducedMotion={prefs.accessibility.reducedMotion} />
+        loaded ? <LyricsView narrator={narrator} lang={lang} reducedMotion={prefs.accessibility.reducedMotion} />
           : <div className="lyrics"><p className="lyrics-empty">Press play to start reading aloud.</p></div>
       ) : (
         <div className="ls-cover">
@@ -85,7 +91,7 @@ export default function ListenSheet({ doc, title, narrator, listen, onStart, onC
       </div>
 
       <div className="ls-tools">
-        <button className={lyrics ? 'on' : ''} onClick={() => setLyrics((l) => !l)} aria-pressed={lyrics} aria-label="Synced text"><Quote size={20} fill={lyrics ? 'currentColor' : 'none'} /></button>
+        <button className={`ls-text ${lyrics ? 'on' : ''}`} onClick={() => setLyrics((l) => !l)} aria-pressed={lyrics} aria-label="Transcript"><Quote size={18} fill={lyrics ? 'currentColor' : 'none'} /> <span>Transcript</span></button>
         <Menu label="Speed" align="up" trigger={<span className="ls-pill"><Gauge size={16} /> {rate}×</span>}
           items={SPEEDS.map((s) => ({ label: `${s}×`, checked: s === rate, onClick: () => changeRate(s) }))} />
         <Menu label="Sleep timer" align="up" trigger={<span className={`ls-pill ${sleep ? 'on' : ''}`}><Clock size={16} /> {sleep ? `${sleep}m` : 'Sleep'}</span>}

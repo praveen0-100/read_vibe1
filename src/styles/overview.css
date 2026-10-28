@@ -146,3 +146,6 @@
 .lyric-line.lyric-direction { font-style: italic; font-weight: 500; font-size: .74em; opacity: .5 !important; padding-block: 3px; }
 .lyric-line.lyric-direction .lyric-whole { font: inherit; }
 .lyric-line.lyric-direction.current { opacity: .72 !important; }
+.ov-player .tx-head { padding: 6px 18px 0; }
+.ov-tx-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 13px; border-radius: 20px; font-size: 12.5px; font-weight: 600; border: 1px solid currentColor; opacity: .7; }
+.ov-tx-btn.on { opacity: 1; background: var(--accent-soft); color: var(--accent-text); border-color: transparent; }

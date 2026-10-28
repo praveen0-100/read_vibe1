@@ -2,16 +2,19 @@
 // Pick a language (Tamil · Telugu · Malayalam · Kannada first), a format (two-host conversation or one-storyteller
 // narrative) and a scope; the server writes the script natively in that language and the narrator performs it with
 // natural voices while the transcript follows word by word.
-import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, AudioLines, BookOpen, FastForward, Gauge, Pause, Play, Rewind, Users, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertCircle, AudioLines, BookOpen, FastForward, Gauge, Pause, Play, Quote, Rewind, Users, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { useApp } from '../../context/AppContext';
 import { useNaturalVoice } from '../../hooks/useNaturalVoice';
+import { useScriptTranslation } from '../../hooks/useScriptTranslation';
 import { formatClock } from '../../lib/format';
 import { chunkAtSpaces, SENTENCE_RE, speechTag } from '../../lib/languages';
 import { loadVoices, Narrator, pickVoiceForLang } from '../../lib/speech';
 import { Menu } from '../ui';
+import ReadLanguage from '../reader/ReadLanguage';
 import LyricsView from './LyricsView';
+import ReaderView from './ReaderView';
 
 const SPEEDS = [0.75, 1, 1.25, 1.5];
 const FORMATS = [
@@ -43,7 +46,7 @@ function LanguageChip({ lang, on, onPick }) {
 }
 
 export default function OverviewSheet({ doc, chapterIndex, chapterTitle, sourceLang = 'en', initialLang = null, onClose }) {
-  const { prefs, setPrefs } = useApp();
+  const { prefs, setPrefs, notify } = useApp();
   const nv = useNaturalVoice();
   const narrator = useMemo(() => new Narrator(), []);
 
@@ -58,8 +61,41 @@ export default function OverviewSheet({ doc, chapterIndex, chapterTitle, sourceL
   const [now, setNow] = useState({ playing: false, speaker: null });
   const [rate, setRate] = useState(prefs.audio.rate || 1);
   const [, tick] = useState(0);
+  const [view, setView] = useState('transcript'); // transcript | reader
+  const [tlang, setTlang] = useState('orig'); // transcript + voices in another language than the one generated
+  const loadedLang = useRef(null);
+
+  const baseScript = useMemo(() => (result ? buildOverviewScript(result) : null), [result]);
+  const { script: viewScript, status: tr } = useScriptTranslation(baseScript, tlang, result?.language);
+  const viewLang = result ? (tr.ready ? tlang : result.language) : lang;
 
   useEffect(() => () => narrator.destroy(), [narrator]);
+  useEffect(() => { if (tr.error) notify(`Translation failed: ${tr.error}`, 'error'); }, [tr.error]); // eslint-disable-line
+  useEffect(() => { if (tr.note) notify(tr.note, 'warning'); }, [tr.note]); // eslint-disable-line
+
+  // A translation arrived (or was switched off): re-voice the script in that language, keeping the place and play state.
+  useEffect(() => {
+    if (!result || loadedLang.current === null || loadedLang.current === viewLang) return undefined;
+    let live = true;
+    (async () => {
+      const code = viewLang;
+      const translated = code !== result.language;
+      // each host keeps their own slot (female / male) in the new language's voices
+      const script = translated
+        ? viewScript.map((c) => ({ ...c, segments: c.segments.map((s) => ({ ...s, voice: nv.voiceFor(code, s.speaker === 'host_b' ? 1 : 0) || s.voice })) }))
+        : viewScript;
+      const first = script[0]?.segments[0]?.voice;
+      const neural = nv.on && first ? { synth: api.tts.synthesize, voice: first } : null;
+      const device = neural ? null : pickVoiceForLang(await loadVoices(), code);
+      if (!live) return;
+      const wasPlaying = narrator.playing;
+      narrator.load(script, { rate, neural, voice: device, lang: speechTag(code), chapter: narrator.chapter, segment: narrator.segment });
+      if (wasPlaying) narrator.play();
+      loadedLang.current = code;
+      if (!neural && !device) setNote(`This device has no ${nv.languages.find((l) => l.code === code)?.name || code} voice. Turn on Natural voices in Settings to listen — the transcript is below.`);
+    })();
+    return () => { live = false; };
+  }, [viewLang, viewScript]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onClose();
     document.addEventListener('keydown', onKey);
@@ -92,6 +128,8 @@ export default function OverviewSheet({ doc, chapterIndex, chapterTitle, sourceL
         : `This device has no ${r.language_name} voice. Turn on Natural voices in Settings to listen — the transcript is below.`;
       setNote([r.note, voiceNote].filter(Boolean).join(' ')); // r.note: e.g. "Free mode: the key points … translated automatically"
       setResult(r);
+      setTlang('orig');
+      loadedLang.current = r.language;
       setPrefs({ audio: { overviewLang: lang } });
       setPhase('ready');
     } catch (err) {
@@ -178,7 +216,16 @@ export default function OverviewSheet({ doc, chapterIndex, chapterTitle, sourceL
               </div>
             </div>
 
-            {loaded && <LyricsView narrator={narrator} lang={result.language} speakers={result.hosts} reducedMotion={reduced} className="ov-lyrics" />}
+            <div className="tx-head">
+              <div className="view-switch" role="tablist" aria-label="View">
+                {[['transcript', 'Transcript', Quote], ['reader', 'Reader', BookOpen]].map(([id, label, Icon]) => (
+                  <button key={id} role="tab" aria-selected={view === id} className={view === id ? 'on' : ''} onClick={() => setView(id)}><Icon size={14} /> {label}</button>
+                ))}
+              </div>
+              <ReadLanguage languages={nv.languages} value={tlang} onChange={setTlang} status={tr} sourceLang={result.language} align="right" />
+            </div>
+            {loaded && view === 'transcript' && <LyricsView narrator={narrator} lang={viewLang} speakers={result.hosts} reducedMotion={reduced} className="ov-lyrics" />}
+            {loaded && view === 'reader' && <ReaderView narrator={narrator} lang={viewLang} speakers={result.hosts} reducedMotion={reduced} />}
             {note && <p className="ov-note" role="note">{note}</p>}
 
             <div className="ov-controls">

@@ -169,7 +169,7 @@ export default function MobileReader({
   doc, chapter, chapterIndex, chapterLoading, highlights, allHighlights, searchQuery, setSearchQuery, searchOpen, setSearchOpen,
   bookmarks, onToggleBookmark, onDeleteBookmark, onHighlightClick, goChapter, setMode,
   surfaceRef, articleRef, ratioRef, pendingScroll, pendingFind, saveProgress, lastActivity,
-  narrator, listen, startListening, segMeta, onWordTap, lang = 'en', onOverview, languageToggle, offlineMode, saveOffline, downloadOriginal, navigate, openAI, notify, children,
+  narrator, listen, startListening, segMeta, onWordTap, lang = 'en', onOverview, languageToggle, transcriptLanguage, offlineMode, saveOffline, downloadOriginal, navigate, openAI, notify, children,
 }) {
   const { prefs } = useApp();
   const r = prefs.reading;
@@ -535,7 +535,7 @@ export default function MobileReader({
           onGo={goFromSheet} onDeleteBookmark={onDeleteBookmark} onClose={() => setSheet(null)} />
       )}
       {sheet === 'listen' && (
-        <ListenSheet doc={doc} title={title} narrator={narrator} listen={listen}
+        <ListenSheet doc={doc} title={title} narrator={narrator} listen={listen} languageControl={transcriptLanguage} lang={lang}
           onStart={() => startListening(Number(firstVisibleParagraph()?.dataset.p || 0))}
           onContents={() => setSheet('contents')} onClose={() => setSheet(null)}
           onBookmark={toggleBookmark} bookmarked={!!existingBookmark}

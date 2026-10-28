@@ -8,10 +8,11 @@ const store = createStore('readvibe.queue.v1', { queue: [], history: [], shuffle
 export const useQueue = store.use;
 export const getQueue = store.get;
 
-/** The few fields a queue row needs. */
+/** The few fields a queue row needs; `sections` are the book's chapters, shown when its row is expanded. */
 export const slim = (b) => ({
   id: b.id, title: b.title, tone: b.tone, color: b.color,
   duration_seconds: b.duration_seconds || 0, chapters: b.chapters?.length ?? b.chapter_count ?? 0,
+  sections: Array.isArray(b.chapters) ? b.chapters.map((c, i) => ({ index: c.index ?? i, title: c.title, seconds: c.seconds || 0 })) : [],
 });
 
 const asList = (x) => (Array.isArray(x) ? x : [x]).filter(Boolean).map(slim);
