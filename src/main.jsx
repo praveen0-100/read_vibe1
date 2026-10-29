@@ -21,6 +21,7 @@ import './styles/discover.css';
 import './styles/decks.css';
 import './styles/decks-ui.css';
 import './styles/reader-modes.css';
+import './styles/agent.css';
 import { installUiScale } from './lib/uiScale';
 import { warmUp } from './api/client';
 

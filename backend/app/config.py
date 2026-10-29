@@ -46,6 +46,15 @@ class Settings(BaseSettings):
     llm_model: str | None = None
     llm_timeout_seconds: float = 45.0
 
+    # The "Vibe" agent (services/agent): it sticks to one primary model and only switches to a backup when that model
+    # keeps failing. With an Anthropic key the primary is agent_model (tool use included) and the backup agent_model_backup;
+    # without one it uses READVIBE_LLM_* / the free endpoints, and finally the local engine, so it always answers.
+    agent_enabled: bool = True
+    anthropic_api_key: str | None = None
+    agent_model: str = "claude-sonnet-5-5"
+    agent_model_backup: str | None = "claude-haiku-5-5"
+    agent_max_steps: int = 4
+
     # Natural read-aloud voices: Microsoft neural voices (edge-tts) work with no key; add an OpenAI key to unlock its voices too.
     openai_api_key: str | None = None
     openai_tts_model: str = "gpt-4o-mini-tts"

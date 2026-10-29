@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, BookmarkPlus, BookOpen, Brain, ChevronRight, CircleHelp, Copy, GitCompare, Image as ImageIcon,
-  Lightbulb, MessageSquare, Search, Send, Sparkles, Trash2, Volume2, Workflow, X, Zap,
+  Check, Lightbulb, MessageSquare, Search, Send, Sparkles, ThumbsDown, ThumbsUp, Trash2, Volume2, Workflow, X, Zap,
 } from 'lucide-react';
 import { api } from '../../api/client';
 import { useApp } from '../../context/AppContext';
@@ -26,6 +26,12 @@ const TOOLS = [
 ];
 
 const chatMemory = new Map();
+
+// What the reader sees when Vibe has adapted its answer to how they seem to be doing.
+const TUNED = {
+  overwhelmed: 'one small step at a time', anxious: 'calm and focused', discouraged: 'gentle encouragement', frustrated: 'trying a new angle',
+  confused: 'step by step', tired: 'short and light', bored: 'more engaging', excited: 'going deeper',
+};
 
 function MindMapView({ ctx, saveNote, openChapter }) {
   const [state, run] = useAIRequest();
@@ -70,7 +76,7 @@ function DiagramView({ ctx, saveNote }) {
   );
 }
 
-function ChatView({ ctx, saveNote, openChapter, initialQuestion }) {
+function ChatView({ ctx, saveNote, openChapter, openTool, initialQuestion }) {
   const key = `${ctx.documentId}:${ctx.chapterIndex ?? 'all'}`;
   const [history, setHistory] = useState(() => chatMemory.get(key) || []);
   const [input, setInput] = useState('');
@@ -90,11 +96,14 @@ function ChatView({ ctx, saveNote, openChapter, initialQuestion }) {
     setHistory(next);
     setLoading(true);
     try {
-      const res = await api.ai.chat({
-        document_id: ctx.documentId, chapter_index: ctx.chapterIndex, question: q,
-        history: history.slice(-8).map(({ role, content }) => ({ role, content })), selection: ctx.selection || null,
+      const res = await api.agent.chat({
+        document_id: ctx.documentId, chapter_index: ctx.chapterIndex, message: q,
+        history: history.slice(-8).filter((m) => !m.error && m.role !== 'notice').map(({ role, content }) => ({ role, content })), selection: ctx.selection || null,
       });
-      setHistory([...next, { role: 'assistant', content: res.answer, citations: res.citations, engine: res.engine, confidence: res.confidence }]);
+      setHistory([...next, {
+        role: 'assistant', content: res.reply, citations: res.citations, engine: res.engine, affect: res.affect,
+        actions: res.actions, suggestions: res.suggestions, safety: res.safety,
+      }, ...(res.switched ? [{ role: 'notice', content: `The AI model Vibe was using kept failing, so it switched to ${res.switched.to}. Your conversation continues as normal.` }] : [])]);
     } catch (err) {
       setHistory([...next, { role: 'assistant', content: err.message, error: true }]);
     } finally {
@@ -106,9 +115,16 @@ function ChatView({ ctx, saveNote, openChapter, initialQuestion }) {
     if (initialQuestion && !sentInitial.current) { sentInitial.current = true; send(initialQuestion); }
   }, [initialQuestion]); // eslint-disable-line
 
-  const suggestions = ctx.selection
+  const rate = (i, helpful) => {
+    setHistory((h) => h.map((m, j) => (j === i ? { ...m, rated: helpful } : m)));
+    api.agent.event('feedback', { helpful }, ctx.documentId);
+  };
+  const last = history[history.length - 1];
+  const starters = ctx.selection
     ? ['Explain the selected passage', 'Why does this matter?', 'Give me an example of this']
     : ['What are the key concepts?', 'Explain this chapter simply', 'What should I remember for an exam?', 'Quiz me with one question'];
+  const suggestions = (last?.role === 'assistant' && last.suggestions?.length ? last.suggestions : starters.map((s) => ({ label: s, kind: 'ask', value: s })));
+  const pickSuggestion = (s) => (s.kind === 'tool' ? openTool(s.value) : send(s.value));
 
   return (
     <div className="chat-view">
@@ -116,10 +132,12 @@ function ChatView({ ctx, saveNote, openChapter, initialQuestion }) {
         {history.length === 0 && (
           <div className="chat-bubble assistant intro">
             <Sparkles size={13} />
-            <div>I’m grounded in <strong>{ctx.docTitle}</strong>{ctx.chapterIndex != null ? <> — focusing on <em>{ctx.scopeTitle}</em></> : null}. Ask about a concept, a passage or anything you highlighted. I’ll point you to where the answer is in the text.</div>
+            <div>I’m Vibe. I’m grounded in <strong>{ctx.docTitle}</strong>{ctx.chapterIndex != null ? <> — focusing on <em>{ctx.scopeTitle}</em></> : null}. Ask about a concept, a passage or anything you highlighted, or tell me how the reading is going — I’ll adapt to you and point you to where the answer is in the text.</div>
           </div>
         )}
-        {history.map((m, i) => (
+        {history.map((m, i) => (m.role === 'notice' ? (
+          <div key={i} className="chat-notice" role="status">{m.content}</div>
+        ) : (
           <div key={i} className={`chat-bubble ${m.role} ${m.error ? 'error' : ''}`}>
             {m.role === 'assistant' && <Sparkles size={13} />}
             <div className="chat-content">
@@ -133,8 +151,22 @@ function ChatView({ ctx, saveNote, openChapter, initialQuestion }) {
                   ))}
                 </div>
               )}
+              {m.actions?.length > 0 && (
+                <div className="agent-actions">
+                  {m.actions.map((a, j) => <span key={j} className="agent-action"><Check size={11} /> {a.label}</span>)}
+                </div>
+              )}
               {m.role === 'assistant' && !m.error && (
                 <div className="bubble-actions">
+                  {m.affect?.state && TUNED[m.affect.state] && m.affect.confidence >= 0.4 && (
+                    <span className="tuned-tag" title="Vibe guessed this from your wording and adjusted its reply. You can turn personalisation off in Settings → Companion.">Tuned: {TUNED[m.affect.state]}</span>
+                  )}
+                  {!m.safety && (
+                    <>
+                      <button onClick={() => rate(i, true)} aria-label="Helpful" aria-pressed={m.rated === true} className={m.rated === true ? 'on' : ''}><ThumbsUp size={12} /></button>
+                      <button onClick={() => rate(i, false)} aria-label="Not helpful" aria-pressed={m.rated === false} className={m.rated === false ? 'on' : ''}><ThumbsDown size={12} /></button>
+                    </>
+                  )}
                   <button onClick={() => navigator.clipboard?.writeText(m.content)} aria-label="Copy answer"><Copy size={12} /></button>
                   <button onClick={() => speak(m.content.replace(/\*/g, ''))} aria-label="Read aloud"><Volume2 size={12} /></button>
                   <button onClick={() => saveNote({ title: history[i - 1]?.content.slice(0, 120) || 'Chat answer', content: m.content, category: 'AI Insight', note_type: 'ai_insight' })} aria-label="Save to notes"><BookmarkPlus size={12} /></button>
@@ -142,12 +174,12 @@ function ChatView({ ctx, saveNote, openChapter, initialQuestion }) {
               )}
             </div>
           </div>
-        ))}
+        )))}
         {loading && <div className="chat-bubble assistant loading"><Sparkles size={13} /><div className="typing-dots"><span /><span /><span /></div></div>}
         <div ref={bottomRef} />
       </div>
       <div className="suggested-prompts">
-        {suggestions.map((p) => <button key={p} className="prompt-chip" onClick={() => send(p)} disabled={loading}>{p}</button>)}
+        {suggestions.map((s) => <button key={s.label} className="prompt-chip" onClick={() => pickSuggestion(s)} disabled={loading}>{s.label}</button>)}
         {history.length > 0 && <button className="prompt-chip ghost" onClick={() => setHistory([])}><Trash2 size={11} /> Clear</button>}
       </div>
       <form className="chat-input" onSubmit={(e) => { e.preventDefault(); send(); }}>
@@ -206,6 +238,7 @@ export default function AIPanel() {
     navigate(`/read/${documentId}?chapter=${index}${snippet ? `&q=${encodeURIComponent(snippet.split(/\s+/).slice(0, 6).join(' ').replace(/[…"“”]/g, ''))}` : ''}`);
   };
   const askChat = (q) => set({ tab: 'chat', question: q, nonce: Date.now() });
+  const openTool = (id) => set({ tab: 'tools', tool: id, question: undefined, nonce: Date.now() });
 
   const activeTool = TOOLS.find((t) => t.id === tool);
   const views = {
@@ -260,13 +293,13 @@ export default function AIPanel() {
 
         <div className="ai-tabs" role="tablist">
           <button role="tab" aria-selected={ai.tab !== 'chat'} className={ai.tab !== 'chat' ? 'active' : ''} onClick={() => set({ tab: 'tools' })}><Zap size={13} /> AI tools</button>
-          <button role="tab" aria-selected={ai.tab === 'chat'} className={ai.tab === 'chat' ? 'active' : ''} onClick={() => set({ tab: 'chat' })}><MessageSquare size={13} /> Chat with book</button>
+          <button role="tab" aria-selected={ai.tab === 'chat'} className={ai.tab === 'chat' ? 'active' : ''} onClick={() => set({ tab: 'chat' })}><MessageSquare size={13} /> Ask Vibe</button>
         </div>
 
         <div className="panel-content">
           {!documentId || !doc ? (docDetail.loading ? <AILoading stage="Opening document…" /> : null)
             : ai.tab === 'chat' ? (
-              <ChatView key={`${ctx.documentId}-${chapterIndex}-${ai.nonce || ''}`} ctx={ctx} saveNote={saveNote} openChapter={openChapter} initialQuestion={ai.question} />
+              <ChatView key={`${ctx.documentId}-${chapterIndex}-${ai.nonce || ''}`} ctx={ctx} saveNote={saveNote} openChapter={openChapter} openTool={openTool} initialQuestion={ai.question} />
             ) : activeTool ? (
               <>
                 <button className="back-link" onClick={() => setTool(null)}><ArrowLeft size={14} /> All tools</button>

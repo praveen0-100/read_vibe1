@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 import uuid
@@ -20,7 +21,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from . import __version__
 from .config import get_settings
 from .database import DB_CONFIG_ERROR, SessionLocal, engine, init_db
-from .routers import activity, ai, audio, auth, catalog, decks, documents, notes, research, tts
+from .routers import activity, agent, ai, audio, auth, catalog, decks, documents, notes, research, tts
 from .services import llm
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -99,7 +100,7 @@ async def request_context(request: Request, call_next):
     path = request.url.path
     if path.startswith("/api/") and request.method != "OPTIONS":
         client = request.headers.get("authorization", "")[-24:] or (request.client.host if request.client else "anon")
-        is_ai = path.startswith("/api/ai/") or "/discover" in path or "/sections/" in path
+        is_ai = path.startswith("/api/ai/") or path == "/api/agent/chat" or "/discover" in path or "/sections/" in path
         bucket, limit = ("ai", settings.ai_rate_limit_per_minute) if is_ai else ("api", settings.rate_limit_per_minute)
         ok, retry = limiter.allow(f"{bucket}:{client}", limit)
         if not ok:
@@ -153,6 +154,7 @@ def health():
         "status": "ok" if db_ok else "degraded",
         "service": "readvibe-api",
         "version": __version__,
+        "commit": (os.environ.get("RENDER_GIT_COMMIT") or "")[:7] or None,  # set by Render on every deploy
         "database": db_ok,
         "database_engine": engine.dialect.name,
         "database_config_error": DB_CONFIG_ERROR,
@@ -161,5 +163,5 @@ def health():
     }
 
 
-for module in (auth, catalog, documents, notes, ai, audio, decks, research, activity, tts):
+for module in (auth, catalog, documents, notes, ai, agent, audio, decks, research, activity, tts):
     app.include_router(module.router, prefix="/api")

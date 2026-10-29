@@ -156,7 +156,7 @@ export const mediaUrl = (path) => `${API_BASE}${path}${path.includes('?') ? '&' 
 // Reads are de-duplicated while in flight and kept for a few seconds, so two components asking for the same list
 // (or a quick back-and-forth between pages) cost one round trip. Any write clears the cache.
 const READ_TTL = 15000;
-const NO_CACHE = /^\/(jobs|health|auth|tts|ai)(\/|$|\?)/;
+const NO_CACHE = /^\/(jobs|health|auth|tts|ai|agent)(\/|$|\?)/;
 const reads = new Map(); // key -> { at, promise }
 export const invalidateCache = () => reads.clear();
 
@@ -326,6 +326,19 @@ export const api = {
     restore: (id, key, version) => post(`/research/${id}/sections/${key}/restore/${version}`),
     review: (id) => get(`/research/${id}/review`),
     export: (id, format) => download(`/research/${id}/export`, { method: 'POST', body: { format } }),
+  },
+
+  agent: {
+    status: () => get('/agent/status'),
+    chat: (data) => request('/agent/chat', { method: 'POST', body: { tz_offset: new Date().getTimezoneOffset(), ...data } }),
+    briefing: () => get('/agent/briefing', { tz_offset: new Date().getTimezoneOffset() }),
+    profile: () => get('/agent/profile', { tz_offset: new Date().getTimezoneOffset() }),
+    checkin: (mood) => request('/agent/checkin', { method: 'POST', body: { mood, tz_offset: new Date().getTimezoneOffset() } }),
+    /** Fire-and-forget signal (quiz result, answer feedback); never blocks or surfaces an error. */
+    event: (kind, payload, document_id) => request('/agent/events', { method: 'POST', body: { kind, payload, document_id } }).catch(() => {}),
+    settings: (data) => request('/agent/settings', { method: 'PUT', body: data }),
+    forget: (id) => request(`/agent/memories/${id}`, { method: 'DELETE' }),
+    forgetAll: () => request('/agent/memories', { method: 'DELETE' }),
   },
 
   activity: {

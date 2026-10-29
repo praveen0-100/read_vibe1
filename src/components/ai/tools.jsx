@@ -230,6 +230,7 @@ export function QuizView({ ctx, saveNote }) {
 
   const check = async () => {
     setChecked(true);
+    if (objective.length) api.agent.event('quiz', { score, total: objective.length, chapter_index: ctx.chapterIndex }, ctx.documentId);
     const short = q.questions.filter((x) => x.type === 'short_answer' && answers[x.id]?.trim());
     const results = await Promise.all(short.map((x) => api.ai.grade(answers[x.id], x.answer).catch(() => null)));
     const g = {};

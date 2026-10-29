@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { greeting, initials } from '../../lib/format';
 import { Cover } from '../ui';
+import BriefingCard from '../agent/BriefingCard';
 
 const TOPIC_TINTS = ['coral', 'violet', 'blue', 'green', 'amber', 'rose'];
 
@@ -43,6 +44,8 @@ export default function MobileHome({ docs, books, stats, current }) {
           {user?.avatar_url ? <img src={user.avatar_url} alt="" referrerPolicy="no-referrer" /> : initials(user?.name)}
         </button>
       </header>
+
+      <BriefingCard compact />
 
       <div className="am-row am-pickrow">
         {current && (

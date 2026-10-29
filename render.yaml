@@ -37,3 +37,9 @@ services:
         sync: false
       - key: READVIBE_TRANSLATE_EMAIL
         sync: false          # optional: any real e-mail address lifts the free translation allowance (~5k -> ~50k characters/day)
+      # The Vibe agent: with an Anthropic key it uses one Claude model (with tool use) and only switches to a backup when
+      # that model keeps failing. Without it the agent still works through READVIBE_LLM_* / the free endpoints, then the local engine.
+      - key: READVIBE_ANTHROPIC_API_KEY
+        sync: false
+      - key: READVIBE_AGENT_MODEL
+        sync: false          # optional override, default claude-sonnet-5-5 (backup: READVIBE_AGENT_MODEL_BACKUP, default claude-haiku-5-5)

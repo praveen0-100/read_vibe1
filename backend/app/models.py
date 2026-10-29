@@ -268,3 +268,31 @@ class Deck(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), default="queued")
     slides: Mapped[list] = mapped_column(JSON, default=list)
     meta: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class AgentMemory(TimestampMixin, Base):
+    """Something the reading agent learned about the user (a goal, a preference, a struggle). Always visible and deletable."""
+
+    __tablename__ = "agent_memories"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(20), default="fact")  # goal | preference | interest | struggle | fact
+    text: Mapped[str] = mapped_column(String(300))
+    source: Mapped[str] = mapped_column(String(12), default="inferred")  # user | agent | inferred
+
+
+class AgentEvent(Base):
+    """A small behavioural signal for personalisation: quiz result, mood check-in, answer feedback, detected tone.
+
+    Never holds the user's message text — only a label and numbers.
+    """
+
+    __tablename__ = "agent_events"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(20), index=True)  # quiz | feedback | checkin | affect | chat
+    document_id: Mapped[str | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

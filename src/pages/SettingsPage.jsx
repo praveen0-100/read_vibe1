@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Accessibility, AudioLines, BookOpen, Check, Database, Download, HardDrive, Keyboard, LogOut, Monitor, Moon, Palette,
-  Play, Server, Sun, Trash2, User, Volume2,
+  Play, Server, Sparkles, Sun, Trash2, User, Volume2,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
@@ -12,12 +12,14 @@ import { formatBytes, initials, timeAgo } from '../lib/format';
 import { offline } from '../lib/offline';
 import { READING_FONTS } from '../lib/prefs';
 import { loadVoices, pickVoice, speak, speechSupported } from '../lib/speech';
+import CompanionSettings from '../components/agent/CompanionSettings';
 import { Field, Segmented, Slider, Switch } from '../components/ui';
 
 const SECTIONS = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'reading', label: 'Reading', icon: BookOpen },
   { id: 'accessibility', label: 'Accessibility', icon: Accessibility },
+  { id: 'companion', label: 'Companion', icon: Sparkles },
   { id: 'audio', label: 'Audio', icon: Volume2 },
   { id: 'vibe', label: 'Music & Vibe', icon: AudioLines },
   { id: 'storage', label: 'Storage & Offline', icon: HardDrive },
@@ -333,7 +335,7 @@ const SHORTCUTS = [
 export default function SettingsPage() {
   const [params, setParams] = useSearchParams();
   const tab = params.get('tab') || 'appearance';
-  const views = { appearance: <Appearance />, reading: <Reading />, accessibility: <AccessibilitySettings />, audio: <AudioSettings />, vibe: <VibeSettings />, storage: <Storage />, account: <Account /> };
+  const views = { appearance: <Appearance />, reading: <Reading />, accessibility: <AccessibilitySettings />, companion: <CompanionSettings />, audio: <AudioSettings />, vibe: <VibeSettings />, storage: <Storage />, account: <Account /> };
   return (
     <div className="page-shell settings-page">
       <header className="topbar"><div><div className="eyebrow">PREFERENCES</div><h1>Settings</h1></div></header>

@@ -316,3 +316,31 @@ class TranslateIn(BaseModel):
     texts: list[str] = Field(min_length=1, max_length=80)
     target: str = Field(min_length=2, max_length=5)
     source: str = Field(default="en", min_length=2, max_length=5)
+
+
+# ─── Vibe agent ───────────────────────────────────────────────────────────────
+class AgentChatIn(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+    document_id: str | None = None
+    chapter_index: int | None = None
+    selection: str | None = Field(default=None, max_length=4000)
+    history: list[ChatTurn] = []
+    tz_offset: int = 0  # Date.getTimezoneOffset()
+    session_minutes: int = Field(default=0, ge=0, le=1440)  # how long the reader has been going without a break
+
+
+class AgentEventIn(BaseModel):
+    kind: Literal["quiz", "feedback", "checkin"]
+    document_id: str | None = None
+    payload: dict = {}
+
+
+class AgentCheckinIn(BaseModel):
+    mood: Literal["great", "okay", "tired", "stressed", "low"]
+    tz_offset: int = 0
+
+
+class AgentSettingsIn(BaseModel):
+    personalize: bool | None = None
+    explain_level: Literal["auto", "simple", "standard", "expert"] | None = None
+    tone: Literal["warm", "balanced", "concise"] | None = None

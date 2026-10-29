@@ -11,6 +11,7 @@ import { useQuery } from '../hooks/useAsync';
 import { formatMinutes, greeting, timeAgo } from '../lib/format';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import MobileHome from '../components/home/MobileHome';
+import BriefingCard from '../components/agent/BriefingCard';
 import { Cover, EmptyState, ErrorState, ProgressBar, SectionHead, Skeleton } from '../components/ui';
 
 function ContinueCard({ doc }) {
@@ -114,6 +115,8 @@ export default function HomePage() {
       </header>
 
       {docs.error && <ErrorState error={docs.error} onRetry={docs.reload} />}
+
+      {list.length > 0 && <BriefingCard />}
 
       {docs.loading && !docs.data ? (
         <section className="hero-grid"><Skeleton h={260} r={14} /><Skeleton h={260} r={14} /></section>
