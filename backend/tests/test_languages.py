@@ -132,6 +132,26 @@ def test_overview_without_ai_key(client, auth, monkeypatch):
     assert client.post("/api/ai/overview", headers=auth, json={"document_id": doc_id, "language": "zz"}).status_code == 422
 
 
+def test_overview_falls_back_when_ai_service_is_down(client, auth, monkeypatch):
+    """The 503 from the free AI endpoint must not surface as an error: the free fallback answers, and isn't cached."""
+    doc_id = _upload_tamil(client, auth)
+    monkeypatch.setattr(llm, "available", lambda: True)
+
+    def down(*a, **k):
+        raise llm.LLMUnavailable("pollinations: HTTPStatusError Server error '503 Service Unavailable'")
+
+    monkeypatch.setattr(llm, "complete_json", down)
+    r = client.post("/api/ai/overview", headers=auth, json={"document_id": doc_id, "language": "ta", "format": "conversation"})
+    assert r.status_code == 200, r.text
+    assert r.json()["engine"] == "local" and "AI service was busy" in r.json()["note"]
+
+    # once the service recovers, the real overview is produced (the fallback was not cached)
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"title": "கதை", "turns": [
+        {"speaker": "host_a", "text": "வணக்கம்!", "emotion": "warm"}, {"speaker": "host_b", "text": "ஆமாம்.", "emotion": "neutral"}]})
+    again = client.post("/api/ai/overview", headers=auth, json={"document_id": doc_id, "language": "ta", "format": "conversation"})
+    assert again.status_code == 200 and again.json()["title"] == "கதை"
+
+
 def test_indian_language_chapter_headings_split_documents(client, auth):
     body = (
         "அத்தியாயம் 1: படிப்பின் அழகு\n\n" + "படிப்பது ஒரு அமைதியான பயணம். " * 12 + "\n\n"

@@ -226,22 +226,34 @@ def generate(doc: Document, chapter_index: int | None, language: str, fmt: str) 
     doc_lang = languages.detect(text)
     engine = llm.provider_name()
     note = ""
+    degraded = False  # the AI service failed this time: serve the free fallback, but don't cache it as the real thing
+    raw_turns: list[dict] | None = None
+    overview_title = title
     if llm.available():
         span = (14, 20) if chapter_index is not None else (22, 32)
         try:
             data = llm.complete_json(_SYSTEM, _prompt(lang, fmt, title, doc.title, ai._trim(text, 6000), span), _SCHEMA, max_tokens=9000)
+            raw_turns = data.get("turns", [])
+            overview_title = (data.get("title") or title).strip()
         except llm.LLMUnavailable as exc:
-            raise OverviewError(f"The AI service couldn’t write this overview right now ({exc}). Please try again.", 503) from exc
-        raw_turns = data.get("turns", [])
-        overview_title = (data.get("title") or title).strip()
-    elif doc_lang == lang.code:
-        engine = "local"
-        raw_turns, overview_title = _extractive(text, title, lang), title
-        fmt = "narrative"
-    else:
-        # no AI key and the text is in another language: free machine translation of the key points (no account needed)
-        engine = "free translation"
-        raw_turns, overview_title, note = _free(text, title, lang, doc_lang, fmt)
+            log.warning("AI overview unavailable, using the free fallback: %s", exc)
+            degraded = True
+    if raw_turns is None:
+        if doc_lang == lang.code:
+            engine = "local"
+            raw_turns, overview_title = _extractive(text, title, lang), title
+            fmt = "narrative"
+        else:
+            # no AI (key missing or service down) and the text is in another language: free machine translation of the key points
+            engine = "free translation"
+            try:
+                raw_turns, overview_title, note = _free(text, title, lang, doc_lang, fmt)
+            except OverviewError as exc:
+                if degraded:
+                    raise OverviewError("The AI service is busy right now and the free fallback couldn’t be reached either. Please try again in a minute.", 503) from exc
+                raise
+        if degraded:
+            note = "The AI service was busy, so this is a simpler overview. Try again in a minute for the full version. " + note
 
     voice_a, voice_b = lang.voices[0], lang.voices[1] if len(lang.voices) > 1 else lang.voices[0]
     hosts = {
@@ -282,5 +294,6 @@ def generate(doc: Document, chapter_index: int | None, language: str, fmt: str) 
         "minutes": max(1, round(words / 125)),
         "note": note,
     }
-    path.write_text(json.dumps(result, ensure_ascii=False), "utf-8")
+    if not degraded:
+        path.write_text(json.dumps(result, ensure_ascii=False), "utf-8")
     return result
