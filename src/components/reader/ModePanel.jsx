@@ -1,15 +1,27 @@
 // Shared shell for the Zen and Vibe control panels: a titled instrument panel with a status lamp, labelled sections,
 // and small readouts. Pure presentation — behaviour stays in ZenPanel / VibePanel.
-import React from 'react';
+import React, { useState } from 'react';
+import { ChevronDown } from 'lucide-react';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 
-export function Panel({ icon: Icon, title, status, live = false, className = '', children }) {
+/** Where the reader is a single column (≤ 900px) the panel starts collapsed to its header (title, status and an optional quick control) and expands on tap. */
+export function Panel({ icon: Icon, title, status, live = false, className = '', quick = null, children }) {
+  const mobile = useMediaQuery('(max-width: 900px)');
+  const [open, setOpen] = useState(false);
+  const expanded = !mobile || open;
+  const heading = <>{Icon && <Icon size={14} aria-hidden="true" />}{title}</>;
   return (
-    <section className={`mp ${className}`} aria-label={`${title} controls`}>
+    <section className={`mp ${className} ${mobile ? 'collapsible' : ''} ${expanded ? 'open' : ''}`} aria-label={`${title} controls`}>
       <header className="mp-head">
-        <span className="mp-title">{Icon && <Icon size={14} aria-hidden="true" />}{title}</span>
-        <span className={`mp-status ${live ? 'live' : ''}`}><i aria-hidden="true" />{status}</span>
+        {mobile
+          ? <button type="button" className="mp-title mp-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{heading}<ChevronDown size={14} className="mp-chev" aria-hidden="true" /></button>
+          : <span className="mp-title">{heading}</span>}
+        <span className="mp-head-right">
+          {mobile && !open && quick}
+          <span className={`mp-status ${live ? 'live' : ''}`}><i aria-hidden="true" />{status}</span>
+        </span>
       </header>
-      <div className="mp-body">{children}</div>
+      {expanded && <div className="mp-body">{children}</div>}
     </section>
   );
 }

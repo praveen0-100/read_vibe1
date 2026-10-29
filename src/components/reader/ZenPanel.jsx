@@ -63,7 +63,8 @@ export default function ZenPanel({ engine, timer, ambientOn, setAmbientOn }) {
   const live = ambientOn || timer.running;
 
   return (
-    <Panel icon={Moon} title="Zen" live={live} status={timer.running ? (timer.phase === 'break' ? 'BREAK' : 'FOCUS') : ambientOn ? 'AMBIENT' : 'IDLE'} className="zen-controls">
+    <Panel icon={Moon} title="Zen" live={live} status={timer.running ? (timer.phase === 'break' ? 'BREAK' : 'FOCUS') : ambientOn ? 'AMBIENT' : 'IDLE'} className="zen-controls"
+      quick={<button className={`mp-quick ${ambientOn ? 'playing' : ''}`} onClick={() => setAmbientOn(!ambientOn)} aria-label={ambientOn ? 'Pause music' : 'Play music'} aria-pressed={ambientOn}>{ambientOn ? <Pause size={14} /> : <Play size={14} fill="currentColor" />}</button>}>
       <Section label="Ambience" aside={`${zen.volume}%`}>
         <div className="mp-deck">
           <button className={`mp-play ${ambientOn ? 'playing' : ''}`} onClick={() => setAmbientOn(!ambientOn)} aria-label={ambientOn ? 'Pause music' : 'Play music'} aria-pressed={ambientOn}>

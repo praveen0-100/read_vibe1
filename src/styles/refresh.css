@@ -268,3 +268,14 @@ button.sg-card:hover { border-color: var(--accent, #7c5cff); }
 .lyrics-buffer i:nth-child(3) { animation-delay: .3s; }
 @keyframes lyr-pulse { 0%, 100% { opacity: .25; transform: scale(.8); } 50% { opacity: .9; transform: scale(1.15); } }
 @media (prefers-reduced-motion: reduce) { .lyrics-buffer i { animation: none; opacity: .6; } .lyric-word.now { transform: none; } }
+
+/* suggestions on small screens: title above its hint, tighter card padding */
+@media (max-width: 680px) {
+  .suggest { padding: 14px 12px 4px; margin-bottom: 20px; }
+  .suggest-head h2 { font-size: 16.5px; }
+  .sg-shelf > header { flex-direction: column; gap: 1px; align-items: flex-start; }
+  .sg-card { width: min(250px, 78vw); }
+}
+
+/* paged reader top bar: with the Book hub icon added, the smallest phones give Ask AI up (it lives in the hub and the menu) so the title stays readable */
+@media (max-width: 400px) { .mr-top button[aria-label="Ask AI"] { display: none; } }

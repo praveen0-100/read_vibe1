@@ -19,7 +19,8 @@ export default function VibePanel({ player, music }) {
   };
 
   return (
-    <Panel icon={AudioLines} title="Vibe" live={music.playing} status={music.playing ? 'PLAYING' : 'PAUSED'} className="vibe-controls">
+    <Panel icon={AudioLines} title="Vibe" live={music.playing} status={music.playing ? 'PLAYING' : 'PAUSED'} className="vibe-controls"
+      quick={<button className={`mp-quick ${music.playing ? 'playing' : ''}`} onClick={() => player.toggle()} aria-label={music.playing ? 'Pause music' : 'Play music'} aria-pressed={music.playing}>{music.playing ? <Pause size={14} /> : <Play size={14} fill="currentColor" />}</button>}>
       <Section label="Now playing">
         <div className="mp-deck vibe">
           <div className="mp-track">
