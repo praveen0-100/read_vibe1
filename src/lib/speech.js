@@ -43,7 +43,66 @@ export function pickVoice(voices, preferredName, tone = 'Regular') {
 
 // a silent segment (a stage direction, a speaker label) takes only its pause
 const segSeconds = (seg, rate) => (seg.silent ? 0 : (seg.text.split(/\s+/).length / (WPM * rate)) * 60) + (seg.pause_ms || 0) / 1000;
-const deliveryOf = (seg) => (seg.emotion && seg.emotion !== 'neutral') || seg.shift ? { emotion: seg.emotion, shift: seg.shift } : null;
+// how a sentence should sound: its feeling and character voice, plus where it sits in its paragraph (openings lift, endings settle)
+const positionOf = (seg) => seg.position || (seg.first ? 'start' : (seg.pause_ms || 0) >= 400 ? 'end' : 'mid');
+const deliveryOf = (seg) => ({ emotion: seg.emotion, shift: seg.shift, natural: true, position: positionOf(seg) });
+// the breath after a sentence varies a little (deterministically), so the gaps are not a metronome
+const breath = (seg) => { let h = 0; for (let i = 0; i < Math.min(seg.text.length, 24); i++) h = (h * 31 + seg.text.charCodeAt(i)) % 997; return 0.85 + (h % 36) / 100; };
+const LOOKAHEAD = 3; // units (a few sentences each) fetched ahead of the one being read
+const STALL_MS = 8000; // no audio progress for this long while playing: recover
+
+// ─── Utterance units ─────────────────────────────────────────────────────────
+// Reading sentence by sentence means a clip ends and the next one starts at every full stop (and at every "Mr.", quote or dash
+// that cuts a fragment) — each join costs the clip's own padding plus the time to load the next. So consecutive sentences with only a
+// short pause between them are voiced as ONE unit: the engine phrases the full stops itself, there is nothing to join, and the
+// transcript still follows sentence by sentence because every word is mapped back to the sentence it belongs to.
+const JOIN_PAUSE_MAX = 260; // a longer pause after a sentence (a paragraph end, a slow tone's deliberate beat) always starts a new unit
+const UNIT_MAX = 520; // characters per unit
+
+const unitKey = (s) => (s.voice || '') + '|' + (s.speaker || '') + '|' + (s.emotion || '') + '|' + (s.shift || 0);
+
+/** → {units:[{start,end,text,offsets[],silent}], of:[unit index of each segment]} */
+export function buildUnits(segs) {
+  const units = [];
+  const of = new Array(segs.length);
+  let cur = null;
+  segs.forEach((seg, i) => {
+    if (seg.silent) { units.push({ start: i, end: i, silent: true, text: seg.text, offsets: [0] }); of[i] = units.length - 1; cur = null; return; }
+    const prev = segs[i - 1];
+    const joins = cur && !prev.silent && (prev.pause_ms || 0) <= JOIN_PAUSE_MAX && unitKey(seg) === cur.key && cur.text.length + 1 + seg.text.length <= UNIT_MAX;
+    if (!joins) { cur = { start: i, end: i, key: unitKey(seg), text: '', offsets: [], silent: false }; units.push(cur); }
+    cur.offsets.push(cur.text ? cur.text.length + 1 : 0);
+    cur.text += (cur.text ? ' ' : '') + seg.text;
+    cur.end = i;
+    of[i] = units.length - 1;
+  });
+  return { units, of };
+}
+
+/** Which sentence of the unit a character offset falls in, and where inside that sentence. */
+const locate = (unit, o) => {
+  let k = 0;
+  for (let j = 0; j < unit.offsets.length; j++) if (unit.offsets[j] <= o) k = j;
+  return { k, char: o - unit.offsets[k] };
+};
+
+// a unit takes the delivery of the sentence it opens (or, failing that, the one it closes), so the paragraph shape is kept
+const deliveryOfUnit = (unit, segs) => {
+  if (unit.start === unit.end) return deliveryOf(segs[unit.start]);
+  const first = deliveryOf(segs[unit.start]);
+  if (first.position === 'start') return first;
+  const last = deliveryOf(segs[unit.end]);
+  return last.position === 'end' ? last : first;
+};
+
+/** Symbols that make a voice stop or stumble become plain pauses. Same length as the input, so every character offset still lines up. */
+export const speakable = (t) => (t || '')
+  .replace(/[*_~^|\\#•·▪▫◦●○■□★☆►▶◄◀→←↑↓§¶†‡]/g, ' ')
+  .replace(/[—–―‒]/g, ',')
+  .replace(/\.\.\./g, ',  ')
+  .replace(/…/g, ',')
+  .replace(/--/g, ', ')
+  .replace(/(?<=\s)-(?=\s)/g, ',');
 
 export class Narrator {
   constructor() {
@@ -62,6 +121,13 @@ export class Narrator {
     this.clips = null; // natural-voice clips (null → the browser's own voices)
     this.audio = null;
     this.raf = 0;
+    this.buffering = false; // waiting for the voice (shown in the transcript as a pulse)
+    this.failStreak = 0; // sentences in a row the voice service could not deliver
+    this.savedClips = null; // natural clips set aside while one sentence is read by the device voice
+    this.warmToken = 0;
+    this.spare = null; // a second player that already holds the next unit, so one follows the other with no gap
+    this.spareFor = null;
+    this._units = null;
   }
 
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
@@ -76,6 +142,10 @@ export class Narrator {
     this.stop();
     this.clips?.dispose();
     this.clips = neural ? new NeuralClips(neural.synth, neural.voice) : null;
+    this.savedClips = null;
+    this.failStreak = 0;
+    this.spareFor = null;
+    this._units = null;
     this.script = script || [];
     this.rate = rate;
     this.pitch = pitch;
@@ -90,6 +160,19 @@ export class Narrator {
 
   get current() {
     return this.script[this.chapter]?.segments?.[this.segment] || null;
+  }
+
+  /** The chapter's sentences grouped into units (cached until the script or chapter changes). */
+  get units() {
+    if (!this._units || this._units.script !== this.script || this._units.chapter !== this.chapter) {
+      this._units = { script: this.script, chapter: this.chapter, ...buildUnits(this.script[this.chapter]?.segments || []) };
+    }
+    return this._units;
+  }
+
+  get unit() {
+    const u = this.units;
+    return u.units[u.of[this.segment]] || null;
   }
 
   chapterSeconds(i) {
@@ -123,6 +206,7 @@ export class Narrator {
       elapsed: this.elapsedSeconds,
       total: this.totalSeconds,
       rate: this.rate,
+      buffering: this.buffering,
     };
   }
 
@@ -130,6 +214,8 @@ export class Narrator {
   prime() {
     this.audio ||= createPlayer();
     unlockAudio(this.audio);
+    this.spare ||= createPlayer();
+    unlockAudio(this.spare);
   }
 
   play() {
@@ -137,35 +223,49 @@ export class Narrator {
     if (this.clips) {
       this.audio ||= createPlayer();
       unlockAudio(this.audio);
+      this.spare ||= createPlayer();
+      unlockAudio(this.spare);
     }
     this.playing = true;
     this.speakCurrent();
   }
 
-  /** Natural voice: play the sentence's neural clip, following its word timings. */
+  /** Natural voice: play the unit's neural clip, following its word timings and keeping the current sentence in step. */
   async speakNeural() {
     const token = ++this.token;
     cancelAnimationFrame(this.raf);
     this.audio?.pause();
     if (speechSupported) window.speechSynthesis.cancel();
     const seg = this.current;
-    if (!seg) { this.advance(); return; }
-    const startOffset = this.offset;
+    const unit = this.unit;
+    if (!seg || !unit) { this.advance(); return; }
+    const segs = this.script[this.chapter].segments;
+    const voice = segs[unit.start].voice;
+    const delivery = deliveryOfUnit(unit, segs);
+    const startOffset = unit.offsets[this.segment - unit.start] + this.offset;
     const clips = this.clips;
 
     let clip;
+    clips.get(unit.text, voice, delivery).catch(() => {}); // what is being read always goes first...
+    this.warmAhead(); // ...then the units after it are fetched, one after another
+    const waiting = clips.has(unit.text, voice, delivery) ? 0 : setTimeout(() => { if (token === this.token) { this.buffering = true; this.emit(); } }, 250);
     try {
-      try {
-        clip = await clips.get(seg.text, seg.voice, deliveryOf(seg));
-      } catch (first) {
+      let lastErr;
+      for (let attempt = 0; attempt < 3 && !clip; attempt++) { // the voice service often fails once while it wakes
+        if (attempt) await new Promise((r) => setTimeout(r, 500 * attempt));
         if (token !== this.token) return;
-        await new Promise((r) => setTimeout(r, 700)); // one retry: the voice service often fails once while it wakes
-        if (token !== this.token) return;
-        clip = await clips.get(seg.text, seg.voice, deliveryOf(seg)).catch(() => { throw first; });
+        try { clip = await clips.get(unit.text, voice, delivery); } catch (e) { lastErr = e; }
       }
+      if (!clip) throw lastErr;
+      this.failStreak = 0;
     } catch (err) {
+      if (waiting) clearTimeout(waiting);
       if (token !== this.token) return;
-      this.clips = null;
+      this.buffering = false;
+      this.failStreak += 1;
+      // one stubborn passage is read by the device voice; the natural voice resumes with the next. Only a run of failures gives up on it.
+      if (this.failStreak >= 3) this.clips = null;
+      else if (!this.needsDeviceVoice()) { this.savedClips = clips; this.clips = null; }
       if (this.needsDeviceVoice()) {
         // the device has no voice for this language: its default (English) voice would garble the text at speed, so stop instead
         this.playing = false;
@@ -177,50 +277,75 @@ export class Narrator {
       this.speakCurrent();
       return;
     }
+    if (waiting) clearTimeout(waiting);
+    if (this.buffering) { this.buffering = false; this.emit(); }
     if (token !== this.token || !this.playing) return;
 
-    // warm the next sentences so playback is gapless
-    const segs = this.script[this.chapter]?.segments || [];
-    for (let i = 1, warmed = 0; warmed < 2 && this.segment + i < segs.length; i++) {
-      const next = segs[this.segment + i];
-      if (next.silent) continue; // nothing to synthesise for a direction
-      clips.get(next.text, next.voice, deliveryOf(next)).catch(() => {});
-      warmed += 1;
+    // gapless: when this unit was already loaded into the spare player, that player simply becomes the main one
+    let audio = this.audio;
+    if (this.spare && this.spareFor === clip.url) {
+      const old = this.audio;
+      old.onended = old.onerror = old.onloadedmetadata = null;
+      old.pause();
+      this.audio = this.spare;
+      this.spare = old;
+      audio = this.audio;
+    } else {
+      audio.onended = audio.onerror = audio.onloadedmetadata = null;
+      audio.src = clip.url;
     }
-
-    const audio = this.audio;
-    audio.onended = audio.onerror = audio.onloadedmetadata = null;
-    audio.src = clip.url;
+    this.spareFor = null;
     audio.playbackRate = this.rate;
     audio.preservesPitch = true;
 
     let timeline = [];
     let at = -1;
+    let lastTime = -1;
+    let lastMoved = performance.now();
+    let recoveries = 0;
     const track = () => {
       if (token !== this.token) return;
       const ms = audio.currentTime * 1000;
+      if (ms !== lastTime) { lastTime = ms; lastMoved = performance.now(); if (this.buffering) { this.buffering = false; this.emit(); } }
+      else if (!audio.paused && !audio.ended && performance.now() - lastMoved > 1200 && !this.buffering) { this.buffering = true; this.emit(); }
+      if (performance.now() - lastMoved > STALL_MS) {
+        // the audio stopped moving: retry from the last word, and if it keeps stalling move on rather than hang
+        if (++recoveries > 2) { this.buffering = false; this.segment = unit.end; this.advance(); return; }
+        lastMoved = performance.now();
+        this.offset = this.charIndex;
+        this.speakCurrent();
+        return;
+      }
       let i = Math.max(0, at);
       while (i + 1 < timeline.length && timeline[i + 1].t <= ms) i += 1;
       if (timeline[i] && i !== at) {
         at = i;
-        this.charIndex = timeline[i].o;
+        const here = locate(unit, timeline[i].o); // which sentence of the unit this word belongs to
+        const seg2 = unit.start + here.k;
+        if (seg2 !== this.segment) { this.segment = seg2; this.segmentStartedAt = performance.now(); }
+        this.offset = 0;
+        this.charIndex = here.char;
         this.emit({ charIndex: this.charIndex });
       }
       this.raf = requestAnimationFrame(track);
     };
 
-    audio.onloadedmetadata = () => {
+    const init = () => {
       timeline = wordTimeline(clip, (audio.duration || 0) * 1000);
       if (startOffset > 0) {
         const w = timeline.find((x) => x.o + x.l > startOffset);
         if (w) audio.currentTime = w.t / 1000;
       }
     };
+    audio.onloadedmetadata = init;
+    if (audio.readyState >= 1) init(); // a preloaded player has its metadata already
     audio.onended = () => {
       if (token !== this.token || !this.playing) return;
       cancelAnimationFrame(this.raf);
-      const pause = ((seg.pause_ms || 0) * 0.5) / Math.max(0.5, this.rate); // clips already carry a little trailing silence
-      setTimeout(() => token === this.token && this.playing && this.advance(), pause);
+      const last = segs[unit.end];
+      const pause = ((last.pause_ms || 0) * 0.5 * breath(last)) / Math.max(0.5, this.rate); // clips already carry a little trailing silence
+      const next = () => { if (token === this.token && this.playing) { this.segment = unit.end; this.advance(); } };
+      if (pause > 30) setTimeout(next, pause); else next();
     };
     audio.onerror = () => {
       if (token !== this.token) return;
@@ -239,6 +364,41 @@ export class Narrator {
     this.segmentStartedAt = performance.now();
     this.raf = requestAnimationFrame(track);
     this.emit();
+    this.preloadNext(token, unit);
+  }
+
+  /** Load the next unit into the spare player while this one plays, so the hand-over has nothing left to load. */
+  async preloadNext(token, unit) {
+    const clips = this.clips;
+    const { units, of } = this.units;
+    const next = units[of[unit.start] + 1];
+    if (!clips || !next || next.silent) return;
+    const segs = this.script[this.chapter].segments;
+    try {
+      const c = await clips.get(next.text, segs[next.start].voice, deliveryOfUnit(next, segs));
+      if (token !== this.token || clips !== this.clips) return;
+      this.spare ||= createPlayer();
+      this.spare.onended = this.spare.onerror = this.spare.onloadedmetadata = null;
+      this.spare.src = c.url;
+      this.spare.preload = 'auto';
+      this.spare.load();
+      this.spareFor = c.url;
+    } catch { /* it will be fetched normally when reached */ }
+  }
+
+  /** Fetch the next units one after another (never all at once, so the one being read is not starved). */
+  async warmAhead() {
+    const clips = this.clips;
+    const mine = ++this.warmToken;
+    const segs = this.script[this.chapter]?.segments || [];
+    const { units, of } = this.units;
+    for (let i = of[this.segment] + 1, n = 0; i < units.length && n < LOOKAHEAD; i++) {
+      const next = units[i];
+      if (next.silent) continue; // nothing to synthesise for a direction
+      n += 1;
+      try { await clips.get(next.text, segs[next.start].voice, deliveryOfUnit(next, segs)); } catch { /* retried when it is reached */ }
+      if (mine !== this.warmToken || clips !== this.clips) return;
+    }
   }
 
   /** A direction or label: show it, say nothing, move on after a beat. */
@@ -272,13 +432,17 @@ export class Narrator {
     const token = ++this.token;
     synth.cancel();
     const seg = this.current;
-    if (!seg) {
+    const unit = this.unit;
+    if (!seg || !unit) {
       this.advance();
       return;
     }
-    const skip = Math.min(this.offset, Math.max(0, seg.text.length - 1));
-    const u = new SpeechSynthesisUtterance(skip ? seg.text.slice(skip) : seg.text);
-    const feel = deviceDelivery(seg.emotion, seg.shift || 0); // the direction's feeling, on the device's own voice
+    const segs = this.script[this.chapter].segments;
+    const first = segs[unit.start];
+    const text = speakable(unit.text);
+    const skip = Math.min(unit.offsets[this.segment - unit.start] + this.offset, Math.max(0, text.length - 1));
+    const u = new SpeechSynthesisUtterance(skip ? text.slice(skip) : text);
+    const feel = deviceDelivery(first.emotion, first.shift || 0); // the direction's feeling, on the device's own voice
     u.rate = Math.max(0.1, Math.min(10, this.rate * feel.rate));
     u.pitch = Math.max(0, Math.min(2, this.pitch * feel.pitch));
     u.volume = feel.volume;
@@ -291,13 +455,17 @@ export class Narrator {
     };
     u.onboundary = (e) => {
       if (token !== this.token || e.name !== 'word') return;
-      this.charIndex = skip + e.charIndex;
+      const here = locate(unit, skip + e.charIndex);
+      const seg2 = unit.start + here.k;
+      if (seg2 !== this.segment) { this.segment = seg2; this.segmentStartedAt = performance.now(); }
+      this.offset = 0;
+      this.charIndex = here.char;
       this.emit({ charIndex: this.charIndex });
     };
     u.onend = () => {
       if (token !== this.token || !this.playing) return;
-      const pause = (seg.pause_ms || 0) / Math.max(0.5, this.rate);
-      setTimeout(() => token === this.token && this.playing && this.advance(), pause);
+      const pause = (segs[unit.end].pause_ms || 0) / Math.max(0.5, this.rate);
+      setTimeout(() => { if (token === this.token && this.playing) { this.segment = unit.end; this.advance(); } }, pause);
     };
     u.onerror = (e) => {
       if (token !== this.token || e.error === 'interrupted' || e.error === 'canceled') return;
@@ -309,6 +477,7 @@ export class Narrator {
   }
 
   advance() {
+    if (this.savedClips) { this.clips = this.savedClips; this.savedClips = null; } // back to the natural voice after a one-sentence fallback
     this.offset = 0;
     this.charIndex = 0;
     const segs = this.script[this.chapter]?.segments || [];
@@ -337,6 +506,8 @@ export class Narrator {
     if (this.playing) this.offset = this.charIndex;
     this.playing = false;
     this.token++;
+    this.warmToken++;
+    this.buffering = false;
     cancelAnimationFrame(this.raf);
     this.audio?.pause();
     if (speechSupported) window.speechSynthesis.cancel();
@@ -403,6 +574,7 @@ export class Narrator {
     this.clips?.dispose();
     this.clips = null;
     if (this.audio) { this.audio.removeAttribute('src'); this.audio.load(); this.audio = null; }
+    if (this.spare) { this.spare.removeAttribute('src'); this.spare.load(); this.spare = null; }
     this.listeners.clear();
   }
 }

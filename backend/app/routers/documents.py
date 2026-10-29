@@ -20,7 +20,7 @@ from ..schemas import (
     SketchCreate,
 )
 from ..serializers import bookmark_out, document_out, highlight_out, sketch_out
-from ..services import cast, extraction, ingest, storage
+from ..services import cast, extraction, ingest, recommend, storage
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -63,6 +63,12 @@ def list_documents(
     docs = sorted(docs, key=keyfuncs[sort], reverse=sort in ("recent", "progress", "added"))
     audio = _audio_doc_ids(db, user.id)
     return [document_out(d, with_chapters=False, audio_ready=d.id in audio) for d in docs]
+
+
+@router.get("/recommendations")
+def recommendations(user: CurrentUser, db: DB):
+    """Library categories, ranked interests (with a Gutenberg topic each) and related unfinished books, with the reason for each."""
+    return recommend.build(list(db.scalars(select(Document).where(Document.owner_id == user.id))))
 
 
 @router.get("/tags")

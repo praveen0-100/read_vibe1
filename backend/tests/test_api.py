@@ -369,10 +369,10 @@ def test_tts_aligns_words_and_caches(client, auth, monkeypatch):
 
     calls = []
 
-    async def fake_edge(text, voice, delivery):
+    async def fake_edge(text, voice, delivery, shown=None):
         calls.append(voice)
         words = [(0, 300, "Hello"), (300, 250, "world,"), (550, 200, "again")]
-        return b"ID3fake-mp3", tts._align(text, words), "ms"
+        return b"ID3fake-mp3", tts._align(shown or text, words), "ms"
 
     monkeypatch.setattr(tts, "_edge", fake_edge)
     assert client.get("/api/tts/status", headers=auth).json()["available"] is True

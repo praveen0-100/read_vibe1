@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 import math
+import re
 
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
@@ -52,7 +53,26 @@ def _text(slide, x, y, w, h, text, size, color, *, bold=False, italic=False, ali
     return tb
 
 
-def _bullets(slide, x, y, w, h, items, size, color, bullet_color, numbered=False):
+def _runs(text: str, highlights: list[str]) -> list[tuple[str, bool]]:
+    """Split `text` into (piece, highlighted) so key phrases can be emphasised; case-insensitive, first occurrence of each."""
+    spans = []
+    for h in highlights or []:
+        m = re.search(rf"(?<!\w){re.escape(h)}(?!\w)", text, re.I)  # whole words only
+        if m and not any(m.start() < b and m.end() > a for a, b in spans):
+            spans.append((m.start(), m.end()))
+    spans.sort()
+    out, at = [], 0
+    for a, b in spans:
+        if a > at:
+            out.append((text[at:a], False))
+        out.append((text[a:b], True))
+        at = b
+    if at < len(text):
+        out.append((text[at:], False))
+    return out or [(text, False)]
+
+
+def _bullets(slide, x, y, w, h, items, size, color, bullet_color, numbered=False, highlights=None):
     tb = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
     tf = tb.text_frame
     tf.word_wrap = True
@@ -63,10 +83,12 @@ def _bullets(slide, x, y, w, h, items, size, color, bullet_color, numbered=False
         mark.text = f"{i + 1}  " if numbered else "●  "
         mark.font.size, mark.font.name, mark.font.bold = Pt(size * (1.0 if numbered else 0.6)), FONT, True
         mark.font.color.rgb = bullet_color
-        r = p.add_run()
-        r.text = it
-        r.font.size, r.font.name = Pt(size), FONT
-        r.font.color.rgb = color
+        for piece, hot in _runs(it, highlights or []):
+            r = p.add_run()
+            r.text = piece
+            r.font.size, r.font.name = Pt(size), FONT
+            r.font.bold = hot
+            r.font.color.rgb = bullet_color if hot else color
     return tb
 
 
@@ -160,14 +182,63 @@ def _title_slide(slide, ctx, s):
         _text(slide, 1.0, 4.4, 7.0, 0.8, s["subtitle"], 18, ctx.col("muted"))
 
 
+_CALLOUT_LABEL = {"note": "NOTE", "wow": "WOW!", "tip": "TIP", "remember": "REMEMBER"}
+_CALLOUT_COLOR = {"note": "a3", "wow": "a1", "tip": "a2", "remember": "a1"}
+
+
+def _key_point(slide, ctx, s, y=1.62):
+    """The one thing to remember, as an accent pill under the title."""
+    if not s.get("main_point"):
+        return False
+    box = _shape(slide, MSO_SHAPE.ROUNDED_RECTANGLE, MX, y, W - 2 * MX, 0.62, ctx.col("panel"), line=ctx.col("a1"))
+    _text(slide, MX + 0.2, y + 0.04, 1.6, 0.54, "KEY POINT", 12, ctx.col("a1"), bold=True, anchor=MSO_ANCHOR.MIDDLE)
+    _text(slide, MX + 1.8, y + 0.04, W - 2 * MX - 2.0, 0.54, s["main_point"], 18, ctx.col("text"), bold=True, anchor=MSO_ANCHOR.MIDDLE)
+    return box is not None
+
+
+def _callouts(slide, ctx, s, y=6.05):
+    """Margin notes along the bottom: a notation, an exclamation, a tip or a thing to remember."""
+    items = s.get("callouts") or []
+    if not items:
+        return
+    gap = 0.3
+    w = (W - 2 * MX - gap * (len(items) - 1)) / len(items)
+    for i, c in enumerate(items):
+        x = MX + i * (w + gap)
+        accent = ctx.col(_CALLOUT_COLOR.get(c["kind"], "a1"))
+        _shape(slide, MSO_SHAPE.ROUNDED_RECTANGLE, x, y, w, 0.8, ctx.col("panel"), line=accent)
+        _text(slide, x + 0.15, y + 0.05, 1.3, 0.7, _CALLOUT_LABEL.get(c["kind"], "NOTE"), 12, accent, bold=True, anchor=MSO_ANCHOR.MIDDLE)
+        _text(slide, x + 1.4, y + 0.05, w - 1.55, 0.7, c["text"], 14, ctx.col("text"), anchor=MSO_ANCHOR.MIDDLE)
+
+
 def _text_slide(slide, ctx, s, numbered=False):
     items = s["bullets"]
-    size = 24 if len(items) <= 4 else 20
     img = s.get("image")
+    key = _key_point(slide, ctx, s)
+    has_notes = bool(s.get("callouts"))
+    top = 2.5 if key else 1.85
+    room = (5.9 if has_notes else 6.7) - top
+    size = 24 if len(items) <= 4 and not (key and has_notes) else 20
     width = 7.2 if img else W - 2 * MX
-    _bullets(slide, MX, 1.85, width, 4.9, items, size, ctx.col("text"), ctx.col("a1"), numbered=numbered)
+    _bullets(slide, MX, top, width, room, items, size, ctx.col("text"), ctx.col("a1"), numbered=numbered, highlights=s.get("highlights"))
     if img:
-        _picture(slide, img["seed"], img["style"], ctx, 8.35, 1.95, 4.3, 3.9, s["alt"])
+        _picture(slide, img["seed"], img["style"], ctx, 8.35, top + 0.1, 4.3, min(3.9, room - 0.1), s["alt"])
+    _callouts(slide, ctx, s)
+
+
+def _example_slide(slide, ctx, s):
+    """An example: its generated illustration on the left, the example and what it shows on the right."""
+    d = s.get("data") or {}
+    img = s.get("image") or {"seed": d.get("text") or s["title"], "style": "scene"}
+    _picture(slide, img["seed"], img["style"], ctx, MX, 1.85, 5.4, 4.0, s["alt"])
+    _shape(slide, MSO_SHAPE.ROUNDED_RECTANGLE, 6.5, 1.85, 1.5, 0.42, ctx.col("a1"))
+    _text(slide, 6.5, 1.85, 1.5, 0.42, "EXAMPLE", 12, ctx.col("bg0"), bold=True, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
+    _text(slide, 6.5, 2.4, W - 6.5 - MX, 2.4, d.get("text", ""), 20, ctx.col("text"))
+    if d.get("takeaway"):
+        _shape(slide, MSO_SHAPE.ROUNDED_RECTANGLE, 6.5, 4.95, W - 6.5 - MX, 0.9, ctx.col("panel"), line=ctx.col("a2"))
+        _text(slide, 6.7, 5.0, 1.4, 0.8, "SO WHAT", 12, ctx.col("a2"), bold=True, anchor=MSO_ANCHOR.MIDDLE)
+        _text(slide, 8.0, 5.0, W - 8.0 - MX - 0.2, 0.8, d["takeaway"], 16, ctx.col("text"), bold=True, anchor=MSO_ANCHOR.MIDDLE)
+    _callouts(slide, ctx, s)
 
 
 def _quote_slide(slide, ctx, s):
@@ -366,6 +437,8 @@ def _add_slide(prs: Presentation, ctx: _Ctx, s: dict, n: int, total: int) -> Non
         _timeline_slide(slide, ctx, s)
     elif layout == "stats":
         _stats_slide(slide, ctx, s)
+    elif layout == "example":
+        _example_slide(slide, ctx, s)
     else:  # concept · bullets · agenda · summary
         _text_slide(slide, ctx, s, numbered=layout == "agenda")
     if full_bleed:  # the picture sits above the frame's footer; bring the footer back on top

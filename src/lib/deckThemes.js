@@ -18,12 +18,20 @@ export const themeVars = (theme, highContrast = false) => {
   return { '--dk-bg0': t.bg0, '--dk-bg1': t.bg1, '--dk-a1': t.a1, '--dk-a2': t.a2, '--dk-a3': t.a3, '--dk-text': t.text, '--dk-muted': t.muted, '--dk-panel': t.panel };
 };
 
-export const ART_STYLES = ['orbit', 'network', 'wave', 'crystal'];
+export const ART_STYLES = ['orbit', 'network', 'wave', 'crystal', 'scene'];
+
+/** Margin-note kinds on a slide: a notation, an exclamation, a practical tip, a thing to retain. */
+export const CALLOUT_KINDS = {
+  note: { label: 'Note', mark: '✎' },
+  wow: { label: 'Wow!', mark: '!' },
+  tip: { label: 'Tip', mark: '✦' },
+  remember: { label: 'Remember', mark: '◆' },
+};
 export const ANIMATIONS = [['fade', 'Fade'], ['rise', 'Rise'], ['zoom', 'Zoom'], ['slide', 'Slide in'], ['draw', 'Draw']];
 export const TRANSITIONS = [['fade', 'Fade'], ['push', 'Push'], ['zoom', 'Zoom']];
 export const LAYOUT_LABEL = {
   title: 'Title', agenda: 'Agenda', concept: 'Concept', bullets: 'Bullets', hierarchy: 'Hierarchy', types: 'Categories', process: 'Flowchart',
-  chart: 'Chart', mindmap: 'Mind map', compare: 'Comparison', timeline: 'Timeline', stats: 'Key figures', quote: 'Quote', summary: 'Summary',
+  chart: 'Chart', mindmap: 'Mind map', compare: 'Comparison', timeline: 'Timeline', stats: 'Key figures', quote: 'Quote', summary: 'Summary', example: 'Example',
 };
 
 /** URL of a slide's generated picture (served by the API, cached by the browser). */

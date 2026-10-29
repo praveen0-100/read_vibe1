@@ -1,6 +1,6 @@
 // ─── Presentation studio: create a deck from a file or a library document, and browse your decks ─────────
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { BarChart3, Download, FileUp, FileText, GitBranch, Image as ImageIcon, Loader2, Mic2, Network, Play, Presentation, Sparkles, Trash2, Wand2, X } from 'lucide-react';
 import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
@@ -56,9 +56,11 @@ export default function DecksPage() {
   const docs = useQuery(() => api.documents.list({ sort: 'recent' }), []);
   const ready = (docs.data || []).filter((d) => d.status === 'ready');
 
-  const [source, setSource] = useState('upload'); // upload | library
+  const [qs] = useSearchParams();
+  const fromDoc = qs.get('doc'); // deep link from the reader's Book hub
+  const [source, setSource] = useState(fromDoc ? 'library' : 'upload'); // upload | library
   const [file, setFile] = useState(null);
-  const [docId, setDocId] = useState('');
+  const [docId, setDocId] = useState(fromDoc || '');
   const [over, setOver] = useState(false);
   const [opts, setOpts] = useState({ slides: 12, style: 'executive', theme: 'aurora', images: true, visuals: true, notes: true, focus: '' });
   const [run, setRun] = useState(null); // {progress, stage, error}

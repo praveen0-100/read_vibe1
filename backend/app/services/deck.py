@@ -22,8 +22,9 @@ log = logging.getLogger("readvibe.deck")
 
 LAYOUTS = (
     "title", "agenda", "concept", "bullets", "hierarchy", "types", "process", "chart", "mindmap",
-    "compare", "timeline", "stats", "quote", "summary",
+    "compare", "timeline", "stats", "quote", "summary", "example",
 )
+CALLOUT_KINDS = ("note", "wow", "tip", "remember")  # a notation, an exclamation, a practical tip, a thing to retain
 ANIMS = ("fade", "rise", "zoom", "slide", "draw")
 TRANSITIONS = ("fade", "push", "zoom")
 STYLES = {
@@ -35,9 +36,10 @@ STYLES = {
 _DEFAULT_ANIM = {
     "title": "zoom", "agenda": "slide", "concept": "rise", "bullets": "rise", "hierarchy": "draw", "types": "rise",
     "process": "draw", "chart": "draw", "mindmap": "zoom", "compare": "slide", "timeline": "draw", "stats": "zoom",
-    "quote": "fade", "summary": "rise",
+    "quote": "fade", "summary": "rise", "example": "slide",
 }
-_IMAGE_LAYOUTS = {"title", "concept", "quote", "summary", "bullets"}
+_IMAGE_LAYOUTS = {"title", "concept", "quote", "summary", "bullets", "example"}
+_TEXT_LAYOUTS = ("concept", "bullets", "summary", "example")  # where a main point and highlighted phrases make sense
 
 
 class DeckOptions:
@@ -123,7 +125,24 @@ def _data_for(layout: str, d) -> dict | None:
     if layout == "quote":
         q = _txt(d.get("text"), 220)
         return {"text": q, "source": _txt(d.get("source"), 80)} if q else None
+    if layout == "example":
+        t = _txt(d.get("text"), 300)
+        return {"text": t, "takeaway": _txt(d.get("takeaway"), 140)} if t else None
     return {}
+
+
+def _callouts(v) -> list[dict]:
+    """Up to two margin notes: {kind: note|wow|tip|remember, text}. Anything else is dropped."""
+    out = []
+    for c in (v if isinstance(v, list) else [])[:4]:
+        if isinstance(c, dict) and c.get("kind") in CALLOUT_KINDS and _txt(c.get("text"), 110):
+            out.append({"kind": c["kind"], "text": _txt(c["text"], 110)})
+    return out[:2]
+
+
+def _highlights(v, haystack: str) -> list[str]:
+    """Key phrases to emphasise: only ones that really occur in the slide's own text, so nothing is highlighted in thin air."""
+    return [h for h in _list(v, 4, 40) if re.search(rf"(?<!\w){re.escape(h)}(?!\w)", haystack, re.I)][:3]
 
 
 def _alt(layout: str, s: dict) -> str:
@@ -147,6 +166,8 @@ def _alt(layout: str, s: dict) -> str:
         return f"Key figures, {t}: " + "; ".join(f"{i['value']} {i['label']}" for i in d["items"]) + "."
     if layout == "quote":
         return f"Quote: {d['text']}"
+    if layout == "example":
+        return f"Example, {t}: {d['text']} An illustration accompanies it."
     return f"{t}. Decorative illustration."
 
 
@@ -170,14 +191,20 @@ def _normalize(raw: dict, n: int, opts: DeckOptions) -> dict | None:
         layout, data = "bullets", {}
     slide = {
         "id": uuid.uuid4().hex[:8], "layout": layout, "title": title, "subtitle": _txt(raw.get("subtitle"), 160),
-        "bullets": bullets if layout not in ("hierarchy", "mindmap", "process", "chart", "timeline", "stats", "quote") else bullets[:3],
+        "bullets": bullets if layout not in ("hierarchy", "mindmap", "process", "chart", "timeline", "stats", "quote", "example") else bullets[:3],
         "notes": _txt(raw.get("notes"), 1400) if opts.notes else "",
         "anim": raw.get("anim") if raw.get("anim") in ANIMS else _DEFAULT_ANIM[layout],
         "transition": raw.get("transition") if raw.get("transition") in TRANSITIONS else TRANSITIONS[n % len(TRANSITIONS)],
         "data": data,
     }
+    if layout not in ("title", "quote"):
+        slide["callouts"] = _callouts(raw.get("callouts"))
+    if layout in _TEXT_LAYOUTS:
+        slide["main_point"] = _txt(raw.get("main_point"), 140)
+        slide["highlights"] = _highlights(raw.get("highlights"), " ".join([*bullets, slide["main_point"], (data or {}).get("text", "")]))
     if opts.images and layout in _IMAGE_LAYOUTS:
-        slide["image"] = {"seed": _txt(raw.get("image_prompt") or title, 120), "style": ""}
+        # an example gets a *scene* (a picture of what the example is about), everything else the abstract motif
+        slide["image"] = {"seed": _txt(raw.get("image_prompt") or (data or {}).get("text") or title, 120), "style": "scene" if layout == "example" else ""}
     slide["alt"] = _txt(raw.get("alt"), 400) if layout in ("title", "concept", "bullets", "agenda", "summary") and raw.get("alt") else _alt(layout, slide)
     return slide
 
@@ -221,6 +248,12 @@ _SCHEMA = {
                     "alt": {"type": "string"},
                     "anim": {"type": "string", "enum": list(ANIMS)},
                     "image_prompt": {"type": "string"},
+                    "main_point": {"type": "string"},
+                    "highlights": {"type": "array", "items": {"type": "string"}},
+                    "callouts": {
+                        "type": "array",
+                        "items": {"type": "object", "properties": {"kind": {"type": "string", "enum": list(CALLOUT_KINDS)}, "text": {"type": "string"}}, "required": ["kind", "text"]},
+                    },
                     "data": {"type": "object"},
                 },
                 "required": ["layout", "title"],
@@ -240,7 +273,8 @@ _DATA_GUIDE = """\
 - compare:   {"columns":[{"title":"A","points":["…"]},{"title":"B","points":["…"]}]}
 - timeline:  {"events":[{"label":"1998","detail":"…"}]}  — 3-6 events in order
 - stats:     {"items":[{"value":"42%","label":"what it measures"}]}  — 2-4 figures quoted from the text
-- quote:     {"text":"a striking line from the document","source":"who/where"}"""
+- quote:     {"text":"a striking line from the document","source":"who/where"}
+- example:   {"text":"a concrete example from the document, 1-3 sentences","takeaway":"what it shows, ≤14 words"}  — gets its own generated illustration"""
 
 
 def _source_text(sections: list[tuple[int, str, str]], budget_words: int = 7000) -> str:
@@ -265,7 +299,12 @@ def _llm_deck(title: str, sections: list[tuple[int, str, str]], opts: DeckOption
         + ("- Visual layouts are disabled: use only title, agenda, concept, bullets, quote and summary.\n" if not opts.visuals else "")
         + "- Bullets: at most 4 per slide, at most 14 words each, no trailing periods. Titles: at most 8 words and say something (a claim, not a label).\n"
         + ("- `notes`: a 2-4 sentence speaker script in a natural spoken voice, with a transition into the next slide.\n" if opts.notes else "- `notes`: leave empty.\n")
-        + "- `alt`: one sentence describing the slide's visual for a screen-reader user.\n"
+        + "- Explain with EXAMPLES: after a concept slide whose document text gives a concrete example, add an 'example' slide for it (at most 3-4 per deck); "
+        "its `image_prompt` names the thing the example is about (e.g. 'team collaborating', 'password protecting data') so the illustration fits.\n"
+        "- Mark what matters on concept/bullets/summary/example slides: `main_point` (one sentence, ≤16 words: the single thing to remember), `highlights` "
+        "(1-3 short phrases copied EXACTLY from this slide's bullets), and `callouts` (0-2 margin notes: kind 'note' for a definition or clarification, "
+        "'wow' for a surprising fact stated with an exclamation, 'tip' for practical advice, 'remember' for a key point; ≤16 words each, from the document only).\n"
+        "- `alt`: one sentence describing the slide's visual for a screen-reader user.\n"
         "- `image_prompt`: 3-6 words naming the scene for the slide's generated illustration.\n"
         "- `anim`: the entrance motion that suits the slide (fade, rise, zoom, slide, draw — draw for diagrams and charts).\n"
         "- Use only facts from the document. Never invent numbers.\n\n"
@@ -322,6 +361,57 @@ def _figures(text: str) -> list[dict]:
     return out
 
 
+_DEF = re.compile(r"\b(?:is|are|was|were)\s+(?:defined as|called|known as|referred to as|termed)\b|\bmeans\b|\brefers? to\b|\bstands? for\b", re.I)
+_WOW = re.compile(r"\b(?:surpris\w+|remarkabl\w+|astonish\w+|incredibl\w+|dramatic\w*|huge|enormous|largest|smallest|fastest|million|billion)\b", re.I)
+_MUST = re.compile(r"\b(?:should|must|always|never|remember|important|essential|crucial|need to)\b", re.I)
+_TIP = re.compile(r"\b(?:try|use|avoid|make sure|ensure|consider)\b", re.I)
+_EXAMPLE = re.compile(r"\b(?:for example|for instance|such as|e\.g\.|imagine|suppose|consider)\b", re.I)
+
+
+def _enrich(head: str, text: str, bullets: list[str]) -> dict:
+    """Main point, highlighted phrases, margin notes (notation / exclamation / tip) and an example sentence for one topic,
+    all taken from the topic text itself."""
+    sents = nlp.sentences(text)
+    used: set[str] = set()
+
+    def pick(rx, exclude=()):
+        for x in sents:
+            if x not in used and x not in exclude and rx.search(x) and 5 <= len(x.split()) <= 40:
+                used.add(x)
+                return x
+        return None
+
+    callouts = []
+    d = pick(_DEF)
+    if d:
+        callouts.append({"kind": "note", "text": _short(d, 18)})
+    w = next((x for x in sents if x not in used and x.rstrip().endswith("!") and 3 <= len(x.split()) <= 30), None) or pick(_WOW)
+    if w:
+        used.add(w)
+        callouts.append({"kind": "wow", "text": _short(w, 16).rstrip(".!") + "!"})
+    if len(callouts) < 2:
+        m = pick(_MUST)
+        if m:
+            callouts.append({"kind": "remember", "text": _short(m, 16)})
+    if len(callouts) < 2:
+        t = pick(_TIP)
+        if t:
+            callouts.append({"kind": "tip", "text": _short(t, 16)})
+
+    shown = [c["text"].lower().rstrip("!.") for c in callouts]
+    top = [t for t in nlp.top_sentences(text, 4) if not any(_short(t, 16).lower().rstrip("!.") in c or c in _short(t, 16).lower() for c in shown)]
+    main = _short(top[0], 16) if top else ""  # the main point is never the sentence a margin note already repeats
+    joined = " ".join(bullets)
+    highlights = []
+    for ph in nlp.key_phrases(text, 6):
+        m = re.search(rf"(?<!\w){re.escape(ph)}(?!\w)", joined, re.I)  # whole words only: "design" is not picked out of "designers"
+        if m:
+            highlights.append(m.group(0))
+    ex = [x for x in sents if _EXAMPLE.search(x) and 6 <= len(x.split()) <= 45]
+    example = _txt(" ".join(ex[:2]), 300) if ex else ""
+    return {"callouts": callouts[:2], "main_point": main, "highlights": highlights[:3], "example": example}
+
+
 def _local_deck(title: str, sections: list[tuple[int, str, str]], opts: DeckOptions) -> dict:
     full = "\n\n".join(t for _, _, t in sections)
     words = len(full.split())
@@ -340,10 +430,21 @@ def _local_deck(title: str, sections: list[tuple[int, str, str]], opts: DeckOpti
     core: list[dict] = []
     for i, (head, text) in enumerate(topics):
         pts = [_short(s) for s in nlp.top_sentences(text, 4)] or [_short(head)]
+        extra = _enrich(head, text, pts)
+        if extra["main_point"] and len(pts) > 2:  # the key point is shown in its own band, so it is not repeated as a bullet
+            norm = extra["main_point"].lower().rstrip(".!")
+            pts = [p for p in pts if p.lower().rstrip(".!") != norm]
         core.append({
             "layout": "concept", "title": _txt(head, 80), "bullets": pts,
             "notes": notes(head, text, topics[i + 1][0] if i + 1 < len(topics) else None), "image_prompt": head,
+            "main_point": extra["main_point"], "highlights": extra["highlights"], "callouts": extra["callouts"],
         })
+        if extra["example"] and sum(1 for c in core if c["layout"] == "example") < 4:  # an example, with a picture of what it is about
+            core.append({
+                "layout": "example", "title": _txt(f"In practice: {head}", 80), "data": {"text": extra["example"], "takeaway": extra["main_point"]},
+                "notes": f"Here is an example. {extra['example']}", "image_prompt": extra["example"],
+                "main_point": extra["main_point"], "callouts": [],
+            })
 
     visuals: list[dict] = []
     if len(branches) >= 3:
@@ -441,7 +542,7 @@ def clean_slides(slides: list, opts: DeckOptions | None = None) -> list[dict]:
         if s:
             s["id"] = _txt(raw.get("id"), 16) or s["id"]
             if isinstance(raw.get("image"), dict) and "image" in s:
-                s["image"] = {"seed": _txt(raw["image"].get("seed"), 120) or s["image"]["seed"], "style": raw["image"].get("style") if raw["image"].get("style") in ("orbit", "network", "wave", "crystal") else ""}
+                s["image"] = {"seed": _txt(raw["image"].get("seed"), 120) or s["image"]["seed"], "style": raw["image"].get("style") if raw["image"].get("style") in ("orbit", "network", "wave", "crystal", "scene") else ""}
             out.append(s)
     return out
 

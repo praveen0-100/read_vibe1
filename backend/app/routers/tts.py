@@ -30,6 +30,9 @@ async def synthesize(body: TTSIn, _: CurrentUser):
     if not tts.available():
         raise HTTPException(status_code=503, detail="Natural voices aren’t enabled on this server")
     try:
-        return await run_in_threadpool(tts.synthesize, body.text, body.voice, body.emotion, body.pitch_shift)
+        return await run_in_threadpool(
+            tts.synthesize, body.text, body.voice, body.emotion, body.pitch_shift, pace=body.pace, energy=body.energy,
+            articulation=body.articulation, language=body.language, glossary=body.glossary,
+            natural=body.natural, position=body.position)
     except tts.TTSError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

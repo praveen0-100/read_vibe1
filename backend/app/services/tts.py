@@ -19,7 +19,7 @@ import time
 import httpx
 
 from ..config import get_settings
-from . import languages
+from . import languages, speechplan
 
 log = logging.getLogger("readvibe.tts")
 
@@ -61,10 +61,11 @@ _FEELING = {  # for engines that take natural-language direction
 }
 
 
-def prosody(text: str, emotion: str | None = None, shift: int = 0) -> tuple[str, str, str]:
+def prosody(text: str, emotion: str | None = None, shift: int = 0, delta: tuple[int, int, int] = (0, 0, 0)) -> tuple[str, str, str]:
     """(rate, pitch, volume) strings for edge-tts. Emotion sets the base; the sentence's own punctuation adds the small
     natural lifts a person gives a question or an exclamation; `shift` (Hz) keeps characters apart."""
     rate, pitch, vol = PRESETS.get(emotion or "neutral", PRESETS["neutral"])
+    rate, pitch, vol = rate + delta[0], pitch + delta[1], vol + delta[2]  # pace / energy / articulation
     stripped = text.rstrip(" \"”’)")
     if stripped.endswith("?"):
         pitch += 3
@@ -170,8 +171,7 @@ def voices() -> list[dict]:
 
 # ─── Text prep ────────────────────────────────────────────────────────────────
 def _clean(text: str) -> str:
-    text = re.sub(r"[*_`#]+", "", text)
-    text = re.sub(r"\s+", " ", text).strip()
+    text = speechplan.sanitize(text)
     if not text:
         raise TTSError("Nothing to read")
     if len(text) > MAX_CHARS:
@@ -192,7 +192,7 @@ def _align(text: str, words: list[tuple[float, float, str]]) -> list[list]:
 
 
 # ─── Providers ────────────────────────────────────────────────────────────────
-async def _edge(text: str, voice: str, delivery: tuple[str, str, str]) -> tuple[bytes, list[list], str]:
+async def _edge(text: str, voice: str, delivery: tuple[str, str, str], shown: str | None = None) -> tuple[bytes, list[list], str]:
     audio = bytearray()
     words: list[tuple[float, float, str]] = []
     rate, pitch, volume = delivery
@@ -203,7 +203,7 @@ async def _edge(text: str, voice: str, delivery: tuple[str, str, str]) -> tuple[
             words.append((chunk["offset"] / 10_000, chunk["duration"] / 10_000, chunk["text"]))
     if not audio:
         raise TTSError("The voice service returned no audio")
-    return bytes(audio), _align(text, words), "ms"
+    return bytes(audio), _align(shown or text, words), "ms"
 
 
 def _openai(text: str, voice: str, emotion: str | None = None) -> tuple[bytes, list[list], str]:
@@ -230,36 +230,97 @@ def _openai(text: str, voice: str, emotion: str | None = None) -> tuple[bytes, l
 
 
 # ─── Public API ───────────────────────────────────────────────────────────────
-def synthesize(text: str, voice: str | None = None, emotion: str | None = None, pitch_shift: int = 0) -> dict:
+def _gender_of(voice: str) -> str | None:
+    for lang in languages.LANGUAGES:
+        for vid, _name, gender in lang.voices:
+            if vid == voice:
+                return gender
+    return None
+
+
+def _render(provider: str, name: str, shown: str, emotion: str, shift: int, delta: tuple[int, int, int],
+            glossary: dict[str, str] | None) -> tuple[bytes, list[list], str]:
+    """One same-language run → (audio, word timings positioned in `shown`, timing unit). Cached on disk."""
+    spoken = speechplan.speakable(speechplan.apply_glossary(shown, glossary))   # respellings and plain pauses reach the engine; the transcript stays as written
+    cache_dir = get_settings().storage_dir / "tts"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    key = hashlib.sha1(f"{provider}|{name}|{emotion}|{shift}|{delta}|{shown}|{spoken}".encode()).hexdigest()
+    audio_path, meta_path = cache_dir / f"{key}.mp3", cache_dir / f"{key}.json"
+    if audio_path.exists() and meta_path.exists():
+        meta = json.loads(meta_path.read_text("utf-8"))
+        return audio_path.read_bytes(), meta["words"], meta["timing"]
+    try:
+        if provider == "edge":
+            audio, words, timing = asyncio.run(_edge(spoken, name, prosody(spoken, emotion, shift, delta), *([shown] if shown != spoken else [])))
+        else:
+            audio, words, timing = _openai(spoken, name, emotion)
+    except TTSError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        log.warning("TTS failed (%s/%s): %s", provider, name, exc)
+        raise TTSError("The voice service is unavailable right now") from exc
+    problem = speechplan.check_audio(audio)
+    if problem:
+        raise TTSError(problem)
+    audio_path.write_bytes(audio)
+    meta_path.write_text(json.dumps({"words": words, "timing": timing}), "utf-8")
+    return audio, words, timing
+
+
+def synthesize(text: str, voice: str | None = None, emotion: str | None = None, pitch_shift: int = 0, *,
+               pace: str | None = None, energy: str | None = None, articulation: str | None = None,
+               language: str | None = None, glossary: dict[str, str] | None = None, natural: bool = False,
+               position: str | None = None) -> dict:
+    """Voice `text` per the universal multilingual TTS contract.
+
+    The wording is never altered. Language comes from `language` when given, else from the text itself run by run (so
+    code-switched text keeps each language's own voice). Anything the engine cannot honour is reported in `notes`."""
     text = _clean(text)
+    emotion = speechplan.EMOTION_ALIASES.get((emotion or "").lower(), emotion)
     emotion = emotion if emotion in PRESETS else "neutral"
     pitch_shift = max(-20, min(20, int(pitch_shift or 0)))
+    delta = speechplan.style(pace, energy, articulation)
+    if natural:  # per-sentence human variation (see speechplan.human_delta)
+        h = speechplan.human_delta(text, position if position in speechplan.POSITIONS else None)
+        delta = (delta[0] + h[0], delta[1] + h[1], delta[2] + h[2])
     voice = voice or DEFAULT_VOICE
     provider, _, name = voice.partition(":")
     if not name:
         provider, name = "edge", voice
     if provider not in providers():
         raise TTSError(f"Voice provider “{provider}” isn’t available on this server")
+    voice = f"{provider}:{name}"
+    notes = speechplan.review_flags(text)
 
-    cache_dir = get_settings().storage_dir / "tts"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    key = hashlib.sha1(f"{provider}|{name}|{emotion}|{pitch_shift}|{text}".encode()).hexdigest()
-    audio_path, meta_path = cache_dir / f"{key}.mp3", cache_dir / f"{key}.json"
-    if audio_path.exists() and meta_path.exists():
-        meta = json.loads(meta_path.read_text("utf-8"))
-        audio = audio_path.read_bytes()
+    if speechplan.voice_lang(voice) is None:  # multilingual voice: one pass, the engine handles the languages itself
+        lang = (language or languages.detect(text)).lower()[:2]
+        plan = [(speechplan.Run(text, lang), voice)]
     else:
-        try:
-            if provider == "edge":
-                audio, words, timing = asyncio.run(_edge(text, name, prosody(text, emotion, pitch_shift)))
-            else:
-                audio, words, timing = _openai(text, name, emotion)
-        except TTSError:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            log.warning("TTS failed (%s/%s): %s", provider, name, exc)
-            raise TTSError("The voice service is unavailable right now") from exc
-        meta = {"words": words, "timing": timing}
-        audio_path.write_bytes(audio)
-        meta_path.write_text(json.dumps(meta), "utf-8")
-    return {"audio": base64.b64encode(audio).decode(), "mime": "audio/mpeg", "voice": f"{provider}:{name}", **meta}
+        lang = (language or "").lower()[:2] or None
+        pieces = [speechplan.Run(text, lang)] if lang else speechplan.runs(text)
+        plan = []
+        for run in pieces:
+            use, note = speechplan.resolve_voice(voice, run.lang, _gender_of(voice))
+            if note and note not in notes:
+                notes.append(note)
+            plan.append((run, use))
+        lang = lang or pieces[0].lang
+
+    audio, words, timing, cursor, offset_ms = b"", [], "ms", 0, 0.0
+    for run, use in plan:
+        prov, _, nm = use.partition(":")
+        a, w, t = _render(prov, nm, run.text, emotion, pitch_shift, delta, glossary)
+        at = text.find(run.text, cursor)
+        at = cursor if at < 0 else at
+        if len(plan) == 1:
+            audio, words, timing = a, w, t
+        else:  # join runs: shift this run's char offsets and (millisecond) times past the previous ones
+            audio += a
+            words += [[c + at, ln, s + offset_ms, d] for c, ln, s, d in w]
+            if w:
+                offset_ms = w[-1][2] + offset_ms + w[-1][3] + 120
+        cursor = at + len(run.text)
+    if len(plan) > 1:
+        notes.append("Language changes inside this text were voiced by separate language voices; word timings across the joins are approximate.")
+    return {"audio": base64.b64encode(audio).decode(), "mime": "audio/mpeg", "voice": plan[0][1], "words": words, "timing": timing,
+            "language": lang, "segments": [{"text": r.text, "language": r.lang, "voice": v} for r, v in plan], "notes": notes}

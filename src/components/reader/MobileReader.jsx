@@ -3,7 +3,7 @@
 // (tap the edges, swipe, or use the arrow keys). Chrome (top/bottom bars) appears on a centre tap.
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowLeft, AudioLines, BookOpen, Bookmark, BookmarkCheck, CloudDownload, Download, Headphones, List, MoreHorizontal, Moon, Search,
+  ArrowLeft, AudioLines, BookOpen, Bookmark, BookmarkCheck, CloudDownload, Download, Headphones, LayoutGrid, List, MoreHorizontal, Moon, Search,
   Sparkles, StickyNote, Trash2, Type, WifiOff, X, ChevronUp, SlidersHorizontal,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
@@ -169,7 +169,7 @@ export default function MobileReader({
   doc, chapter, chapterIndex, chapterLoading, highlights, allHighlights, searchQuery, setSearchQuery, searchOpen, setSearchOpen,
   bookmarks, onToggleBookmark, onDeleteBookmark, onHighlightClick, goChapter, setMode,
   surfaceRef, articleRef, ratioRef, pendingScroll, pendingFind, saveProgress, lastActivity,
-  narrator, listen, startListening, segMeta, onWordTap, lang = 'en', onOverview, languageToggle, transcriptLanguage, offlineMode, saveOffline, downloadOriginal, navigate, openAI, notify, children,
+  narrator, listen, startListening, segMeta, onWordTap, lang = 'en', onOverview, languageToggle, transcriptLanguage, offlineMode, saveOffline, onHub, downloadOriginal, navigate, openAI, notify, children,
 }) {
   const { prefs } = useApp();
   const r = prefs.reading;
@@ -488,6 +488,7 @@ export default function MobileReader({
         <span className="mr-doc-title">{doc.title}{offlineMode && <WifiOff size={12} />}</span>
         <button onClick={() => { setSearchOpen(true); setChrome(false); }} aria-label="Search in book" tabIndex={chrome ? 0 : -1}><Search size={19} /></button>
         <button onClick={() => setSheet((s) => (s === 'display' ? null : 'display'))} aria-label="Display settings" aria-expanded={sheet === 'display'} tabIndex={chrome ? 0 : -1}><Type size={20} /></button>
+        <button onClick={onHub} aria-label="Everything for this book" tabIndex={chrome ? 0 : -1}><LayoutGrid size={19} /></button>
         <button onClick={listenHere} aria-label="Listen" tabIndex={chrome ? 0 : -1}><Headphones size={19} /></button>
         <button onClick={() => openAI({ documentId: doc.id, chapterIndex, nonce: Date.now() })} aria-label="Ask AI" tabIndex={chrome ? 0 : -1}><Sparkles size={19} /></button>
         <Menu label="More" align="right" trigger={<MoreHorizontal size={20} />} items={[

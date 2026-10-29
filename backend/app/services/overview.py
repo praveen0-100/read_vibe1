@@ -169,9 +169,41 @@ def _free(text: str, title: str, lang: languages.Language, doc_lang: str, fmt: s
     return turns, t_title, note
 
 
+# ─── Human texture for conversations ─────────────────────────────────────────
+# Short listener reactions (“mm-hm”, “right”), the way people actually follow a long explanation. Only common, safe words
+# per language; never a claim about the document. (text, emotion)
+_REACTIONS: dict[str, list[tuple[str, str]]] = {
+    "en": [("Mm-hm.", "warm"), ("Right.", "neutral"), ("Oh, interesting!", "surprise"), ("I see.", "curious"), ("That makes sense.", "warm")],
+    "ta": [("ம்ம்.", "warm"), ("ஆமாம்.", "neutral"), ("அட, சுவாரஸ்யம்!", "surprise"), ("சரிதான்.", "warm")],
+    "te": [("అవును.", "neutral"), ("ఓహో, ఆసక్తికరం!", "surprise"), ("నిజమే.", "warm"), ("అలాగా.", "curious")],
+    "ml": [("അതെ.", "neutral"), ("ആഹാ, രസകരം!", "surprise"), ("ശരിയാണ്.", "warm"), ("ഓഹോ.", "curious")],
+    "kn": [("ಹೌದು.", "neutral"), ("ಓಹೋ, ಆಸಕ್ತಿಕರ!", "surprise"), ("ಸರಿಯಾಗಿದೆ.", "warm"), ("ಅಚ್ಛಾ.", "curious")],
+    "hi": [("हाँ, बिल्कुल।", "neutral"), ("अच्छा!", "surprise"), ("सही बात है।", "warm"), ("हम्म।", "curious")],
+}
+_LONG_TURN = 150
+
+
+def humanise(turns: list[dict], code: str) -> list[dict]:
+    """Insert a brief reaction from the *other* host after a long turn, no more often than every third turn and never at the end."""
+    options = _REACTIONS.get(code)
+    if not options:
+        return turns
+    out, since, n = [], 3, 0
+    for i, t in enumerate(turns):
+        out.append(t)
+        since += 1
+        last = i == len(turns) - 1
+        if not last and since >= 3 and len(t["text"]) >= _LONG_TURN and t["speaker"] in ("host_a", "host_b") and turns[i + 1]["speaker"] != t["speaker"]:
+            text, emotion = options[n % len(options)]
+            other = "host_b" if t["speaker"] == "host_a" else "host_a"
+            out.append({"speaker": other, "text": text, "voice": None, "emotion": emotion, "reaction": True})
+            n, since = n + 1, 0
+    return out
+
+
 def _cache_path(doc: Document, chapter_index: int | None, code: str, fmt: str):
     stamp = doc.updated_at.isoformat() if doc.updated_at else ""
-    key = hashlib.sha1(f"{doc.id}|{stamp}|{chapter_index}|{code}|{fmt}|{llm.available()}".encode()).hexdigest()
+    key = hashlib.sha1(f"v2|{doc.id}|{stamp}|{chapter_index}|{code}|{fmt}|{llm.available()}".encode()).hexdigest()
     folder = get_settings().storage_dir / "overviews"
     folder.mkdir(parents=True, exist_ok=True)
     return folder / f"{key}.json"
@@ -230,6 +262,10 @@ def generate(doc: Document, chapter_index: int | None, language: str, fmt: str) 
             turns.append({"speaker": speaker, "text": text_, "voice": hosts[speaker]["voice"], "emotion": emotion})
     if not turns:
         raise OverviewError("The overview came back empty — please try again.", 503)
+    if fmt == "conversation":
+        turns = humanise(turns, lang.code)
+        for t in turns:
+            t["voice"] = hosts[t["speaker"]]["voice"]
 
     words = sum(len(t["text"].split()) for t in turns)
     result = {

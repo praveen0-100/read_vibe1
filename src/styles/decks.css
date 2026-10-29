@@ -154,3 +154,33 @@
 .dk-slide.hc .dk-bg { background: #000; }
 .dk-slide.hc .dk-hero, .dk-slide.hc .dk-art-card, .dk-slide.hc .dk-col, .dk-slide.hc .dk-node { border-color: #fff; }
 .dk-slide.hc .dk-art.full { opacity: .35; }
+
+/* ── emphasis: key point, highlighted phrases, margin notes (notation / exclamation / tip) and example slides ── */
+.dk-keypoint { position: absolute; left: 72px; right: 72px; top: 152px; margin: 0; padding: 12px 22px; display: flex; align-items: center; gap: 18px; border-radius: 18px; font: 650 25px/1.25 var(--font-ui); background: color-mix(in srgb, var(--dk-a1) 14%, var(--dk-panel)); border: 1px solid color-mix(in srgb, var(--dk-a1) 55%, transparent); }
+.dk-keypoint small { flex: none; font: 800 13px var(--font-ui); letter-spacing: .14em; color: var(--dk-bg0); background: var(--dk-a1); padding: 6px 12px; border-radius: 999px; }
+.dk-mark { background: linear-gradient(transparent 58%, color-mix(in srgb, var(--dk-a1) 45%, transparent) 58%); color: inherit; font-weight: 750; padding: 0 3px; border-radius: 3px; }
+.dk-slide.tight .dk-title { top: 32px; }
+.dk-body.has-key { top: 244px; }
+.dk-body.has-key .dk-li, .dk-body.has-notes .dk-li { font-size: 27px; }
+.dk-body.has-key .dk-list, .dk-body.has-notes .dk-list { gap: 16px; }
+.dk-body.has-notes { bottom: 170px; }
+.dk-body.has-notes .dk-art-card, .dk-body.has-key .dk-art-card { height: 300px; }
+.dk-callouts { position: absolute; left: 72px; right: 72px; bottom: 60px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+.dk-callouts.n1 { grid-template-columns: minmax(0, 66%); }
+.dk-callout { display: flex; align-items: center; gap: 16px; padding: 14px 20px; border-radius: 18px; background: var(--dk-panel); border: 1.5px solid var(--dk-a1); font: 500 20px/1.3 var(--font-ui); }
+.dk-callout small { display: block; font: 800 12px var(--font-ui); letter-spacing: .14em; text-transform: uppercase; margin-bottom: 3px; color: var(--dk-a1); }
+.dk-callout-mark { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; font: 800 24px var(--font-ui); color: var(--dk-bg0); background: var(--dk-a1); }
+.dk-callout.k-note { border-color: var(--dk-a3); } .dk-callout.k-note small { color: var(--dk-a3); } .dk-callout.k-note .dk-callout-mark { background: var(--dk-a3); }
+.dk-callout.k-tip { border-color: var(--dk-a2); } .dk-callout.k-tip small { color: var(--dk-a2); } .dk-callout.k-tip .dk-callout-mark { background: var(--dk-a2); }
+.dk-callout.k-wow .dk-callout-mark { animation: dk-wow 1.6s ease-in-out .6s 2; }
+@keyframes dk-wow { 0%, 100% { transform: scale(1) rotate(0); } 25% { transform: scale(1.25) rotate(-12deg); } 60% { transform: scale(1.1) rotate(8deg); } }
+.dk-example { display: grid; grid-template-columns: 520px 1fr; gap: 56px; align-items: center; }
+.dk-example .dk-art-card { height: 380px; }
+.dk-example.has-notes { top: 170px; }
+.dk-example.has-notes .dk-art-card { height: 330px; }
+.dk-example-text { display: grid; gap: 22px; align-content: center; }
+.dk-chip { justify-self: start; font: 800 14px var(--font-ui); letter-spacing: .16em; padding: 7px 16px; border-radius: 999px; color: var(--dk-bg0); background: var(--dk-a1); }
+.dk-example-text p { margin: 0; font: 500 28px/1.38 var(--font-ui); }
+.dk-example-text .dk-sowhat { padding: 16px 22px; border-radius: 18px; background: var(--dk-panel); border: 1px solid color-mix(in srgb, var(--dk-a2) 60%, transparent); font: 650 22px/1.3 var(--font-ui); }
+.dk-sowhat small { display: block; font: 800 12px var(--font-ui); letter-spacing: .14em; color: var(--dk-a2); margin-bottom: 4px; }
+@media (prefers-reduced-motion: reduce) { .dk-callout.k-wow .dk-callout-mark { animation: none; } }

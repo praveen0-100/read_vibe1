@@ -30,7 +30,7 @@ export function buildOverviewScript(result) {
     [...turn.text.matchAll(SENTENCE_RE)].map((m) => m[0].trim()).filter(Boolean)
       .forEach((s) => chunkAtSpaces(s).forEach(([, p]) => p.trim() && pieces.push(p.trim())));
     pieces.forEach((text, j) => segments.push({
-      text, voice: turn.voice, speaker: turn.speaker, emotion: turn.emotion, first: j === 0, pause_ms: j === pieces.length - 1 ? 520 : 140,
+      text, voice: turn.voice, speaker: turn.speaker, emotion: turn.emotion, first: j === 0, position: j === 0 ? 'start' : j === pieces.length - 1 ? 'end' : 'mid', pause_ms: j === pieces.length - 1 ? 520 : 140,
     }));
   });
   return [{ title: result.title, segments }];

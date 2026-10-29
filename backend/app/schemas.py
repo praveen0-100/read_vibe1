@@ -298,6 +298,13 @@ class TTSIn(BaseModel):
     voice: str | None = Field(default=None, max_length=120)
     emotion: str | None = Field(default=None, max_length=20)  # how the line should sound (see services/tts.PRESETS)
     pitch_shift: int = Field(default=0, ge=-20, le=20)  # Hz; keeps characters in a dialogue apart
+    pace: str | None = Field(default=None, max_length=20)  # slow | relaxed | conversational | brisk
+    energy: str | None = Field(default=None, max_length=20)  # low | moderate | high
+    articulation: str | None = Field(default=None, max_length=20)  # casual | balanced | precise
+    language: str | None = Field(default=None, max_length=8)  # explicit language wins over detection
+    glossary: dict[str, str] | None = None  # term → respelling, used for the sound only
+    natural: bool = False  # add per-sentence human variation
+    position: str | None = Field(default=None, max_length=8)  # start | mid | end of a paragraph
 
 
 class OverviewIn(AIScope):

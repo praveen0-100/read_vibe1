@@ -6,12 +6,12 @@ import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
 import { useQuery } from '../hooks/useAsync';
 import { useReducedMotion } from '../hooks/useDeckPlayer';
-import { ANIMATIONS, ART_STYLES, DECK_THEMES, LAYOUT_LABEL, newSlide, THEME_KEYS, TRANSITIONS } from '../lib/deckThemes';
+import { ANIMATIONS, ART_STYLES, CALLOUT_KINDS, DECK_THEMES, LAYOUT_LABEL, newSlide, THEME_KEYS, TRANSITIONS } from '../lib/deckThemes';
 import { ErrorState, PageLoader } from '../components/ui';
 import SlideView, { ScaledFrame } from '../components/deck/SlideStage';
 
 const TEXT_LAYOUTS = ['concept', 'bullets', 'agenda', 'summary'];
-const IMAGE_LAYOUTS = ['title', 'concept', 'bullets', 'summary', 'quote'];
+const IMAGE_LAYOUTS = ['title', 'concept', 'bullets', 'summary', 'quote', 'example'];
 const lines = (s) => s.split('\n').map((x) => x.trim()).filter(Boolean);
 const pairLines = (s, sep = '|') => lines(s).map((l) => { const [a, ...b] = l.split(sep); return [a.trim(), b.join(sep).trim()]; });
 
@@ -68,6 +68,14 @@ function DataEditor({ slide, onChange }) {
       </label>
     );
   }
+  if (L === 'example') {
+    return (
+      <>
+        <label className="ins-field">Example <textarea rows={5} value={d.text || ''} maxLength={300} onChange={(e) => onChange({ ...d, text: e.target.value })} /></label>
+        <label className="ins-field">What it shows <input value={d.takeaway || ''} maxLength={140} onChange={(e) => onChange({ ...d, takeaway: e.target.value })} /></label>
+      </>
+    );
+  }
   if (L === 'quote') {
     return (
       <>
@@ -119,6 +127,37 @@ function Inspector({ slide, onEdit, onDuplicate, onDelete, onMove, index, total 
         </>
       )}
       <DataEditor slide={slide} onChange={(data) => set({ data })} />
+
+      {(text || slide.layout === 'example') && (
+        <div className="ins-block">
+          <span className="eyebrow">EMPHASIS</span>
+          <label className="ins-field">Key point <small>the one thing to remember</small>
+            <input value={slide.main_point || ''} maxLength={140} onChange={(e) => set({ main_point: e.target.value })} />
+          </label>
+          <label className="ins-field">Highlighted phrases <small>comma separated, copied from the points</small>
+            <input defaultValue={(slide.highlights || []).join(', ')} key={`hl-${slide.id}`} maxLength={160}
+              onChange={(e) => set({ highlights: e.target.value.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 3) })} />
+          </label>
+          {[0, 1].map((i) => {
+            const c = (slide.callouts || [])[i];
+            const put = (patch) => {
+              const list = [...(slide.callouts || [])];
+              list[i] = { kind: 'note', text: '', ...(list[i] || {}), ...patch };
+              set({ callouts: list.filter((x) => x && x.text.trim()) });
+            };
+            return (
+              <div className="ins-row" key={i}>
+                <label className="ins-field">Margin note {i + 1}
+                  <select value={c?.kind || 'note'} onChange={(e) => c && put({ kind: e.target.value })} disabled={!c}>
+                    {Object.entries(CALLOUT_KINDS).map(([k, v]) => <option key={k} value={k}>{v.mark} {v.label}</option>)}
+                  </select>
+                </label>
+                <label className="ins-field">Text <input defaultValue={c?.text || ''} key={`co-${slide.id}-${i}`} maxLength={110} placeholder="Add a note, tip or exclamation" onChange={(e) => put({ text: e.target.value })} /></label>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div className="ins-row">
         <label className="ins-field">Entrance

@@ -10,6 +10,7 @@ import { useApp } from '../context/AppContext';
 import { useDebounce, useQuery } from '../hooks/useAsync';
 import { formatDuration, formatMinutes, timeAgo } from '../lib/format';
 import { offline } from '../lib/offline';
+import Suggestions from '../components/library/Suggestions';
 import { Cover, EmptyState, ErrorState, Field, Menu, Modal, ProgressBar, Segmented, Skeleton, Tabs } from '../components/ui';
 
 const SORTS = [
@@ -181,6 +182,8 @@ export default function LibraryPage() {
 
   const docs = useQuery(() => api.documents.list({ q, sort, tag: tag || undefined }), [q, sort, tag, dataVersion]);
   const tags = useQuery(() => api.documents.tags(), [dataVersion]);
+  const rec = useQuery(() => api.documents.recommendations(), [dataVersion]);
+  const [category, setCategory] = useState(null);
   const books = useQuery(() => api.audio.list(), [dataVersion], { enabled: tab === 'audiobooks' });
 
   // poll while something is processing
@@ -192,14 +195,16 @@ export default function LibraryPage() {
   }, [processing, docs.reload]);
 
   const all = docs.data || [];
+  const catIds = useMemo(() => new Set(rec.data?.categories.find((c) => c.id === category)?.doc_ids || []), [rec.data, category]);
   const filtered = useMemo(() => {
+    if (category) return all.filter((d) => catIds.has(d.id));
     switch (tab) {
       case 'BOOK': case 'PAPER': case 'DOCUMENT': return all.filter((d) => d.type === tab);
       case 'favorites': return all.filter((d) => d.favorite);
       case 'offline': return all.filter((d) => offlineIds.has(d.id));
       default: return all;
     }
-  }, [all, tab, offlineIds]);
+  }, [all, tab, offlineIds, category, catIds]);
 
   const replace = (updated) => docs.setData((list) => list.map((d) => (d.id === updated.id ? { ...d, ...updated, chapters: undefined } : d)));
   const remove = (id) => { docs.setData((list) => list.filter((d) => d.id !== id)); refreshData(); };
@@ -254,6 +259,8 @@ export default function LibraryPage() {
           ))}
         </div>
       )}
+
+      {tab !== 'audiobooks' && !query && !tag && <Suggestions docs={all} rec={rec.data} category={category} onCategory={setCategory} />}
 
       {docs.error && <ErrorState error={docs.error} onRetry={docs.reload} />}
 

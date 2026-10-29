@@ -201,6 +201,7 @@ export const api = {
   documents: {
     list: (query) => get('/documents', query),
     tags: () => get('/documents/tags'),
+    recommendations: () => get('/documents/recommendations'),
     get: (id) => get(`/documents/${id}`),
     upload: (file, onProgress) => {
       const fd = new FormData();
@@ -259,7 +260,7 @@ export const api = {
   tts: {
     status: () => get('/tts/status'),
     voices: () => get('/tts/voices'),
-    synthesize: (text, voice, delivery) => post('/tts/synthesize', { text, voice, emotion: delivery?.emotion, pitch_shift: delivery?.shift || 0 }),
+    synthesize: (text, voice, delivery) => post('/tts/synthesize', { text, voice, emotion: delivery?.emotion, pitch_shift: delivery?.shift || 0, pace: delivery?.pace, energy: delivery?.energy, articulation: delivery?.articulation, language: delivery?.language, glossary: delivery?.glossary, natural: delivery?.natural, position: delivery?.position }),
     languages: () => get('/tts/languages'),
     cast: (docId, names) => post(`/documents/${docId}/cast`, { names }),
   },

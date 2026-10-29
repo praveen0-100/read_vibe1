@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, AudioLines, BookmarkCheck, Bookmark as BookmarkIcon, BookOpen, ChevronLeft, ChevronRight, CircleHelp,
-  Clock3, CloudDownload, Download, Headphones, List, Loader2, Moon, MoreHorizontal, Pause, Play, Search, Sparkles,
+  Clock3, CloudDownload, Download, Headphones, LayoutGrid, List, Loader2, Moon, MoreHorizontal, Pause, Play, Search, Sparkles,
   StickyNote, Trash2, Type, WifiOff, X,
 } from 'lucide-react';
 import { api } from '../api/client';
@@ -30,15 +30,17 @@ import MobileReader from '../components/reader/MobileReader';
 import { DocSearch, HighlightPopover, ReaderSettings, SelectionToolbar, WordMenu, categoryColor } from '../components/reader/ReaderTools';
 import { ZEN_PRESETS, ZenBackdrop } from '../components/reader/Scenes';
 import VibePanel from '../components/reader/VibePanel';
+import ModeSwitch from '../components/reader/ModeSwitch';
+import BookHub from '../components/reader/BookHub';
 import ZenPanel, { useFocusTimer } from '../components/reader/ZenPanel';
 
 // pitch offsets (Hz) that keep characters apart when two voices must play several parts
 const CAST_SHIFTS = [0, -4, 5, -8, 8, -11];
 
 const MODES = [
-  { id: 'Reader', icon: BookOpen },
-  { id: 'Zen', icon: Moon },
-  { id: 'Vibe', icon: AudioLines },
+  { id: 'Reader', icon: BookOpen, key: 'R' },
+  { id: 'Zen', icon: Moon, key: 'Z' },
+  { id: 'Vibe', icon: AudioLines, key: 'V' },
 ];
 
 function useMainScroller() {
@@ -362,6 +364,7 @@ function Reader({ docId }) {
             } else {
               segments.push({
                 text: part, pause_ms: si === sentences.length - 1 ? 450 : 150, speaker: span.speaker,
+                position: si === 0 && i === 0 ? 'start' : si === sentences.length - 1 ? 'end' : 'mid',
                 emotion: span.emotion, ...castFor(span.speaker),
               });
             }
@@ -611,6 +614,7 @@ function Reader({ docId }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(!!params.get('q'));
   const [tocOpen, setTocOpen] = useState(false);
+  const [hubOpen, setHubOpen] = useState(false);
   const [ruler, setRuler] = useState(null);
 
   useEffect(() => {
@@ -625,6 +629,10 @@ function Reader({ docId }) {
       else if (e.key === 'b') toggleBookmark();
       else if (e.key === 'a') openAI({ documentId: docId, chapterIndex, nonce: Date.now() });
       else if (e.key === 'l') (listen.playing ? narrator.pause() : startListening());
+      else if (e.key === 'h') setHubOpen((o) => !o);
+      else if (e.key === 'r') setMode('Reader');
+      else if (e.key === 'z') setMode('Zen');
+      else if (e.key === 'v') setMode('Vibe');
       else if (e.key === 'm') setMode(MODES[(MODES.findIndex((x) => x.id === mode) + 1) % MODES.length].id);
       else if (e.key === 't') setSettingsOpen((s) => !s);
       else if (e.key === 'Escape') { setSettingsOpen(false); setHlPop(null); setSelection(null); setTocOpen(false); }
@@ -669,6 +677,11 @@ function Reader({ docId }) {
   const isLast = chapterIndex === doc.chapter_count - 1;
   const titleParts = (chapter?.title || meta?.title || '').split(/ · |: /);
 
+  const hub = (
+    <BookHub open={hubOpen} onClose={() => setHubOpen(false)} doc={doc} chapterIndex={chapterIndex} mode={mode} setMode={setMode}
+      listen={listen} narrator={narrator} startListening={startListening} onOverview={() => openOverview()} openAI={openAI}
+      saveOffline={saveOffline} offlineMode={offlineMode} />
+  );
   const noteModal = noteDraft && (
       <Modal open onClose={() => setNoteDraft(null)} eyebrow="NEW NOTE" title="Add a note" icon={StickyNote}>
         <form className="stack" onSubmit={saveNote}>
@@ -706,7 +719,7 @@ function Reader({ docId }) {
         saveProgress={saveProgress} lastActivity={lastActivity}
         narrator={narrator} listen={listen} startListening={startListening} segMeta={segMeta} onWordTap={onWordTap}
         lang={chapterLang} onOverview={() => openOverview()} languageToggle={langToggle(true)} transcriptLanguage={langToggle(false)}
-        offlineMode={offlineMode} saveOffline={saveOffline}
+        offlineMode={offlineMode} saveOffline={saveOffline} onHub={() => setHubOpen(true)}
         downloadOriginal={() => api.documents.downloadFile(docId).catch((e) => notify(e.message, 'error'))}
         navigate={navigate} openAI={openAI} notify={notify}
       >
@@ -720,6 +733,7 @@ function Reader({ docId }) {
             onExplain={(t) => { setHlPop(null); openAI({ documentId: docId, chapterIndex, selection: t, tool: 'explain', tab: 'tools', nonce: Date.now() }); }} />
         )}
         {noteModal}
+        {hub}
       </MobileReader>
     );
   }
@@ -732,14 +746,22 @@ function Reader({ docId }) {
 
       {translateBanner}
       <header className="reader-top">
-        <button className="back-button" onClick={() => navigate('/library')} aria-label="Back to library"><ArrowLeft size={17} /></button>
-        <div className="reader-title">
-          <span>{doc.type} · {doc.author}</span>
-          <strong>{doc.title}</strong>
+        <div className="rt-left">
+          <button className="back-button" onClick={() => navigate('/library')} aria-label="Back to library"><ArrowLeft size={17} /></button>
+          <div className="reader-title">
+            <span>{doc.type} · {doc.author}</span>
+            <strong>{doc.title}</strong>
+          </div>
+          {offlineMode && <span className="offline-chip"><WifiOff size={12} /> Offline copy</span>}
         </div>
-        {offlineMode && <span className="offline-chip"><WifiOff size={12} /> Offline copy</span>}
+        <ModeSwitch modes={MODES} mode={mode} onChange={setMode} live={{ Zen: ambientOn || timer.running, Vibe: music.playing }} />
         <div className="reader-actions">
-          {langToggle(false)}
+          <div className="tool-group">
+            {langToggle(false)}
+            <button className="hub-button" onClick={() => setHubOpen(true)} aria-label="Everything for this book (H)"><LayoutGrid size={15} /> <span>Book hub</span></button>
+          </div>
+          <span className="tool-sep" aria-hidden="true" />
+          <div className="tool-group">
           <button className="toc-toggle" onClick={() => setTocOpen((o) => !o)} aria-label="Contents" aria-expanded={tocOpen}><List size={17} /></button>
           <button onClick={() => setSearchOpen((s) => !s)} aria-label="Search in document (Ctrl+F)" className={searchOpen ? 'active' : ''}><Search size={17} /></button>
           <button onClick={toggleBookmark} aria-label={currentBookmark ? 'Remove bookmark (B)' : 'Bookmark this position (B)'} className={currentBookmark ? 'active' : ''}>
@@ -756,16 +778,9 @@ function Reader({ docId }) {
             doc.has_file && { label: 'Download original file', icon: Download, onClick: () => api.documents.downloadFile(docId).catch((e) => notify(e.message, 'error')) },
             { label: 'Open notebook', icon: StickyNote, onClick: () => navigate(`/notes?doc=${docId}`) },
           ]} />
+          </div>
         </div>
       </header>
-
-      <div className="mode-switcher" role="tablist" aria-label="Reading mode">
-        {MODES.map(({ id, icon: Icon }) => (
-          <button key={id} role="tab" aria-selected={mode === id} className={mode === id ? 'active' : ''} onClick={() => setMode(id)} title={`${id} mode (M)`}>
-            <Icon size={14} /> {id}
-          </button>
-        ))}
-      </div>
 
       {searchOpen && (
         <DocSearch documentId={docId} initialQuery={searchQuery} onQuery={setSearchQuery} onClose={() => { setSearchOpen(false); setSearchQuery(''); }}
@@ -894,6 +909,7 @@ function Reader({ docId }) {
       )}
 
       {noteModal}
+      {hub}
       {chapterLoading && chapter && <div className="chapter-loading"><Loader2 size={14} className="spin" /> Loading…</div>}
     </div>
   );

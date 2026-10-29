@@ -2,7 +2,8 @@
 // Fetches synthesised speech for a sentence from the API, caches it in memory as a playable blob URL and keeps the
 // per-word timings that drive word-by-word highlighting.
 
-const MAX_CLIPS = 48;
+const MAX_CLIPS = 64;
+const CLIP_TIMEOUT_MS = 14000; // a sentence that takes longer than this is retried, not waited on forever
 
 // 0.1 s of silence — played inside the user's tap so mobile browsers allow later, programmatic playback
 const SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
@@ -14,6 +15,11 @@ const toBlobUrl = (base64, mime) => {
   return URL.createObjectURL(new Blob([bytes], { type: mime }));
 };
 
+const withTimeout = (promise, ms) => new Promise((resolve, reject) => {
+  const t = setTimeout(() => reject(new Error('The voice took too long to answer')), ms);
+  promise.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+});
+
 export class NeuralClips {
   constructor(synth, voice) {
     this.synth = synth;
@@ -24,10 +30,10 @@ export class NeuralClips {
   /** Promise of {url, words:[[charOffset, length, start, duration]], timing:'ms'|'fraction'} for a sentence. */
   /** `delivery`: {emotion, shift} — how the line should sound (see lib/stageDirections, backend tts.PRESETS). */
   get(text, voice = this.voice, delivery = null) {
-    const key = `${voice}|${delivery?.emotion || ''}|${delivery?.shift || 0}|${text}`;
+    const key = `${voice}|${delivery?.emotion || ''}|${delivery?.shift || 0}|${delivery?.position || ''}|${text}`;
     let hit = this.clips.get(key);
     if (hit) return hit;
-    hit = this.synth(text, voice, delivery).then((r) => ({ url: toBlobUrl(r.audio, r.mime), words: r.words || [], timing: r.timing }));
+    hit = withTimeout(this.synth(text, voice, delivery), CLIP_TIMEOUT_MS).then((r) => ({ url: toBlobUrl(r.audio, r.mime), words: r.words || [], timing: r.timing }));
     hit.catch(() => this.clips.delete(key)); // let a later attempt retry
     this.clips.set(key, hit);
     if (this.clips.size > MAX_CLIPS) {
@@ -36,6 +42,11 @@ export class NeuralClips {
       this.clips.delete(oldest);
     }
     return hit;
+  }
+
+  /** True when the clip is already fetched, so playing it needs no wait. */
+  has(text, voice = this.voice, delivery = null) {
+    return this.clips.has(`${voice}|${delivery?.emotion || ''}|${delivery?.shift || 0}|${delivery?.position || ''}|${text}`);
   }
 
   dispose() {
