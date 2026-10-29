@@ -3,11 +3,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, BookmarkPlus, BookOpen, Brain, ChevronRight, CircleHelp, Copy, GitCompare, Image as ImageIcon,
-  Check, Lightbulb, MessageSquare, Search, Send, Sparkles, ThumbsDown, ThumbsUp, Trash2, Volume2, Workflow, X, Zap,
+  Check, Lightbulb, MessageSquare, Mic, Search, Send, Square, Sparkles, ThumbsDown, ThumbsUp, Trash2, Volume2, Workflow, X, Zap,
 } from 'lucide-react';
 import { api } from '../../api/client';
 import { useApp } from '../../context/AppContext';
 import { useQuery } from '../../hooks/useAsync';
+import { useDictation } from '../../hooks/useDictation';
 import { speak } from '../../lib/speech';
 import { Cover, ErrorState, RichText, Segmented, Spinner } from '../ui';
 import Diagram from './Diagram';
@@ -83,6 +84,9 @@ function ChatView({ ctx, saveNote, openChapter, openTool, initialQuestion }) {
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
   const sentInitial = useRef(false);
+  const { notify } = useApp();
+  const speech = useQuery(() => api.transcribe.status(), []);
+  const dictation = useDictation((text) => setInput((v) => (v ? `${v} ${text}` : text)), (msg) => notify(msg, 'error'));
 
   useEffect(() => { setHistory(chatMemory.get(key) || []); }, [key]);
   useEffect(() => { chatMemory.set(key, history); }, [key, history]);
@@ -185,6 +189,12 @@ function ChatView({ ctx, saveNote, openChapter, openTool, initialQuestion }) {
       <form className="chat-input" onSubmit={(e) => { e.preventDefault(); send(); }}>
         <textarea rows={1} value={input} onChange={(e) => setInput(e.target.value)} placeholder={`Ask about ${ctx.scopeLabel}…`} aria-label="Ask a question"
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
+        {speech.data?.configured && (
+          <button type="button" className={`mic-btn ${dictation.state}`} onClick={dictation.toggle} disabled={loading || dictation.state === 'working'}
+            aria-label={dictation.state === 'recording' ? 'Stop and transcribe' : 'Dictate with your voice'} title={dictation.state === 'recording' ? 'Stop' : 'Speak your question'}>
+            {dictation.state === 'working' ? <span className="typing-dots"><span /><span /><span /></span> : dictation.state === 'recording' ? <Square size={13} /> : <Mic size={15} />}
+          </button>
+        )}
         <button className="send-btn" disabled={!input.trim() || loading} aria-label="Send"><Send size={15} /></button>
       </form>
     </div>

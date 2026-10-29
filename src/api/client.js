@@ -328,6 +328,23 @@ export const api = {
     export: (id, format) => download(`/research/${id}/export`, { method: 'POST', body: { format } }),
   },
 
+  transcribe: {
+    status: () => get('/transcribe/status'),
+    /** A recording → a background job whose result is the transcript (and, with `save`, a library document). */
+    start: (file, opts, onProgress) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      Object.entries(opts).forEach(([k, v]) => v !== '' && v != null && fd.append(k, String(v)));
+      return upload('/transcribe', fd, onProgress);
+    },
+    /** A short voice clip → text straight away. */
+    dictate: (blob, ext = 'webm') => {
+      const fd = new FormData();
+      fd.append('file', blob, `clip.${ext}`);
+      return upload('/transcribe/dictate', fd);
+    },
+  },
+
   agent: {
     status: () => get('/agent/status'),
     chat: (data) => request('/agent/chat', { method: 'POST', body: { tz_offset: new Date().getTimezoneOffset(), ...data } }),

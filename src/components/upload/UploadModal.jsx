@@ -1,11 +1,12 @@
 // ─── Upload: files (with progress + background processing) or pasted text ────
 import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, BookOpen, Check, ClipboardPaste, FileText, Loader2, Upload, X } from 'lucide-react';
+import { AlertCircle, BookOpen, Check, ClipboardPaste, FileText, Loader2, Mic, Upload, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { useApp } from '../../context/AppContext';
 import { formatBytes } from '../../lib/format';
 import { Field, Modal, ProgressBar, Segmented } from '../ui';
+import TranscribeTab from './TranscribeTab';
 
 const SUPPORTED = ['pdf', 'epub', 'docx', 'pptx', 'odt', 'txt', 'md', 'html', 'rtf', 'csv'];
 const MAX_MB = 5 * 1024; // 5 GB — the API streams uploads to disk
@@ -95,9 +96,12 @@ export default function UploadModal() {
       <Segmented value={tab} onChange={setTab} label="Upload method" options={[
         { value: 'file', label: 'Upload files', icon: Upload },
         { value: 'text', label: 'Paste text', icon: ClipboardPaste },
+        { value: 'audio', label: 'Transcribe audio', icon: Mic },
       ]} />
 
-      {tab === 'file' ? (
+      {tab === 'audio' ? (
+        <TranscribeTab onClose={close} />
+      ) : tab === 'file' ? (
         <>
           <div className={`drop-zone ${dragOver ? 'over' : ''}`}
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}

@@ -55,6 +55,15 @@ class Settings(BaseSettings):
     agent_model_backup: str | None = "claude-haiku-5-5"
     agent_max_steps: int = 4
 
+    # Speech-to-text with NVIDIA Nemotron-3.5-Transcribe-30B-A4B (services/transcribe.py). The model is 34B parameters and needs a GPU
+    # (one H100 80 GB for BF16), so ReadVibe does not run it itself: point this at an OpenAI-compatible server that serves it
+    # (vLLM, as in the model card) or a hosted provider that offers it. Leave unset and transcription is switched off.
+    transcribe_base_url: str | None = None
+    transcribe_api_key: str | None = None
+    transcribe_model: str = "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B"
+    transcribe_max_mb: int = 60  # the request is streamed to the server, but keep clips a sensible size
+    transcribe_timeout_seconds: float = 1800.0
+
     # Natural read-aloud voices: Microsoft neural voices (edge-tts) work with no key; add an OpenAI key to unlock its voices too.
     openai_api_key: str | None = None
     openai_tts_model: str = "gpt-4o-mini-tts"

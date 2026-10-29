@@ -39,6 +39,7 @@ export default function CompanionSettings() {
   const { notify, confirm } = useApp();
   const profile = useQuery(() => api.agent.profile(), []);
   const status = useQuery(() => api.agent.status(), []);
+  const speech = useQuery(() => api.transcribe.status(), []);
   const [busy, setBusy] = useState(false);
   const p = profile.data;
   const cfg = p?.settings || status.data?.settings;
@@ -105,6 +106,19 @@ export default function CompanionSettings() {
             </ul>
           ) : <p className="muted small">Nothing saved. Tell Vibe things like “I’m preparing for my biology exam” or “keep answers short”.</p>}
           <button className="secondary-button danger-text" onClick={forgetAll}><Trash2 size={14} /> Forget everything Vibe has learned</button>
+        </div>
+      </section>
+
+      <section className="setting-section">
+        <div><h2>Speech transcription</h2><p>Turns recordings and your voice into text with NVIDIA Nemotron-3.5-Transcribe.</p></div>
+        <div className="setting-rows">
+          {speech.data ? (
+            <div className="status-grid">
+              <span><Cpu size={14} /> Status</span><strong className={speech.data.configured ? 'ok' : ''}>{speech.data.configured ? 'Connected' : 'Not connected'}</strong>
+              {speech.data.configured && <><span><Cpu size={14} /> Model</span><strong>{speech.data.model}</strong></>}
+            </div>
+          ) : <Spinner size={16} />}
+          {speech.data && !speech.data.configured && <p className="muted small">The model needs a GPU server (one H100 80 GB). Serve it with vLLM and set READVIBE_TRANSCRIBE_BASE_URL on the ReadVibe API to switch on Upload → Transcribe audio and the voice button in chat.</p>}
         </div>
       </section>
 
