@@ -86,9 +86,11 @@ pre, code { max-width: 100%; overflow-x: auto; }
 /* 7 ─ Touch: bigger hit areas without changing the layout (a transparent ring around small controls), no double-tap zoom
    delay, no grey tap flash. */
 @media (pointer: coarse), (max-width: 1024px) {
-  .menu-trigger, .icon-ghost, .text-button, .theme-switch, .switch, .tabs button, [role=tab], .chip, .q-toggle { position: relative; }
+  .menu-trigger, .icon-ghost, .theme-switch, .switch { position: relative; }
   .menu-trigger::after, .icon-ghost::after, .theme-switch::after, .switch::after { content: ''; position: absolute; inset: -8px; }
-  .text-button::after, .tabs button::after, [role=tab]::after { content: ''; position: absolute; inset: -6px -4px; }
+  /* tab strips and text links scroll horizontally / sit in tight rows: a pseudo-element ring would widen their scroll area, so they
+     get a real minimum height instead */
+  .tabs button, [role=tab], .text-button { min-height: 36px; display: inline-flex; align-items: center; }
   label:has(> input[type=checkbox]), label:has(> input[type=radio]) { min-height: 36px; }
   input[type=checkbox], input[type=radio] { width: 18px; height: 18px; }
 }
@@ -172,3 +174,52 @@ body.rv-bookview .main-col { height: 100dvh; }
 .bv-exit:hover, .bv-exit:focus-visible, .reader-page.bv-chrome .bv-exit { opacity: 1; }
 @media (hover: none) { .bv-exit { opacity: .8; } }
 @media (prefers-reduced-motion: reduce) { .reader-page.bookview > .reader-top { transition: none; } }
+
+/* 13 ─ Phones: text must never be squeezed into slivers. ─────────────────────────────────────────────────────────────────
+   Rows of [icon | text | button] gave the text a ~100px column (6 lines per sentence). Their text now has a real minimum width, so
+   the button wraps underneath instead. */
+.briefing-text { flex: 1 1 170px; }
+.briefing-item { flex-wrap: wrap; }
+.briefing-item .secondary-button { margin-left: 42px; align-self: flex-start; }
+@media (min-width: 900px) { .briefing-item { flex-wrap: nowrap; } .briefing-item .secondary-button { margin-left: 0; align-self: center; } .briefing-text { flex: 1; } }
+.reading-meta { flex-wrap: wrap; row-gap: 6px; }
+.reading-meta > span, .reading-meta > button { white-space: nowrap; }
+.reading-meta > span:first-child { white-space: normal; min-width: 0; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; } /* Android Chrome otherwise re-inflates "wide" paragraphs */
+
+/* 14 ─ Scrolling that feels native: no pull-to-refresh / rubber-band chaining, no sideways wobble, momentum kept, and a Back-to-top
+   control that glides. */
+html, body { overscroll-behavior-y: none; overflow-x: clip; max-width: 100%; }
+.main { overscroll-behavior-y: contain; overflow-x: clip; scroll-padding-block: 72px 96px; }
+.scroll-top { position: fixed; right: 14px; bottom: calc(var(--dock-h, 0px) + var(--mini-h, 0px) + 16px); z-index: 46; width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%;
+  background: color-mix(in srgb, var(--panel) 94%, transparent); color: var(--text); border: 1px solid var(--line-2, var(--line)); box-shadow: var(--shadow);
+  opacity: 0; transform: translateY(10px) scale(.9); pointer-events: none; transition: opacity .2s ease, transform .2s ease; }
+.scroll-top.show { opacity: 1; transform: none; pointer-events: auto; }
+@media (min-width: 901px) { .scroll-top { display: none; } } /* desktop has the scrollbar and the quick-action button */
+@media (prefers-reduced-motion: reduce) { .scroll-top { transition: none; } }
+
+/* 15 ─ Phone paged reader (what the Android screenshot showed): the floating mini player sat ON the last lines of text and the
+   settings button sat over the text column. The page now ends above the mini player (which is slimmer here and fades while the
+   reader's own toolbars are open) and the settings button lives in the footer row, out of the text. */
+@media (max-width: 680px) {
+  .mobile-reader { --reserve: var(--mini-h, 0px); }
+  .mobile-reader .mr-page { bottom: calc(40px + env(safe-area-inset-bottom) + var(--reserve)); }
+  .mobile-reader .mr-foot { bottom: calc(11px + env(safe-area-inset-bottom) + var(--reserve)); right: 58px; }
+  .mobile-reader .mr-toggle { top: auto; bottom: calc(4px + env(safe-area-inset-bottom) + var(--reserve)); right: 8px; width: 34px; height: 34px; }
+  .mobile-reader .mr-nowplaying { bottom: calc(40px + env(safe-area-inset-bottom) + var(--reserve)); }
+  .app.in-reader .global-mini { left: 8px; right: 8px; width: auto; bottom: calc(env(safe-area-inset-bottom) + 6px); }
+  .app.in-reader .global-mini .mini-now { padding: 4px 6px 4px 4px; border-radius: 14px; }
+  .app.in-reader .global-mini .mini-now .album-art { width: 36px; }
+  .app.in-reader .global-mini .mn-info small { display: none; }
+  .app:has(.mobile-reader.chrome-on) .global-mini { opacity: 0; pointer-events: none; transform: translateY(8px); }
+  .mr-bar button, .mr-bar .menu-trigger { width: 36px; height: 36px; }
+  .mr-doc-title { font-size: 13px; min-width: 0; }
+}
+
+/* 16 ─ Notches and the installed app: keep the top bar clear of the status bar / camera cut-out and the sides clear of rounded
+   corners (matters most when installed as an app, where there is no browser bar). */
+.mobile-header { padding-top: calc(12px + env(safe-area-inset-top)); padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  body { overscroll-behavior: none; -webkit-user-select: none; user-select: none; }
+  input, textarea, [contenteditable], .reading-inner, .mr-flow, .shared-card, code, pre { -webkit-user-select: text; user-select: text; }
+}

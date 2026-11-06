@@ -7,6 +7,7 @@ import Sidebar, { MobileHeader, MobileNav } from './components/layout/Sidebar';
 import MiniReading from './components/layout/MiniReading';
 import PlaybackHost from './features/playback/PlaybackHost';
 import QuickActions from './components/layout/QuickActions';
+import ScrollTop from './components/layout/ScrollTop';
 import { ConfirmDialog, PageLoader, Toasts } from './components/ui';
 import ErrorBoundary from './components/ErrorBoundary';
 import LoginPage from './pages/LoginPage';
@@ -174,6 +175,7 @@ function Shell() {
       <OnFirstOpen open={searchOpen}><SearchOverlay /></OnFirstOpen>
       <OnFirstOpen open={uploadOpen}><UploadModal /></OnFirstOpen>
       {!inReader && <QuickActions />}
+      {!inReader && <ScrollTop />}
     </div>
   );
 }

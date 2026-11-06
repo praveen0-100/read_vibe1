@@ -505,12 +505,16 @@ export default function MobileReader({
       <header className="mr-bar mr-top" aria-hidden={!chrome}>
         <button onClick={() => navigate('/library')} aria-label="Back to library" tabIndex={chrome ? 0 : -1}><ArrowLeft size={20} /></button>
         <span className="mr-doc-title">{doc.title}{offlineMode && <WifiOff size={12} />}</span>
+        {fullscreen?.supported && (
+          <button onClick={fullscreen.toggle} aria-label={fullscreen.active ? 'Exit full screen' : 'Full screen'} aria-pressed={fullscreen.active} tabIndex={chrome ? 0 : -1}>{fullscreen.active ? <Minimize size={19} /> : <Maximize size={19} />}</button>
+        )}
         <button onClick={() => { setSearchOpen(true); setChrome(false); }} aria-label="Search in book" tabIndex={chrome ? 0 : -1}><Search size={19} /></button>
         <button onClick={() => setSheet((s) => (s === 'display' ? null : 'display'))} aria-label="Display settings" aria-expanded={sheet === 'display'} tabIndex={chrome ? 0 : -1}><Type size={20} /></button>
         <button onClick={onHub} aria-label="Everything for this book" tabIndex={chrome ? 0 : -1}><LayoutGrid size={19} /></button>
         <button onClick={listenHere} aria-label="Listen" tabIndex={chrome ? 0 : -1}><Headphones size={19} /></button>
         <button onClick={() => openAI({ documentId: doc.id, chapterIndex, nonce: Date.now() })} aria-label="Ask AI" tabIndex={chrome ? 0 : -1}><Sparkles size={19} /></button>
         <Menu label="More" align="right" trigger={<MoreHorizontal size={20} />} items={[
+          { label: 'Ask AI about this page', icon: Sparkles, onClick: () => openAI({ documentId: doc.id, chapterIndex, nonce: Date.now() }) },
           { label: existingBookmark ? 'Remove bookmark' : 'Bookmark this page', icon: existingBookmark ? BookmarkCheck : Bookmark, onClick: toggleBookmark },
           { label: 'Contents & highlights', icon: List, onClick: () => setSheet('contents') },
           fullscreen?.supported && { label: fullscreen.active ? 'Exit full screen' : 'Full screen', icon: fullscreen.active ? Minimize : Maximize, onClick: fullscreen.toggle },
