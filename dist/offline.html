@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>ReadVibe — offline</title>
+  <style>
+    :root { color-scheme: dark light; }
+    body { margin: 0; min-height: 100dvh; display: grid; place-items: center; padding: 24px; font: 16px/1.5 system-ui, sans-serif; background: #14110f; color: #f3ece6; }
+    main { max-width: 420px; text-align: center; }
+    h1 { margin: 0 0 8px; font-size: 22px; } p { margin: 0 0 18px; color: #bfb3a9; }
+    button { font: inherit; padding: 10px 20px; border: 0; border-radius: 10px; background: #e8895f; color: #1a1410; font-weight: 600; cursor: pointer; }
+    @media (prefers-color-scheme: light) { body { background: #faf6f2; color: #231b16; } p { color: #6b5d52; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>You’re offline</h1>
+    <p>ReadVibe can’t reach the internet right now. Documents you saved for offline reading are still available once the app opens — reconnect and try again.</p>
+    <button onclick="location.reload()">Try again</button>
+  </main>
+</body>
+</html>
