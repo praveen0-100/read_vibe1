@@ -21,7 +21,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from . import __version__
 from .config import get_settings
 from .database import DB_CONFIG_ERROR, SessionLocal, engine, init_db
-from .routers import activity, agent, ai, audio, auth, catalog, decks, documents, lookup, mfa, notes, ops, playback, research, study, transcribe, tts
+from .routers import activity, agent, ai, audio, auth, catalog, collections, decks, documents, exports, goals, lookup, mfa, notes, ops, playback, research, shares, study, transcribe, tts
 from .services import llm, metrics
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -186,5 +186,5 @@ def health():
     }
 
 
-for module in (auth, catalog, documents, notes, ai, agent, audio, decks, research, activity, playback, lookup, mfa, study, ops, tts, transcribe):
+for module in (auth, catalog, documents, notes, ai, agent, audio, decks, research, activity, playback, lookup, mfa, study, goals, collections, shares, exports, ops, tts, transcribe):
     app.include_router(module.router, prefix="/api")

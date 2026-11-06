@@ -224,3 +224,38 @@
 .sec-events { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
 .sec-events li { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .sec-events li.warn strong { color: var(--rose, #e5586e); } .sec-events small { color: var(--muted); }
+
+/* ─── Goals ─── */
+.goals-card { margin: 18px 0 26px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); display: grid; gap: 12px; }
+.goals-card header { display: flex; align-items: center; justify-content: space-between; }
+.gc-main { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.gc-ring { position: relative; width: 84px; height: 84px; flex: 0 0 auto; }
+.gc-track { fill: none; stroke: var(--line); stroke-width: 7; } .gc-fill { fill: none; stroke: var(--accent); stroke-width: 7; stroke-linecap: round; transition: stroke-dashoffset .6s ease; }
+.gc-ring-text { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; } .gc-ring-text b { font-size: 16px; } .gc-ring-text small { color: var(--muted); font-size: 10.5px; }
+.gc-facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 14px; min-width: 0; }
+.gc-facts li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; } .gc-facts li.hot svg { color: var(--accent); } .gc-facts small { color: var(--muted); }
+.gc-badge { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text); }
+.gc-heat { display: flex; gap: 3px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; } .gc-heat > div { display: grid; gap: 3px; }
+.gc-heat i { width: 11px; height: 11px; border-radius: 3px; background: var(--panel-2); display: block; }
+.gc-heat i.l1 { background: color-mix(in srgb, var(--accent) 25%, var(--panel-2)); } .gc-heat i.l2 { background: color-mix(in srgb, var(--accent) 50%, var(--panel-2)); }
+.gc-heat i.l3 { background: color-mix(in srgb, var(--accent) 75%, var(--panel-2)); } .gc-heat i.l4 { background: var(--accent); }
+.gc-note { color: var(--muted); }
+
+/* ─── Collections ─── */
+.collections-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0 12px; }
+.col-chip { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); overflow: hidden; }
+.col-chip > button { padding: 6px 12px; font-size: 13px; color: var(--text-2); } .col-chip small { color: var(--muted); margin-left: 4px; }
+.col-chip.on { border-color: var(--accent); background: var(--accent-soft); } .col-chip.on > button { color: var(--accent-text); font-weight: 600; }
+.col-chip .col-edit { padding: 6px 8px 6px 0; }
+.col-new { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 13px; color: var(--muted); border: 1px dashed var(--line-2, var(--line)); border-radius: 999px; }
+.dup-badge { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--amber, #d9a400); color: var(--amber, #d9a400); }
+
+/* ─── Share ─── */
+.share-url { display: flex; gap: 8px; } .share-url .input { flex: 1; min-width: 0; }
+.share-created { display: grid; gap: 8px; } .share-list { margin-top: 16px; display: grid; gap: 6px; }
+.share-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; padding: 6px 0; border-top: 1px solid var(--line); }
+.share-row.revoked, .share-row.expired { color: var(--muted); } .share-row small { color: var(--muted); }
+.shared-page { min-height: 100dvh; background: var(--bg); color: var(--text); padding: 32px 16px 64px; display: grid; justify-items: center; align-content: start; }
+.shared-card { width: min(720px, 100%); display: grid; gap: 10px; } .shared-card h1 { margin: 0; overflow-wrap: anywhere; } .shared-card h2 { margin: 22px 0 4px; font-size: 16px; }
+.shared-card blockquote { margin: 0; padding: 10px 14px; border-left: 3px solid var(--accent); background: var(--panel); border-radius: 0 10px 10px 0; }
+.shared-card blockquote p { margin: 0; font: 17px/1.6 var(--font-read, Georgia, serif); overflow-wrap: anywhere; } .shared-card blockquote footer { margin-top: 6px; font-size: 13px; color: var(--text-2); }

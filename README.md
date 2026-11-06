@@ -131,3 +131,12 @@ Loaded last so it can settle conflicts between the older sheets. Verified with `
 - Reader header wraps instead of overlapping at tablet widths; mini player no longer covers the reader footer or side rails; reader footer label no longer swallows taps on the toolbar.
 - Audio player grid can shrink (it was ~14px wider than a phone); queue/chapter rows wrap or ellipsise.
 - Landscape phones: compact floating chrome; touch: larger hit areas without layout changes; `overscroll-behavior`, `scrollbar-gutter`, `content-visibility` on long grids, blur removed on small screens.
+
+### Goals, collections, sharing, export and install
+
+- **Reading goals** — daily minutes, days per week and flashcards per day (`/api/goals`, `/api/goals/progress`): progress ring, goal-based streak (an open day never breaks a streak), weekly target and a 12-week heatmap on Home.
+- **Collections** — shelves of documents (many-to-many; deleting a shelf never deletes books). Library filter chips and "Add to collection" in each book's menu.
+- **Duplicate detection** — every upload and pasted text is SHA-256 hashed (streamed, in the background job); an identical file is imported but flagged "Duplicate" with a link to the original. Per user only.
+- **Share links** — public, read-only, expiring page of a book's highlights (`/s/<token>`), optional notes, instant revoke. Only a hash of the token is stored; unknown/expired/revoked links return the same 404.
+- **Export** — highlights as Markdown/CSV, study cards as an Anki-importable file or CSV (formula-injection guarded).
+- **Installable app (PWA)** — manifest + icons + service worker (`public/`): `/api/*` is never cached, hashed assets are cache-first, navigations are network-first with an offline page.

@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, AudioLines, BookmarkCheck, Bookmark as BookmarkIcon, BookOpen, ChevronLeft, ChevronRight, CircleHelp,
-  Clock3, CloudDownload, Download, Headphones, LayoutGrid, List, Loader2, Moon, MoreHorizontal, Pause, Play, Search, Sparkles,
+  Clock3, CloudDownload, Download, Headphones, LayoutGrid, List, Loader2, Moon, MoreHorizontal, Pause, Play, Search, Share2, Sparkles,
   StickyNote, Trash2, Type, WifiOff, X,
 } from 'lucide-react';
 import { api } from '../api/client';
@@ -30,6 +30,7 @@ import MobileReader from '../components/reader/MobileReader';
 import OriginalPane from '../components/reader/OriginalPane';
 import LookUpSheet from '../components/reader/LookUpSheet';
 import AboutBook from '../components/reader/AboutBook';
+import ShareSheet from '../components/reader/ShareSheet';
 import ReportSheet from '../components/reader/ReportSheet';
 import { DocSearch, HighlightPopover, ReaderSettings, SelectionToolbar, WordMenu, categoryColor } from '../components/reader/ReaderTools';
 import { ZEN_PRESETS, ZenBackdrop } from '../components/reader/Scenes';
@@ -93,6 +94,7 @@ function Reader({ docId }) {
   const sourceLang = useMemo(() => detectLanguage(rawChapter?.content), [rawChapter]);
   const [lookup, setLookup] = useState(null); // text being looked up (dictionary + Wikipedia)
   const [report, setReport] = useState(null); // text being reported as an extraction error
+  const [shareOpen, setShareOpen] = useState(false);
   const { chapter, status: tr } = useChapterTranslation(rawChapter, readLang, sourceLang);
   const [chapterLoading, setChapterLoading] = useState(false);
   const chapterCache = useRef(new Map());
@@ -319,6 +321,7 @@ function Reader({ docId }) {
     <>
       <AboutBook doc={doc} enabled={prefs.reading.aboutBook !== false} />
       {lookup && <LookUpSheet term={lookup} lang={sourceLang || 'en'} onClose={() => setLookup(null)} onExplain={(t) => { setLookup(null); openAI({ documentId: docId, chapterIndex, selection: t, tool: 'explain', tab: 'tools', nonce: Date.now() }); }} />}
+      {shareOpen && <ShareSheet documentId={docId} title={doc.title} onClose={() => setShareOpen(false)} />}
       {report && <ReportSheet documentId={docId} chapterIndex={chapterIndex} text={report} onClose={() => setReport(null)} />}
     </>
   );
@@ -852,6 +855,10 @@ function Reader({ docId }) {
             { label: 'Save for offline reading', icon: CloudDownload, onClick: saveOffline, disabled: offlineMode },
             doc.has_file && { label: 'Download original file', icon: Download, onClick: () => api.documents.downloadFile(docId).catch((e) => notify(e.message, 'error')) },
             { label: 'Open notebook', icon: StickyNote, onClick: () => navigate(`/notes?doc=${docId}`) },
+            '-',
+            { label: 'Share highlights…', icon: Share2, onClick: () => setShareOpen(true) },
+            { label: 'Export highlights (Markdown)', icon: Download, onClick: () => api.documents.exportHighlights(docId, 'md').catch((e) => notify(e.message, 'error')) },
+            { label: 'Export highlights (CSV)', icon: Download, onClick: () => api.documents.exportHighlights(docId, 'csv').catch((e) => notify(e.message, 'error')) },
           ]} />
           </div>
         </div>

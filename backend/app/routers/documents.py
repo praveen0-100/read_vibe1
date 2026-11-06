@@ -8,7 +8,7 @@ from sqlalchemy import func, or_, select
 
 from ..config import get_settings
 from ..deps import DB, CurrentUser, get_owned, get_owned_document
-from ..models import Audiobook, Bookmark, Chapter, Document, ExtractionReport, Highlight, Sketch, utcnow
+from ..models import Audiobook, Bookmark, Chapter, CollectionItem, Document, ExtractionReport, Highlight, ShareLink, Sketch, utcnow
 from ..schemas import (
     BookmarkCreate,
     CastIn,
@@ -132,6 +132,9 @@ def delete_document(document_id: str, user: CurrentUser, db: DB):
     doc = get_owned_document(db, user, document_id)
     storage.delete(doc.file_path)
     storage.delete(doc.cover_path)
+    # rows that point at the document go with it (SQLite does not enforce ON DELETE CASCADE by default)
+    db.query(CollectionItem).filter(CollectionItem.document_id == doc.id).delete()
+    db.query(ShareLink).filter(ShareLink.document_id == doc.id).delete()
     db.delete(doc)
     db.commit()
 

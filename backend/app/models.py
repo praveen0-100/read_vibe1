@@ -53,6 +53,8 @@ class Document(TimestampMixin, Base):
     file_format: Mapped[str] = mapped_column(String(10), default="TXT")
     file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     file_size: Mapped[int] = mapped_column(Integer, default=0)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)  # SHA-256 of the uploaded bytes / pasted text
+    duplicate_of: Mapped[str | None] = mapped_column(String(32), nullable=True)  # id of an earlier document with identical content
     cover_path: Mapped[str | None] = mapped_column(String(500), nullable=True)  # custom or EPUB-embedded artwork
     description: Mapped[str] = mapped_column(Text, default="")
     tags: Mapped[list] = mapped_column(JSON, default=list)
@@ -401,3 +403,36 @@ def aware(dt: datetime | None) -> datetime | None:
     if dt is not None and dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+class Collection(TimestampMixin, Base):
+    __tablename__ = "collections"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(60))
+    description: Mapped[str] = mapped_column(String(300), default="")
+    color: Mapped[str] = mapped_column(String(20), default="coral")
+
+
+class CollectionItem(Base):
+    __tablename__ = "collection_items"
+
+    collection_id: Mapped[str] = mapped_column(ForeignKey("collections.id", ondelete="CASCADE"), primary_key=True)
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ShareLink(TimestampMixin, Base):
+    """A public read-only link to a document's highlights. Only the token's hash is stored."""
+
+    __tablename__ = "share_links"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    include_notes: Mapped[bool] = mapped_column(Boolean, default=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    views: Mapped[int] = mapped_column(Integer, default=0)

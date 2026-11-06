@@ -1,8 +1,10 @@
 """Document ingestion pipeline: store → extract → segment → index (runs as a background job)."""
 from __future__ import annotations
 
+import hashlib
 import random
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
@@ -80,6 +82,22 @@ async def create_from_stream(db: Session, owner_id: str, filename: str, upload, 
     return doc, _queue(db, owner_id, doc, filename)
 
 
+def file_sha256(path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(4 * 1024 * 1024), b""):  # streamed: an upload may be gigabytes
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def mark_duplicate(db: Session, doc: Document, digest: str) -> None:
+    """Record the content hash and point at the earliest other document of this owner with identical content."""
+    doc.content_hash = digest
+    earlier = db.scalars(select(Document).where(Document.owner_id == doc.owner_id, Document.content_hash == digest, Document.id != doc.id)
+                         .order_by(Document.created_at)).first()
+    doc.duplicate_of = earlier.id if earlier else None
+
+
 def _process(ctx: jobs.JobContext, document_id: str, filename: str) -> dict:
     ctx.update("Reading file", 10)
     with SessionLocal() as db:
@@ -87,6 +105,8 @@ def _process(ctx: jobs.JobContext, document_id: str, filename: str) -> dict:
         if doc is None:
             raise RuntimeError("Document was deleted during processing")
         path = storage.resolve(doc.file_path)
+        mark_duplicate(db, doc, file_sha256(path))
+        db.commit()  # release the write lock before the progress updater (another connection) writes the same job
         ctx.update("Extracting text", 30)
         try:
             extracted = extraction.extract(filename, path)  # reads from disk; large files are never loaded whole
@@ -123,7 +143,7 @@ def _process(ctx: jobs.JobContext, document_id: str, filename: str) -> dict:
         db.commit()
         ctx.update("Building search index", 95)
         return {"document_id": doc.id, "chapters": len(extracted.chapters), "words": doc.word_count,
-                "title": doc.title, "truncated": extracted.truncated}
+                "title": doc.title, "truncated": extracted.truncated, "duplicate_of": doc.duplicate_of}
 
 
 def create_from_text(db: Session, owner_id: str, title: str, author: str, content: str, doc_type: str, tags: list[str]) -> Document:
@@ -138,6 +158,7 @@ def create_from_text(db: Session, owner_id: str, title: str, author: str, conten
     db.flush()
     write_chapters(db, doc, chapters)
     desc, auto_tags = describe(chapters)
+    mark_duplicate(db, doc, hashlib.sha256(content.encode()).hexdigest())
     doc.description = desc
     if not tags:
         doc.tags = auto_tags

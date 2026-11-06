@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle, ArrowUpDown, BookOpen, Check, CloudDownload, CloudOff, Download, Edit3, Grid, Headphones,
-  ImagePlus, List, ListEnd, ListMusic, ListPlus, ListStart, Loader2, MoreHorizontal, Pin, Play, Search, Star, Trash2, Upload, X,
+  FolderPlus, ImagePlus, List, ListEnd, ListMusic, ListPlus, ListStart, Loader2, MoreHorizontal, Pin, Play, Search, Star, Trash2, Upload, X,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
@@ -11,6 +11,7 @@ import { useDebounce, useQuery } from '../hooks/useAsync';
 import { formatDuration, formatMinutes, timeAgo } from '../lib/format';
 import { offline } from '../lib/offline';
 import { invalidateCover } from '../lib/covers';
+import CollectionsBar, { useCollections } from '../components/library/CollectionsBar';
 import { queueActions } from '../lib/queue';
 import { playlistActions, usePlaylists } from '../lib/playlists';
 import { playbackActions } from '../features/playback/playbackStore';
@@ -88,7 +89,7 @@ function EditModal({ doc, onClose, onSaved }) {
   );
 }
 
-function DocCard({ doc, view, onChange, onRemove, onEdit, savedOffline, albums = [], onNewPlaylist }) {
+function DocCard({ doc, view, onChange, onRemove, onEdit, savedOffline, albums = [], onNewPlaylist, collections = [], onCollections }) {
   const { notify, confirm } = useApp();
   const { lists } = usePlaylists();
   const navigate = useNavigate();
@@ -141,6 +142,11 @@ function DocCard({ doc, view, onChange, onRemove, onEdit, savedOffline, albums =
     <Menu trigger={<MoreHorizontal size={15} />} label={`Actions for ${doc.title}`} items={[
       ready && { label: 'Open', icon: BookOpen, onClick: open },
       ...audioItems,
+      ...collections.slice(0, 8).map((c) => {
+        const has = c.document_ids.includes(doc.id);
+        return { label: `${has ? 'Remove from' : 'Add to'} collection “${c.name}”`, icon: FolderPlus, onClick: async () => { try { await (has ? api.collections.removeDoc(c.id, doc.id) : api.collections.add(c.id, doc.id)); onCollections?.(); } catch (e) { notify(e.message, 'error'); } } };
+      }),
+      doc.duplicate_of && { label: 'Open the original copy', icon: BookOpen, onClick: () => navigate(`/read/${doc.duplicate_of}`) },
       ready && { label: 'Generate audiobook', icon: Headphones, onClick: () => navigate(`/audio?tab=generate&doc=${doc.id}`) },
       { label: doc.favorite ? 'Remove from favorites' : 'Add to favorites', icon: Star, onClick: () => patch({ favorite: !doc.favorite }) },
       { label: doc.pinned ? 'Unpin' : 'Pin to top', icon: Pin, onClick: () => patch({ pinned: !doc.pinned }) },
@@ -158,6 +164,7 @@ function DocCard({ doc, view, onChange, onRemove, onEdit, savedOffline, albums =
 
   const icons = (
     <span className="doc-icons">
+      {doc.duplicate_of && <span className="dup-badge" title="This file is identical to one you uploaded earlier">Duplicate</span>}
       {doc.pinned && <Pin size={12} className="pin-icon" aria-label="Pinned" />}
       {doc.favorite && <Star size={12} className="fav-icon" aria-label="Favorite" fill="currentColor" />}
       {savedOffline && <Download size={12} className="offline-icon" aria-label="Available offline" />}
@@ -222,6 +229,8 @@ export default function LibraryPage() {
   const [category, setCategory] = useState(null);
   const books = useQuery(() => api.audio.list(), [dataVersion]);
   const [newPl, setNewPl] = useState({ open: false, seed: null });
+  const cols = useCollections();
+  const [activeCol, setActiveCol] = useState(null);
   const albumsOf = (id) => (books.data || []).filter((b) => b.document_id === id && b.status === 'ready');
 
   // poll while something is processing
@@ -234,7 +243,9 @@ export default function LibraryPage() {
 
   const all = docs.data || [];
   const catIds = useMemo(() => new Set(rec.data?.categories.find((c) => c.id === category)?.doc_ids || []), [rec.data, category]);
+  const colIds = useMemo(() => new Set(cols.list.find((c) => c.id === activeCol)?.document_ids || []), [cols.list, activeCol]);
   const filtered = useMemo(() => {
+    if (activeCol) return all.filter((d) => colIds.has(d.id));
     if (category) return all.filter((d) => catIds.has(d.id));
     switch (tab) {
       case 'BOOK': case 'PAPER': case 'DOCUMENT': return all.filter((d) => d.type === tab);
@@ -242,7 +253,7 @@ export default function LibraryPage() {
       case 'offline': return all.filter((d) => offlineIds.has(d.id));
       default: return all;
     }
-  }, [all, tab, offlineIds, category, catIds]);
+  }, [all, tab, offlineIds, category, catIds, activeCol, colIds]);
 
   const replace = (updated) => docs.setData((list) => list.map((d) => (d.id === updated.id ? { ...d, ...updated, chapters: undefined } : d)));
   const remove = (id) => { docs.setData((list) => list.filter((d) => d.id !== id)); refreshData(); };
@@ -287,6 +298,10 @@ export default function LibraryPage() {
           <Segmented size="sm" value={view} onChange={setView} label="View" options={[{ value: 'grid', label: '', icon: Grid, title: 'Grid view' }, { value: 'list', label: '', icon: List, title: 'List view' }]} />
         </div>
       </div>
+
+      {tab !== 'audiobooks' && (all.length > 0 || cols.list.length > 0) && (
+        <CollectionsBar collections={cols.list} active={activeCol} onPick={setActiveCol} onChanged={cols.reload} />
+      )}
 
       {tags.data?.length > 0 && tab !== 'audiobooks' && (
         <div className="tag-filter" role="group" aria-label="Filter by tag">
@@ -334,7 +349,7 @@ export default function LibraryPage() {
       ) : (
         <div className={view === 'grid' ? 'library-grid' : 'library-list'}>
           {filtered.map((doc) => (
-            <DocCard key={doc.id} doc={doc} view={view} savedOffline={offlineIds.has(doc.id)} albums={albumsOf(doc.id)} onNewPlaylist={(seed) => setNewPl({ open: true, seed })}
+            <DocCard key={doc.id} doc={doc} view={view} savedOffline={offlineIds.has(doc.id)} albums={albumsOf(doc.id)} onNewPlaylist={(seed) => setNewPl({ open: true, seed })} collections={cols.list} onCollections={cols.reload}
               onChange={onChangeOffline} onRemove={remove} onEdit={setEditing} />
           ))}
         </div>

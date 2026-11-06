@@ -1,11 +1,11 @@
 // ─── Study: spaced-repetition review (SM-2) ───────────────────────────────────
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, Brain, CheckCircle2, EyeOff, Flame, Loader2, Plus, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
+import { BookOpen, Brain, CheckCircle2, Download, EyeOff, Flame, Loader2, Plus, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
 import { useQuery } from '../hooks/useAsync';
-import { EmptyState, Field, Modal, Skeleton } from '../components/ui';
+import { EmptyState, Field, Menu, Modal, Skeleton } from '../components/ui';
 
 const GRADES = [
   { id: 'again', label: 'Again', hint: 'Forgot it — see it again in 10 minutes', key: '1' },
@@ -83,7 +83,13 @@ export default function StudyPage() {
     <div className="page-shell study-page">
       <header className="topbar">
         <div><div className="eyebrow">STUDY</div><h1>Remember what you read.</h1></div>
-        <div className="top-actions"><button className="primary-button" onClick={() => setAdding(true)}><Plus size={15} /> New card</button></div>
+        <div className="top-actions">
+          <Menu label="Export cards" align="right" trigger={<span className="secondary-button"><Download size={14} /> Export</span>} items={[
+            { label: 'For Anki (.txt)', icon: Download, onClick: () => api.study.exportCards('anki').catch((e) => notify(e.message, 'error')) },
+            { label: 'Spreadsheet (.csv)', icon: Download, onClick: () => api.study.exportCards('csv').catch((e) => notify(e.message, 'error')) },
+          ]} />
+          <button className="primary-button" onClick={() => setAdding(true)}><Plus size={15} /> New card</button>
+        </div>
       </header>
 
       <div className="st-stats" aria-label="Study statistics">

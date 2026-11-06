@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
+import GoalsCard from '../components/home/GoalsCard';
 import { useQuery } from '../hooks/useAsync';
 import { formatMinutes, greeting, timeAgo } from '../lib/format';
 import { useIsMobile } from '../hooks/useMediaQuery';
@@ -130,6 +131,8 @@ export default function HomePage() {
           {stats.data ? <StatsCard stats={stats.data} /> : <Skeleton h={260} r={14} />}
         </section>
       )}
+
+      <GoalsCard />
 
       <section className="section-block">
         <SectionHead eyebrow="MAKE IT YOURS" title="What would you like to do?" />

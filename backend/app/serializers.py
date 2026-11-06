@@ -71,6 +71,7 @@ def document_out(doc: Document, *, with_chapters: bool = True, audio_ready: bool
         "file_size": doc.file_size,
         "has_file": bool(doc.file_path),
         "has_cover": bool(doc.cover_path),
+        "duplicate_of": doc.duplicate_of,
         "has_original_view": bool(doc.file_path) and (doc.file_format.upper() == "PDF" or doc.file_format.lower() in ("docx", "txt", "md", "markdown", "log", "rst", "tex")),
         "favorite": doc.favorite,
         "pinned": doc.pinned,

@@ -237,6 +237,7 @@ export const api = {
     package: (id) => get(`/documents/${id}/package`),
     downloadFile: (id) => download(`/documents/${id}/file`),
     render: (id) => get(`/documents/${id}/render`),
+    exportHighlights: (id, format) => download(`/documents/${id}/highlights/export?format=${format}`),
     report: (id, data) => post(`/documents/${id}/reports`, data),
     outline: (id) => get(`/documents/${id}/outline`),
     setCover: (id, file) => { const fd = new FormData(); fd.append('file', file, file.name || 'cover'); return upload(`/documents/${id}/cover`, fd, undefined, 'PUT'); },
@@ -384,7 +385,27 @@ export const api = {
     forgetAll: () => request('/agent/memories', { method: 'DELETE' }),
   },
 
+  goals: {
+    progress: (tz_offset) => get('/goals/progress', { tz_offset }),
+    get: () => get('/goals'),
+    set: (data) => put('/goals', data),
+  },
+  collections: {
+    list: () => get('/collections'),
+    create: (data) => post('/collections', data),
+    update: (id, data) => patch(`/collections/${id}`, data),
+    remove: (id) => del(`/collections/${id}`),
+    add: (id, document_id) => post(`/collections/${id}/documents`, { document_id }),
+    removeDoc: (id, documentId) => del(`/collections/${id}/documents/${documentId}`),
+  },
+  shares: {
+    list: () => get('/shares'),
+    create: (data) => post('/shares', data),
+    revoke: (id) => del(`/shares/${id}`),
+    view: (token) => get(`/shared/${encodeURIComponent(token)}`),
+  },
   study: {
+    exportCards: (format) => download(`/study/export?format=${format}`),
     queue: (params) => get('/study/queue', params),
     stats: () => get('/study/stats'),
     review: (id, grade) => post(`/study/cards/${id}/review`, { grade }),

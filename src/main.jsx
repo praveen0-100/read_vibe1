@@ -60,6 +60,7 @@ const DecksPage = lazy(loaders.decks);
 const DeckEditorPage = lazy(() => import('./pages/DeckEditorPage'));
 const DeckPresentPage = lazy(() => import('./pages/DeckPresentPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
+const SharedPage = lazy(() => import('./pages/SharedPage'));
 
 /** Mounts its children the first time `open` becomes true and keeps them mounted afterwards (so closing can animate). */
 function OnFirstOpen({ open, children }) {
@@ -184,6 +185,7 @@ function Root() {
       <Routes>
         <Route path="/login" element={authStatus === 'authed' ? <Navigate to="/" replace /> : <LoginPage />} />
         <Route path="/present/:deckId" element={<Suspense fallback={<PageLoader />}><DeckPresentPage /></Suspense>} />
+        <Route path="/s/:token" element={<Suspense fallback={<PageLoader />}><SharedPage /></Suspense>} />
         <Route path="/privacy" element={<LegalPage kind="privacy" />} />
         <Route path="/terms" element={<LegalPage kind="terms" />} />
         <Route path="/*" element={<Shell />} />
@@ -195,6 +197,10 @@ function Root() {
 }
 
 installUiScale();
+// Installable + instant launch. Production only: a service worker in the dev server would cache half-built modules.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => { /* private mode / blocked: the app works without it */ }); });
+}
 warmUp(); // start waking a sleeping API while the app itself loads
 
 createRoot(document.getElementById('root')).render(
