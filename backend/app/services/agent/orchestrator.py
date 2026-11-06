@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from ...config import get_settings
 from ...models import Document, User
-from .. import ai, nlp
+from .. import ai, languages, nlp
 from . import empathy, gateway, memory, profile, tools
 
 log = logging.getLogger("readvibe.agent")
@@ -77,7 +77,7 @@ def classify(message: str, has_doc: bool, affect: empathy.Affect) -> str:
     return "doc_question" if has_doc else "chitchat"
 
 
-def _situation(doc: Document | None, chapter_index: int | None, selection: str | None, tz_offset: int) -> str:
+def _situation(doc: Document | None, chapter_index: int | None, selection: str | None, tz_offset: int, reply_language: str | None = None) -> str:
     now = profile.local_now(tz_offset)
     lines = [f"Reader's local time: {now.strftime('%A %H:%M')} ({profile._daypart(now.hour)})."]
     if doc:
@@ -86,6 +86,10 @@ def _situation(doc: Document | None, chapter_index: int | None, selection: str |
                      + (f"; focused on chapter {chapter.position + 1}, “{chapter.title}”." if chapter else "."))
     else:
         lines.append("No document is open.")
+    lang = languages.BY_CODE.get((reply_language or "").lower())
+    if lang is not None:
+        # an explicit choice beats the language the question happens to be typed in; technical terms may stay in English
+        lines.append(f"The reader chose {lang.name} ({lang.native}) for your answers: reply in {lang.name}, keeping standard technical terms in English where that is natural.")
     if selection:
         lines.append(f"The reader selected this text: “{selection[:600]}”")
     return "\n".join(lines)
@@ -176,7 +180,7 @@ def _local_reply(message: str, intent: str, affect: empathy.Affect, doc: Documen
 
 
 def respond(db: Session, user: User, *, message: str, document: Document | None, chapter_index: int | None, selection: str | None,
-            history: list[dict], tz_offset: int = 0, session_minutes: int = 0) -> dict:
+            history: list[dict], tz_offset: int = 0, session_minutes: int = 0, reply_language: str | None = None) -> dict:
     cfg = profile.settings_for(user)
     personalize = bool(cfg["personalize"])
     local_hour = profile.local_now(tz_offset).hour
@@ -201,7 +205,7 @@ def respond(db: Session, user: User, *, message: str, document: Document | None,
     elif intent == "recommend":
         grounding = f"<library_recommendations>\n{tools.run(ctx, 'recommend_next', {})}\n</library_recommendations>\n\n"
 
-    system = build_system(settings=cfg, prof=prof, memories=memories, affect=affect, situation=_situation(document, chapter_index, selection, tz_offset))
+    system = build_system(settings=cfg, prof=prof, memories=memories, affect=affect, situation=_situation(document, chapter_index, selection, tz_offset, reply_language))
     messages = _history(history)
     prompt = f"{grounding}{message}"
     if messages and messages[-1]["role"] == "user":

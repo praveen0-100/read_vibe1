@@ -17,6 +17,15 @@ import LyricsView from './LyricsView';
 import ReaderView from './ReaderView';
 
 const SPEEDS = [0.75, 1, 1.25, 1.5];
+const STYLES = [
+  ['deep_dive', 'Deep Dive', 'Explore the material in depth'],
+  ['brief', 'Brief', 'Only the essential findings'],
+  ['critique', 'Critique', 'Strengths, weaknesses and what is missing'],
+  ['debate', 'Debate', 'Two opposing viewpoints'],
+  ['lecture', 'Lecture', 'Teaches progressively, with a recap'],
+  ['revision', 'Revision', 'Tutor and learner, exam style'],
+];
+
 const FORMATS = [
   { id: 'conversation', icon: Users, title: 'Conversation', text: 'Two hosts talk it through, like a podcast.' },
   { id: 'narrative', icon: BookOpen, title: 'Narrative', text: 'One storyteller carries you through it as a story.' },
@@ -25,12 +34,12 @@ const FORMATS = [
 /** Turns → speakable segments, each carrying its speaker's voice; `first` marks where a new speaker's turn begins. */
 export function buildOverviewScript(result) {
   const segments = [];
-  result.turns.forEach((turn) => {
+  result.turns.forEach((turn, turnIndex) => {
     const pieces = [];
     [...turn.text.matchAll(SENTENCE_RE)].map((m) => m[0].trim()).filter(Boolean)
       .forEach((s) => chunkAtSpaces(s).forEach(([, p]) => p.trim() && pieces.push(p.trim())));
     pieces.forEach((text, j) => segments.push({
-      text, voice: turn.voice, speaker: turn.speaker, emotion: turn.emotion, first: j === 0, position: j === 0 ? 'start' : j === pieces.length - 1 ? 'end' : 'mid', pause_ms: j === pieces.length - 1 ? 520 : 140,
+      turnIndex, text, voice: turn.voice, speaker: turn.speaker, emotion: turn.emotion, first: j === 0, position: j === 0 ? 'start' : j === pieces.length - 1 ? 'end' : 'mid', pause_ms: j === pieces.length - 1 ? 520 : 140,
     }));
   });
   return [{ title: result.title, segments }];
@@ -54,11 +63,12 @@ export default function OverviewSheet({ doc, chapterIndex, chapterTitle, sourceL
   // an explicit pick from the dropdown wins; otherwise the document's own language, then the last one used
   const [lang, setLang] = useState(() => initialLang || (sourceLang !== 'en' ? sourceLang : prefs.audio.overviewLang) || 'ta');
   const [format, setFormat] = useState('conversation');
+  const [style, setStyle] = useState('deep_dive');
   const [scope, setScope] = useState('chapter');
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
-  const [now, setNow] = useState({ playing: false, speaker: null });
+  const [now, setNow] = useState({ playing: false, speaker: null, index: null });
   const [rate, setRate] = useState(prefs.audio.rate || 1);
   const [, tick] = useState(0);
   const [view, setView] = useState('transcript'); // transcript | reader
@@ -101,7 +111,7 @@ export default function OverviewSheet({ doc, chapterIndex, chapterTitle, sourceL
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
-  useEffect(() => narrator.on((s) => setNow({ playing: s.playing, speaker: narrator.script[s.chapter]?.segments?.[s.segment]?.speaker ?? null })), [narrator]);
+  useEffect(() => narrator.on((s) => setNow({ playing: s.playing, speaker: narrator.script[s.chapter]?.segments?.[s.segment]?.speaker ?? null, index: narrator.script[s.chapter]?.segments?.[s.segment]?.turnIndex ?? null })), [narrator]);
   useEffect(() => {
     if (!now.playing) return undefined;
     const t = setInterval(() => tick((n) => n + 1), 500);
@@ -120,7 +130,7 @@ export default function OverviewSheet({ doc, chapterIndex, chapterTitle, sourceL
     setError('');
     setPhase('working');
     try {
-      const r = await api.ai.overview({ document_id: doc.id, chapter_index: scope === 'chapter' ? chapterIndex : null, language: lang, format });
+      const r = await api.ai.overview({ document_id: doc.id, chapter_index: scope === 'chapter' ? chapterIndex : null, language: lang, format, style });
       const neural = nv.on && r.turns[0]?.voice ? { synth: api.tts.synthesize, voice: r.turns[0].voice } : null;
       const device = neural ? null : pickVoiceForLang(await loadVoices(), lang);
       narrator.load(buildOverviewScript(r), { rate, neural, voice: device, lang: speechTag(lang) });
@@ -176,6 +186,13 @@ export default function OverviewSheet({ doc, chapterIndex, chapterTitle, sourceL
               ))}
             </div>
 
+            <div className="ov-label">Style</div>
+            <div className="ov-styles" role="radiogroup" aria-label="Style">
+              {STYLES.map(([id, label, hint]) => (
+                <button key={id} type="button" role="radio" aria-checked={style === id} title={hint} className={style === id ? 'on' : ''} onClick={() => setStyle(id)}>{label}</button>
+              ))}
+            </div>
+
             {doc.chapter_count > 1 && (
               <div className="ov-scope" role="radiogroup" aria-label="Scope">
                 {[['chapter', 'This section'], ['book', 'Whole book']].map(([id, label]) => (
@@ -204,7 +221,7 @@ export default function OverviewSheet({ doc, chapterIndex, chapterTitle, sourceL
         {phase === 'ready' && result && (
           <div className="ov-player">
             <div className="ov-hero">
-              <span className="ov-pill"><span lang={result.language}>{result.native}</span> · {result.minutes} min · {result.format === 'conversation' ? 'Conversation' : 'Narrative'}</span>
+              <span className="ov-pill"><span lang={result.language}>{result.native}</span> · {result.minutes} min · {result.style_label || (result.format === 'conversation' ? 'Conversation' : 'Narrative')}</span>
               <h2 lang={result.language}>{result.title}</h2>
               <div className="ov-hosts">
                 {hosts.map(([key, h]) => (
@@ -227,6 +244,18 @@ export default function OverviewSheet({ doc, chapterIndex, chapterTitle, sourceL
             {loaded && view === 'transcript' && <LyricsView narrator={narrator} lang={viewLang} speakers={result.hosts} reducedMotion={reduced} className="ov-lyrics" />}
             {loaded && view === 'reader' && <ReaderView narrator={narrator} lang={viewLang} speakers={result.hosts} reducedMotion={reduced} />}
             {note && <p className="ov-note" role="note">{note}</p>}
+            {result.verification && (
+              <p className="ov-note ov-verify" role="note">
+                {result.verification.score == null
+                  ? (result.verification.note || 'Source check not available for this overview.')
+                  : `Source check: ${result.verification.grounded_turns} of ${result.verification.claim_turns} statements trace to a passage in your document (lexical match, not proof).`}
+              </p>
+            )}
+            {(() => {
+              const refs = (result.turns || []).filter((t) => t.source_refs?.length);
+              const cur = result.turns?.[now.index]?.source_refs?.[0];
+              return cur ? <p className="ov-cite">Source: {cur.chapter_title}{cur.page ? ` · page ${cur.page}` : ''} · paragraph {cur.paragraph_index + 1}{refs.length ? '' : ''}</p> : null;
+            })()}
 
             <div className="ov-controls">
               <input type="range" className="mr-scrub" min={0} max={Math.max(1, Math.round(total))} value={Math.round(elapsed)} aria-label="Seek"

@@ -62,16 +62,40 @@ class ProgressUpdate(BaseModel):
     mode: Literal["Reader", "Zen", "Vibe"] | None = None
 
 
+HighlightColor = Literal["yellow", "orange", "green", "blue", "pink"]
+LineColor = Literal["default", "grey", "red", "orange", "gold", "green", "teal", "blue", "purple", "magenta"]
+
+
+class Marks(BaseModel):
+    """Annotation styles stack: the same text can carry a highlight, an underline and an outline at once."""
+
+    model_config = {"extra": "forbid"}
+    highlight: HighlightColor | None = None
+    underline: LineColor | None = None
+    outline: LineColor | None = None
+
+
 class HighlightCreate(BaseModel):
     chapter_index: int = Field(ge=0)
     text: str = Field(min_length=1, max_length=5000)
     category: HighlightCategory = "Important"
     note: str | None = None
+    marks: Marks | None = None
+    pinned: bool = False
 
 
 class HighlightUpdate(BaseModel):
     category: HighlightCategory | None = None
     note: str | None = None
+    marks: Marks | None = None
+    pinned: bool | None = None
+
+
+class ReportIn(BaseModel):
+    chapter_index: int = Field(ge=0)
+    text: str = Field(default="", max_length=2000)
+    kind: Literal["typo", "missing", "garbled", "other"] = "other"
+    comment: str = Field(default="", max_length=1000)
 
 
 class SketchCreate(BaseModel):
@@ -310,6 +334,7 @@ class TTSIn(BaseModel):
 class OverviewIn(AIScope):
     language: str = Field(min_length=2, max_length=5)
     format: Literal["conversation", "narrative"] = "conversation"
+    style: Literal["deep_dive", "brief", "critique", "debate", "lecture", "revision"] = "deep_dive"
 
 
 class TranslateIn(BaseModel):
@@ -327,6 +352,7 @@ class AgentChatIn(BaseModel):
     history: list[ChatTurn] = []
     tz_offset: int = 0  # Date.getTimezoneOffset()
     session_minutes: int = Field(default=0, ge=0, le=1440)  # how long the reader has been going without a break
+    reply_language: str | None = Field(default=None, min_length=2, max_length=5)  # the reader's chosen language for AI answers
 
 
 class AgentEventIn(BaseModel):
@@ -344,3 +370,19 @@ class AgentSettingsIn(BaseModel):
     personalize: bool | None = None
     explain_level: Literal["auto", "simple", "standard", "expert"] | None = None
     tone: Literal["warm", "balanced", "concise"] | None = None
+
+
+class AskSlideIn(BaseModel):
+    question: str = Field(min_length=3, max_length=1000)
+    slide_index: int | None = Field(default=None, ge=0, le=500)
+    language: str | None = Field(default=None, min_length=2, max_length=5)
+
+
+class GraphIn(BaseModel):
+    document_ids: list[str] = Field(min_length=1, max_length=12)
+    max_nodes: int = Field(default=40, ge=5, le=80)
+
+
+class VerifyIn(BaseModel):
+    claim: str = Field(min_length=8, max_length=1200)
+    document_ids: list[str] = Field(min_length=1, max_length=12)

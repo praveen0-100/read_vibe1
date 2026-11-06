@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -33,6 +33,13 @@ class User(TimestampMixin, Base):
     preferences: Mapped[dict] = mapped_column(JSON, default=dict)
     google_sub: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # security: lockout + authenticator-app two-factor (the TOTP seed is encrypted at rest, backup codes are hashed)
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    totp_last_step: Mapped[int] = mapped_column(BigInteger, default=0)
+    backup_codes: Mapped[list] = mapped_column(JSON, default=list)
 
 
 class Document(TimestampMixin, Base):
@@ -46,6 +53,7 @@ class Document(TimestampMixin, Base):
     file_format: Mapped[str] = mapped_column(String(10), default="TXT")
     file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     file_size: Mapped[int] = mapped_column(Integer, default=0)
+    cover_path: Mapped[str | None] = mapped_column(String(500), nullable=True)  # custom or EPUB-embedded artwork
     description: Mapped[str] = mapped_column(Text, default="")
     tags: Mapped[list] = mapped_column(JSON, default=list)
     color: Mapped[str] = mapped_column(String(20), default="coral")
@@ -75,6 +83,9 @@ class Chapter(Base):
     title: Mapped[str] = mapped_column(String(300))
     content: Mapped[str] = mapped_column(Text)
     word_count: Mapped[int] = mapped_column(Integer, default=0)
+    page_start: Mapped[int | None] = mapped_column(Integer, nullable=True)  # PDF page of the first paragraph (1-based)
+    page_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    paragraph_pages: Mapped[list | None] = mapped_column(JSON, nullable=True)  # PDF page per paragraph
 
     document: Mapped[Document] = relationship(back_populates="chapters")
 
@@ -87,6 +98,8 @@ class Highlight(TimestampMixin, Base):
     document_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
     chapter_index: Mapped[int] = mapped_column(Integer, default=0)
     text: Mapped[str] = mapped_column(Text)
+    marks: Mapped[dict] = mapped_column(JSON, default=dict)  # stacked styles: {highlight, underline, outline} -> colour name
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
     category: Mapped[str] = mapped_column(String(30), default="Important")
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -162,6 +175,8 @@ class Job(TimestampMixin, Base):
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     seen: Mapped[bool] = mapped_column(Boolean, default=False)
+    config: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # what is needed to run it again (retry / restart recovery)
+    attempts: Mapped[int] = mapped_column(Integer, default=1)
 
 
 class Audiobook(TimestampMixin, Base):
@@ -296,3 +311,93 @@ class AgentEvent(Base):
     document_id: Mapped[str | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class ExtractionReport(TimestampMixin, Base):
+    """A reader flagging text that was extracted wrongly (typo, missing, garbled), for quality follow-up."""
+
+    __tablename__ = "extraction_reports"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    chapter_index: Mapped[int] = mapped_column(Integer, default=0)
+    text: Mapped[str] = mapped_column(Text, default="")
+    kind: Mapped[str] = mapped_column(String(20), default="other")
+    comment: Mapped[str] = mapped_column(Text, default="")
+
+
+class PlaybackState(TimestampMixin, Base):
+    """A listener's play queue and playlists, kept on the server so they follow the account across devices.
+
+    Stored as one row per user: the queue is tiny, always read and written whole, and `client_updated_at`
+    (epoch ms from the device that last changed it) gives a deterministic last-writer-wins merge.
+    """
+
+    __tablename__ = "playback_states"
+
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    queue: Mapped[dict] = mapped_column(JSON, default=dict)  # {queue: [...], history: [...], shuffle, repeat}
+    playlists: Mapped[list] = mapped_column(JSON, default=list)
+    client_updated_at: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    owner_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    event: Mapped[str] = mapped_column(String(40), index=True)
+    ip: Mapped[str] = mapped_column(String(64), default="")
+    agent: Mapped[str] = mapped_column(String(200), default="")
+    detail: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class IdempotencyRecord(Base):
+    """The stored response for an Idempotency-Key, so a retried request replays instead of repeating."""
+
+    __tablename__ = "idempotency_records"
+
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    response: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Card(TimestampMixin, Base):
+    """A spaced-repetition flashcard (SM-2 scheduling state lives on the card)."""
+
+    __tablename__ = "cards"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    document_id: Mapped[str | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True)
+    front: Mapped[str] = mapped_column(Text)
+    back: Mapped[str] = mapped_column(Text)
+    source: Mapped[dict] = mapped_column(JSON, default=dict)  # {highlight_id | chapter_index ...}: where the card came from
+    ease: Mapped[float] = mapped_column(Float, default=2.5)
+    interval_days: Mapped[int] = mapped_column(Integer, default=0)
+    reps: Mapped[int] = mapped_column(Integer, default=0)
+    lapses: Mapped[int] = mapped_column(Integer, default=0)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    last_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    suspended: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class ReviewLog(Base):
+    __tablename__ = "review_logs"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    card_id: Mapped[str] = mapped_column(ForeignKey("cards.id", ondelete="CASCADE"), index=True)
+    grade: Mapped[str] = mapped_column(String(8))
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+def aware(dt: datetime | None) -> datetime | None:
+    """SQLite hands back naive datetimes and PostgreSQL aware ones; normalise both to UTC-aware before comparing."""
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt

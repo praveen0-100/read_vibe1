@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
+import AudienceQA from '../components/deck/AudienceQA';
 import { useQuery } from '../hooks/useAsync';
 import { useDeckPlayer, useReducedMotion } from '../hooks/useDeckPlayer';
 import { LAYOUT_LABEL } from '../lib/deckThemes';
@@ -258,6 +259,8 @@ export default function DeckPresentPage() {
             <label className="dkp-target">Target <input type="number" min="0" max="240" value={timer.target || ''} placeholder="min" onChange={(e) => setTimer((s) => ({ ...s, target: Math.max(0, +e.target.value || 0) }))} /> min</label>
             {timer.target > 0 && <div className="dkp-bar"><i style={{ width: `${Math.min(100, over * 100)}%` }} className={over >= 1 ? 'over' : over >= 0.8 ? 'warn' : ''} /></div>}
           </section>
+
+          <AudienceQA deckId={deckId} slideIndex={p.index} />
 
           <section className="dkp-card" aria-label="Accessibility">
             <span className="eyebrow">ACCESSIBILITY</span>

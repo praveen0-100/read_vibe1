@@ -23,6 +23,8 @@ export default function LoginPage() {
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState('');
+  const [mfa, setMfa] = useState(null); // { token } while the second factor is pending
+  const [code, setCode] = useState('');
   const dest = location.state?.from?.pathname || '/';
   const [waking, setWaking] = useState(isWaking);
   useEffect(() => onWaking(setWaking), []);
@@ -35,10 +37,27 @@ export default function LoginPage() {
       const user = mode === 'login'
         ? await auth.login(form.email.trim(), form.password)
         : await auth.register(form.name.trim(), form.email.trim(), form.password);
+      if (user?.mfa) { setMfa({ token: user.token }); setCode(''); return; }
       notify(mode === 'login' ? `Welcome back, ${user.name.split(' ')[0]}` : `Welcome to ReadVibe, ${user.name.split(' ')[0]}!`);
       navigate(dest, { replace: true });
     } catch (err) {
       setError(err.status === 422 ? 'Please check your details — passwords need at least 8 characters.' : err.message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const submitCode = async (e) => {
+    e.preventDefault();
+    setError('');
+    setBusy('mfa');
+    try {
+      const user = await auth.completeMfa(mfa.token, code.trim());
+      notify(`Welcome back, ${user.name.split(' ')[0]}`);
+      navigate(dest, { replace: true });
+    } catch (err) {
+      setError(err.status === 401 && /expired/i.test(err.message) ? 'That sign-in expired. Please start again.' : err.message);
+      if (err.status === 401 && /expired/i.test(err.message)) setMfa(null);
     } finally {
       setBusy(null);
     }
@@ -89,7 +108,18 @@ export default function LoginPage() {
       </section>
 
       <section className="auth-panel">
-        <form className="auth-card" onSubmit={submit} noValidate>
+        {mfa && (
+          <form className="auth-card" onSubmit={submitCode} noValidate>
+            <div className="eyebrow">TWO-STEP VERIFICATION</div>
+            <h2>Enter your code</h2>
+            <p className="muted">Open your authenticator app and enter the 6-digit code for ReadVibe — or use one of your recovery codes.</p>
+            <Field label="Code"><input className="input" inputMode="numeric" autoComplete="one-time-code" autoFocus value={code} onChange={(e) => setCode(e.target.value)} placeholder="123 456" /></Field>
+            {error && <p className="field-error" role="alert">{error}</p>}
+            <button className="primary-button full-width" disabled={busy === 'mfa' || code.trim().length < 6}>{busy === 'mfa' ? 'Checking…' : 'Verify'}</button>
+            <button type="button" className="text-button" onClick={() => { setMfa(null); setError(''); }}>Use a different account</button>
+          </form>
+        )}
+        <form className="auth-card" onSubmit={submit} noValidate style={mfa ? { display: "none" } : undefined}>
           <div className="eyebrow">{mode === 'login' ? 'WELCOME BACK' : 'CREATE YOUR SPACE'}</div>
           <h2>{mode === 'login' ? 'Sign in to ReadVibe' : 'Start reading with ReadVibe'}</h2>
 

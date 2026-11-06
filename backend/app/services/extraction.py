@@ -52,6 +52,9 @@ class ExtractionError(Exception):
 class ExtractedChapter:
     title: str
     content: str
+    page_start: int | None = None
+    page_end: int | None = None
+    paragraph_pages: list[int] | None = None
 
     @property
     def word_count(self) -> int:
@@ -64,6 +67,7 @@ class ExtractedDocument:
     author: str | None = None
     chapters: list[ExtractedChapter] = field(default_factory=list)
     truncated: bool = False
+    ocr: bool = False  # text was recognised from page images, so it may contain recognition errors
 
     @property
     def word_count(self) -> int:
@@ -265,15 +269,22 @@ def _read_pdf(data) -> ExtractedDocument:
         pages.append(text)
         chars += len(text)
     full = "\n\n".join(pages)
+    ocr_used = False
     if len(full.split()) < 20:
-        raise ExtractionError(
-            "This PDF has no selectable text (it may be a scanned image). Run OCR on it first, then upload again."
-        )
+        from . import ocr  # local import: optional dependency tree
+
+        recognized = ocr.recognize(data)
+        if recognized and len("\n\n".join(recognized).split()) >= 20:
+            pages, ocr_used = recognized, True
+            full = "\n\n".join(pages)
+        else:
+            raise ExtractionError(ocr.missing_reason() if not ocr.available() else "OCR could not find readable text in this PDF.")
 
     doc = ExtractedDocument(
         title=(meta.get("/Title") or "").strip() or None,
         author=(meta.get("/Author") or "").strip() or None,
         truncated=truncated,
+        ocr=ocr_used,
     )
     # Prefer the PDF outline (bookmarks) for chapters when present.
     try:
@@ -296,9 +307,20 @@ def _read_pdf(data) -> ExtractedDocument:
                 front = normalize_paragraphs("\n\n".join(pages[: marks[0][0]]))
                 if len(front.split()) > 60:
                     doc.chapters.insert(0, ExtractedChapter("Front matter", front))
+            _map_pages(doc.chapters, pages)
             return doc
     doc.chapters = split_into_chapters(full)
+    _map_pages(doc.chapters, pages)
     return doc
+
+
+def _map_pages(chapters, pages: list[str]) -> None:
+    from . import provenance  # local import: provenance depends on the ORM models, which depend on nothing here
+
+    try:
+        provenance.assign_pages(chapters, pages)
+    except Exception:  # noqa: BLE001 - page mapping is an enhancement and must never fail an import
+        pass
 
 
 def _read_docx(data) -> ExtractedDocument:

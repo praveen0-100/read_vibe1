@@ -1,10 +1,11 @@
 // Reader tools: typography settings, selection toolbar, highlight popover, in-document search.
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  AlignJustify, AlignLeft, BookA, ChevronDown, ChevronUp, Copy, Highlighter, Languages, Lightbulb, Loader2,
-  MessageSquare, Play, Search, StickyNote, Trash2, Volume2, Workflow, X,
+  AlignJustify, AlignLeft, BookA, ChevronDown, ChevronUp, Copy, Flag, Highlighter, Languages, Lightbulb, Loader2, MoreHorizontal, Pin, PinOff,
+  MessageSquare, Play, Search, Share2, StickyNote, Trash2, Volume2, Workflow, X,
 } from 'lucide-react';
 import { api } from '../../api/client';
+import AnnotatePanel from './AnnotatePanel';
 import { useApp } from '../../context/AppContext';
 import { useDebounce } from '../../hooks/useAsync';
 import { READING_FONTS } from '../../lib/prefs';
@@ -41,12 +42,14 @@ export function ReaderSettings({ onClose }) {
       </div>
       <Slider label="Size" value={r.fontSize} min={13} max={30} onChange={(v) => set({ fontSize: v })} format={(v) => `${v}px`} />
       <Slider label="Line height" value={r.lineHeight} min={1.3} max={2.4} step={0.05} onChange={(v) => set({ lineHeight: v })} format={(v) => v.toFixed(2)} />
+      <Slider label="Letter spacing" value={r.letterSpacing || 0} min={0} max={0.12} step={0.01} onChange={(v) => set({ letterSpacing: v })} format={(v) => `${v.toFixed(2)}em`} />
       <Slider label="Paragraph gap" value={r.paragraphSpacing} min={0.4} max={2} step={0.1} onChange={(v) => set({ paragraphSpacing: v })} format={(v) => `${v.toFixed(1)}em`} />
       <div className="settings-row">
         <Segmented size="sm" value={r.width} onChange={(v) => set({ width: v })} label="Reading width" options={[{ value: 'narrow', label: 'Narrow' }, { value: 'comfortable', label: 'Medium' }, { value: 'wide', label: 'Wide' }]} />
         <Segmented size="sm" value={r.align} onChange={(v) => set({ align: v })} label="Alignment" options={[{ value: 'left', label: '', icon: AlignLeft, title: 'Left aligned' }, { value: 'justify', label: '', icon: AlignJustify, title: 'Justified' }]} />
       </div>
       <Switch label="Focus line" description="Dim everything except the paragraph you’re reading" checked={r.focusLine} onChange={(v) => set({ focusLine: v })} />
+      <Switch label="About this book" description="Show a short summary card the first time you open a book" checked={r.aboutBook !== false} onChange={(v) => set({ aboutBook: v })} />
       <Switch label="Reading ruler" description="A guide band that follows your pointer" checked={r.ruler} onChange={(v) => set({ ruler: v })} />
     </div>
   );
@@ -54,41 +57,54 @@ export function ReaderSettings({ onClose }) {
 
 // ─── Floating selection toolbar ───────────────────────────────────────────────
 export function SelectionToolbar({ pos, onAction }) {
-  const [catOpen, setCatOpen] = useState(false);
-  useEffect(() => setCatOpen(false), [pos?.x, pos?.y]);
+  const [panel, setPanel] = useState(null); // null | 'annotate' | 'more'
+  const [marks, setMarks] = useState({});
+  useEffect(() => { setPanel(null); setMarks({}); }, [pos?.x, pos?.y]);
   if (!pos) return null;
-  const tools = [
-    { id: 'highlight', label: 'Highlight', icon: Highlighter },
+  const main = [
+    { id: 'annotate', label: 'Annotate', icon: Highlighter },
+    { id: 'lookup', label: 'Look Up', icon: BookA },
     { id: 'note', label: 'Note', icon: StickyNote },
+    { id: 'copy', label: 'Copy', icon: Copy },
+    { id: 'pin', label: 'Pin', icon: Pin },
+    { id: 'share', label: 'Share', icon: Share2 },
+    { id: 'report', label: 'Report', icon: Flag },
+  ];
+  const more = [
     { id: 'explain', label: 'Explain', icon: Lightbulb },
     { id: 'ask', label: 'Ask AI', icon: MessageSquare },
-    { id: 'define', label: 'Define', icon: BookA },
+    { id: 'define', label: 'AI define', icon: BookA },
     { id: 'diagram', label: 'Visualise', icon: Workflow },
     { id: 'listen', label: 'Listen', icon: Volume2 },
     { id: 'translate', label: 'Translate', icon: Languages },
-    { id: 'copy', label: 'Copy', icon: Copy },
+    { id: 'search', label: 'Search', icon: Search },
   ];
+  const apply = (next) => { setMarks(next); onAction('annotate', next); };
   return (
     <div className={`selection-toolbar ${pos.below ? 'below' : ''}`} style={{ top: pos.y, left: pos.x }} role="toolbar" aria-label="Selected text actions"
       onMouseDown={(e) => e.preventDefault()}>
-      {catOpen ? (
-        <div className="hl-cats">
-          {HIGHLIGHT_CATEGORIES.map((c) => (
-            <button key={c.id} onClick={() => onAction('highlight', c.id)}><i className={`hl-dot hl-${c.color}`} /> {c.id}</button>
+      {panel === 'annotate' ? (
+        <AnnotatePanel marks={marks} onChange={apply} onBack={() => setPanel(null)} />
+      ) : (
+        <>
+          {(panel === 'more' ? more : main).map(({ id, label, icon: Icon }) => (
+            <button key={id} onClick={() => (id === 'annotate' ? setPanel('annotate') : onAction(id))} title={label}>
+              <Icon size={13} /> <span>{label}</span>
+            </button>
           ))}
-        </div>
-      ) : tools.map(({ id, label, icon: Icon }) => (
-        <button key={id} onClick={() => (id === 'highlight' ? setCatOpen(true) : onAction(id))} title={label}>
-          <Icon size={13} /> <span>{label}</span>
-        </button>
-      ))}
+          <button onClick={() => setPanel(panel === 'more' ? null : 'more')} title={panel === 'more' ? 'Back' : 'More'} aria-label={panel === 'more' ? 'Back' : 'More actions'}>
+            {panel === 'more' ? <X size={13} /> : <MoreHorizontal size={13} />}
+          </button>
+        </>
+      )}
     </div>
   );
 }
 
 // ─── Popover for an existing highlight ────────────────────────────────────────
-export function HighlightPopover({ highlight, pos, onClose, onUpdate, onDelete, onExplain }) {
+export function HighlightPopover({ highlight, pos, onClose, onUpdate, onDelete, onExplain, onAction, startStyles = false }) {
   const [note, setNote] = useState(highlight.note || '');
+  const [styles, setStyles] = useState(startStyles);
   const ref = useRef(null);
   useEffect(() => {
     const out = (e) => ref.current && !ref.current.contains(e.target) && !e.target.closest('mark[data-hl]') && onClose();
@@ -96,20 +112,32 @@ export function HighlightPopover({ highlight, pos, onClose, onUpdate, onDelete, 
     return () => document.removeEventListener('pointerdown', out);
   }, [onClose]);
   return (
-    <div ref={ref} className="popover hl-popover" style={{ top: pos.y, left: pos.x }} role="dialog" aria-label="Highlight">
-      <div className="hl-cats inline">
-        {HIGHLIGHT_CATEGORIES.map((c) => (
-          <button key={c.id} className={highlight.category === c.id ? 'active' : ''} onClick={() => onUpdate({ category: c.id })} title={c.id}>
-            <i className={`hl-dot hl-${c.color}`} /> {c.id}
-          </button>
-        ))}
-      </div>
-      <textarea className="input" rows={2} placeholder="Add a note to this highlight…" value={note} onChange={(e) => setNote(e.target.value)}
-        onBlur={() => note !== (highlight.note || '') && onUpdate({ note })} />
-      <div className="hl-actions">
-        <button className="text-button" onClick={() => onExplain(highlight.text)}><Lightbulb size={12} /> Explain</button>
-        <button className="text-button danger" onClick={onDelete}><Trash2 size={12} /> Remove</button>
-      </div>
+    <div ref={ref} className="popover hl-popover" style={{ top: pos.y, left: pos.x }} role="dialog" aria-label="Annotation">
+      {styles ? (
+        <AnnotatePanel compact marks={highlight.marks || {}} onBack={() => setStyles(false)} onChange={(marks) => onUpdate({ marks })} />
+      ) : (
+        <>
+          <div className="hl-cats inline">
+            {HIGHLIGHT_CATEGORIES.map((c) => (
+              <button key={c.id} className={highlight.category === c.id ? 'active' : ''} onClick={() => onUpdate({ category: c.id })} title={c.id}>
+                <i className={`hl-dot hl-${c.color}`} /> {c.id}
+              </button>
+            ))}
+          </div>
+          <textarea className="input" rows={2} placeholder="Add a note to this highlight…" value={note} onChange={(e) => setNote(e.target.value)}
+            onBlur={() => note !== (highlight.note || '') && onUpdate({ note })} />
+          <div className="hl-actions wrap">
+            <button className="text-button danger" onClick={onDelete}><Trash2 size={12} /> Delete</button>
+            <button className="text-button" onClick={() => setStyles(true)}><Highlighter size={12} /> Annotate</button>
+            <button className="text-button" onClick={() => onAction('lookup', highlight.text)}><BookA size={12} /> Look Up</button>
+            <button className="text-button" onClick={() => onAction('copy', highlight.text)}><Copy size={12} /> Copy</button>
+            <button className="text-button" onClick={() => onUpdate({ pinned: !highlight.pinned })}>{highlight.pinned ? <PinOff size={12} /> : <Pin size={12} />} {highlight.pinned ? 'Unpin' : 'Pin'}</button>
+            <button className="text-button" onClick={() => onAction('share', highlight.text)}><Share2 size={12} /> Share</button>
+            <button className="text-button" onClick={() => onAction('report', highlight.text)}><Flag size={12} /> Report</button>
+            <button className="text-button" onClick={() => onExplain(highlight.text)}><Lightbulb size={12} /> Explain</button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -1,13 +1,14 @@
 """Reading sessions, statistics dashboard, global search and background-job notifications."""
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func, or_, select, update
 
 from ..deps import DB, CurrentUser, get_owned
-from ..models import Audiobook, Chapter, Document, Highlight, Job, Note, ReadingSession, ResearchProject
+from ..models import Audiobook, Chapter, Deck, Document, Highlight, Job, Note, ReadingSession, ResearchProject
 from ..schemas import SessionCreate
 from ..serializers import job_out
+from ..services import jobs
 
 router = APIRouter(tags=["activity"])
 
@@ -118,6 +119,41 @@ def list_jobs(user: CurrentUser, db: DB, active: bool = False, limit: int = 20):
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str, user: CurrentUser, db: DB):
     return job_out(get_owned(db, Job, user, job_id, "Job"))
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel_job(job_id: str, user: CurrentUser, db: DB):
+    """Cooperative cancel: the worker stops at its next progress update and the linked output never turns "ready"."""
+    job = get_owned(db, Job, user, job_id, "Job")
+    if job.status not in ("queued", "processing"):
+        raise HTTPException(status_code=409, detail=f"Job already {job.status}")
+    job.status, job.stage, job.seen = "cancelled", "Cancelled", True
+    if job.ref_id:
+        for model in (Audiobook, Deck):
+            row = db.get(model, job.ref_id)
+            if row and row.owner_id == user.id and row.status in ("queued", "processing"):
+                row.status = "cancelled"
+    db.commit()
+    return job_out(job)
+
+
+@router.post("/jobs/{job_id}/retry")
+def retry_job(job_id: str, user: CurrentUser, db: DB):
+    """Run a failed or cancelled job again with its original settings."""
+    job = get_owned(db, Job, user, job_id, "Job")
+    if job.status not in ("failed", "cancelled"):
+        raise HTTPException(status_code=409, detail=f"Only failed or cancelled jobs can be retried (this one is {job.status})")
+    ref = job.ref_id
+    if ref:
+        for model in (Audiobook, Deck):
+            row = db.get(model, ref)
+            if row and row.owner_id == user.id and row.status in ("failed", "cancelled"):
+                row.status = "processing"
+    db.commit()
+    if not jobs.retry(job_id):
+        raise HTTPException(status_code=422, detail="This kind of job can’t be retried — start it again from its page")
+    db.expire_all()
+    return job_out(db.get(Job, job_id))
 
 
 @router.post("/jobs/mark-seen", status_code=204)

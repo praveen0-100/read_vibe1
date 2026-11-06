@@ -5,6 +5,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from
 import { AppProvider, useApp } from './context/AppContext';
 import Sidebar, { MobileHeader, MobileNav } from './components/layout/Sidebar';
 import MiniReading from './components/layout/MiniReading';
+import PlaybackHost from './features/playback/PlaybackHost';
 import QuickActions from './components/layout/QuickActions';
 import { ConfirmDialog, PageLoader, Toasts } from './components/ui';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -22,6 +23,7 @@ import './styles/decks.css';
 import './styles/decks-ui.css';
 import './styles/reader-modes.css';
 import './styles/agent.css';
+import './styles/fit.css'; // last: settles conflicts between the older sheets
 import { installUiScale } from './lib/uiScale';
 import { warmUp } from './api/client';
 
@@ -39,17 +41,22 @@ const loaders = {
   library: () => import('./pages/LibraryPage'),
   reader: () => import('./pages/ReaderPage'),
   audio: () => import('./pages/AudioStudioPage'),
+  study: () => import('./pages/StudyPage'),
+  decks: () => import('./pages/DecksPage'),
+  research: () => import('./pages/ResearchPage'),
+  notes: () => import('./pages/NotesPage'),
 };
 const HomePage = lazy(loaders.home);
 const LibraryPage = lazy(loaders.library);
 const ReaderPage = lazy(loaders.reader);
 const AudioStudioPage = lazy(loaders.audio);
-const ResearchPage = lazy(() => import('./pages/ResearchPage'));
+const ResearchPage = lazy(loaders.research);
 const ResearchProjectPage = lazy(() => import('./pages/ResearchProjectPage'));
-const NotesPage = lazy(() => import('./pages/NotesPage'));
+const NotesPage = lazy(loaders.notes);
+const StudyPage = lazy(loaders.study);
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const DiscoverPage = lazy(loaders.discover);
-const DecksPage = lazy(() => import('./pages/DecksPage'));
+const DecksPage = lazy(loaders.decks);
 const DeckEditorPage = lazy(() => import('./pages/DeckEditorPage'));
 const DeckPresentPage = lazy(() => import('./pages/DeckPresentPage'));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
@@ -69,7 +76,7 @@ function usePrefetch(enabled) {
     const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 1500));
     const cancel = window.cancelIdleCallback || clearTimeout;
     const id = idle(() => {
-      [loaders.discover, loaders.library, loaders.reader, loaders.audio, loadSearch, loadUpload, loadAIPanel].forEach((load, i) => setTimeout(load, i * 400));
+      [loaders.discover, loaders.library, loaders.reader, loaders.audio, loaders.study, loaders.decks, loaders.research, loaders.notes, loadSearch, loadUpload, loadAIPanel].forEach((load, i) => setTimeout(load, i * 400));
     }, { timeout: 4000 });
     return () => cancel(id);
   }, [enabled]);
@@ -113,7 +120,7 @@ function Shell() {
       if (e.key === 'a' && !inReader) (ai.open ? closeAI() : openAI());
       if (e.key === 'g') {
         const next = (ev) => {
-          const map = { h: '/', l: '/library', r: '/read', a: '/audio', p: '/decks', s: '/research', n: '/notes', ',': '/settings' };
+          const map = { h: '/', l: '/library', r: '/read', a: '/audio', p: '/decks', s: '/research', n: '/notes', t: '/study', ',': '/settings' };
           if (map[ev.key]) navigate(map[ev.key]);
         };
         window.addEventListener('keydown', next, { once: true });
@@ -147,6 +154,7 @@ function Shell() {
                 <Route path="research" element={<ResearchPage />} />
                 <Route path="research/:projectId" element={<ResearchProjectPage />} />
                 <Route path="notes" element={<NotesPage />} />
+                <Route path="study" element={<StudyPage />} />
                 <Route path="settings" element={<SettingsPage />} />
                 <Route path="*" element={<NotFoundPage />} />
               </Routes>
@@ -160,6 +168,7 @@ function Shell() {
           </div>
         )}
       </div>
+      <PlaybackHost />
       <OnFirstOpen open={ai.open}><AIPanel /></OnFirstOpen>
       <OnFirstOpen open={searchOpen}><SearchOverlay /></OnFirstOpen>
       <OnFirstOpen open={uploadOpen}><UploadModal /></OnFirstOpen>

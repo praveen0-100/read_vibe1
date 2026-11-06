@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, GripVertical, History, ListPlus, ListX, Play, Plus, Repeat, Repeat1, Shuffle, Trash2 } from 'lucide-react';
 import { formatDuration } from '../../lib/format';
-import { queueActions, slim, useQueue } from '../../lib/queue';
+import { keyOf, queueActions, slim, useQueue } from '../../lib/queue';
 import { Menu } from '../ui';
 import AlbumArt from './AlbumArt';
 
@@ -33,8 +33,8 @@ export default function QueuePanel({ current, playing, library = [], onPlay, com
   const toggle = (id) => setOpen((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   // queued items saved before sections existed fall back to the library copy of the book
   const sectionsOf = (q) => (q.sections?.length ? q.sections : slim(library.find((b) => b.id === q.id) || q).sections);
-  const allOpen = queue.length > 0 && queue.every((q) => open.has(q.id));
-  const toggleAll = () => setOpen(allOpen ? new Set() : new Set(queue.map((q) => q.id)));
+  const allOpen = queue.length > 0 && queue.every((q) => open.has(keyOf(q)));
+  const toggleAll = () => setOpen(allOpen ? new Set() : new Set(queue.map(keyOf)));
   const remaining = queue.reduce((t, q) => t + (q.duration_seconds || 0), 0);
   const queued = new Set([...queue.map((q) => q.id), current?.id]);
   const suggestions = library.filter((b) => b.status === 'ready' && !queued.has(b.id));
@@ -67,7 +67,7 @@ export default function QueuePanel({ current, playing, library = [], onPlay, com
                 <ChevronDown size={16} />
               </button>
               <div className="q-main">
-                <span className="q-art"><AlbumArt title={current.title} color={current.color} size="sm" playing={playing} bare /></span>
+                <span className="q-art"><AlbumArt title={current.title} color={current.color} cover={current.cover} size="sm" playing={playing} bare /></span>
                 <span><strong>{current.title}</strong><small>{current.tone} narration</small></span>
               </div>
               <span className="q-dur">{formatDuration(current.duration_seconds)}</span>
@@ -92,31 +92,32 @@ export default function QueuePanel({ current, playing, library = [], onPlay, com
           <div className="q-list" role="list">
             {queue.map((q, i) => {
               const secs = sectionsOf(q);
-              const expanded = open.has(q.id);
+              const qk = keyOf(q);
+              const expanded = open.has(qk);
               return (
-                <div key={q.id} role="listitem" className="q-item">
+                <div key={qk} role="listitem" className="q-item">
                   <div draggable onDragStart={() => setDrag(i)} onDragEnd={() => { setDrag(null); setOver(null); }}
                     onDragOver={(e) => { e.preventDefault(); setOver(i); }} onDrop={() => drop(i)}
                     className={`q-row ${drag === i ? 'dragging' : ''} ${over === i && drag != null && drag !== i ? 'over' : ''}`}>
                     <span className="grip" aria-hidden="true"><GripVertical size={15} /></span>
-                    <button className={`q-fold ${expanded ? 'open' : ''}`} onClick={() => toggle(q.id)} disabled={!secs.length}
+                    <button className={`q-fold ${expanded ? 'open' : ''}`} onClick={() => toggle(qk)} disabled={!secs.length || q.chapter != null}
                       aria-expanded={expanded} aria-label={`${expanded ? 'Collapse' : 'Expand'} sections of ${q.title}`} title={expanded ? 'Hide sections' : 'Show sections'}>
                       <ChevronDown size={16} />
                     </button>
-                    <button className="q-main" onClick={() => onPlay(q.id, { fromQueue: true })} aria-label={`Play ${q.title} now`}>
-                      <span className="q-art"><AlbumArt title={q.title} color={q.color} size="sm" bare /></span>
-                      <span><strong>{q.title}</strong><small>{q.tone} · {q.chapters || '—'} sections</small></span>
+                    <button className="q-main" onClick={() => onPlay(q.id, { fromQueue: true, key: qk, chapter: q.chapter ?? null })} aria-label={`Play ${q.title} now`}>
+                      <span className="q-art"><AlbumArt title={q.title} color={q.color} cover={q.cover} size="sm" bare /></span>
+                      <span><strong>{q.chapter != null ? q.subtitle : q.title}</strong><small>{q.chapter != null ? `${q.title} · chapter ${q.chapter + 1}` : `${q.tone} · ${q.chapters || '—'} sections`}</small></span>
                     </button>
                     <span className="q-dur">{formatDuration(q.duration_seconds)}</span>
                     <Menu label={`Options for ${q.title}`} align="right" trigger={<span className="icon-ghost sm">⋯</span>} items={[
-                      { label: 'Play now', icon: Play, onClick: () => onPlay(q.id, { fromQueue: true }) },
+                      { label: 'Play now', icon: Play, onClick: () => onPlay(q.id, { fromQueue: true, key: qk, chapter: q.chapter ?? null }) },
                       { label: 'Move up', icon: ArrowUp, disabled: i === 0, onClick: () => queueActions.move(i, i - 1) },
                       { label: 'Move down', icon: ArrowDown, disabled: i === queue.length - 1, onClick: () => queueActions.move(i, i + 1) },
                       '-',
                       { label: 'Remove from queue', icon: Trash2, danger: true, onClick: () => queueActions.removeAt(i) },
                     ]} />
                   </div>
-                  {expanded && <SectionList sections={secs} onPick={(s) => onPlay(q.id, { fromQueue: true, chapter: s.index })} />}
+                  {expanded && <SectionList sections={secs} onPick={(s) => onPlay(q.id, { fromQueue: true, key: qk, chapter: s.index })} />}
                 </div>
               );
             })}
@@ -130,7 +131,7 @@ export default function QueuePanel({ current, playing, library = [], onPlay, com
           <div className="q-suggest">
             {suggestions.map((b) => (
               <div key={b.id}>
-                <AlbumArt title={b.title} color={b.color} size="md" bare />
+                <AlbumArt title={b.title} color={b.color} cover={b.document_has_cover ? b.document_id : null} size="md" bare />
                 <button className="add-chip" onClick={() => queueActions.add(b)} aria-label={`Add ${b.title} to queue`} title="Add to queue"><Plus size={15} /></button>
                 <strong>{b.title}</strong>
               </div>
@@ -149,7 +150,7 @@ export default function QueuePanel({ current, playing, library = [], onPlay, com
               <div key={h.id} className="q-row">
                 <span className="grip" aria-hidden="true" />
                 <button className="q-main" onClick={() => onPlay(h.id)}>
-                  <span className="q-art"><AlbumArt title={h.title} color={h.color} size="sm" bare /></span>
+                  <span className="q-art"><AlbumArt title={h.title} color={h.color} cover={h.cover} size="sm" bare /></span>
                   <span><strong>{h.title}</strong><small>{h.tone} narration</small></span>
                 </button>
                 <button className="icon-ghost sm" onClick={() => queueActions.add(h)} aria-label={`Add ${h.title} to queue`} title="Add to queue"><Plus size={14} /></button>

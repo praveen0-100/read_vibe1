@@ -172,7 +172,7 @@ def audio_overview(body: OverviewIn, user: CurrentUser, db: DB):
     """A spoken overview written natively in the requested language (Tamil, Telugu, Malayalam, Kannada, Hindi …)."""
     doc = get_owned_document(db, user, body.document_id)
     try:
-        return overview.generate(doc, body.chapter_index, body.language, body.format)
+        return overview.generate(doc, body.chapter_index, body.language, body.format, body.style)
     except overview.OverviewError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 

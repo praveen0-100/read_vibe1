@@ -1,0 +1,144 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   fit.css — responsive hardening. Loaded LAST so it can settle conflicts between the older sheets.
+   Covers: viewport units on mobile browsers, floating chrome vs content, reader header at tablet widths, landscape phones,
+   touch targets, overflow safety nets, and rendering cost (smoothness).
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* 1 ─ Real viewport height. 100vh on phones includes the area behind the browser's URL bar, which pushed the bottom tab bar
+   off-screen and made the layout jump while scrolling. dvh tracks the visible viewport. */
+@supports (height: 100dvh) {
+  .app { min-height: 100dvh; }
+  .main-col, .sidebar { height: 100dvh; }
+  .boot, .auth-page { min-height: 100dvh; }
+  .legal-page { height: 100dvh; }
+  .chapter-nav, .context-rail, .zen-rail, .vibe-rail { max-height: calc(100dvh - 40px); }
+  .deck-rail { max-height: calc(100dvh - 170px); }
+  .dk-present-msg { min-height: 100dvh; }
+}
+
+/* 2 ─ Overflow safety nets: nothing may be wider than its container, long words wrap instead of pushing layouts apart. */
+img, svg, video, canvas, iframe, table { max-width: 100%; }
+img, video { height: auto; }
+.input, select, textarea { max-width: 100%; }
+.page-shell, .modal, .card, .research-card, .doc-card, .album-card, .q-item, .notif, .popover, .menu { min-width: 0; }
+.page-shell h1, .page-shell h2, .page-shell h3, .doc-card strong, .album-card strong, .st-text, .lk-body, .cc-source blockquote p { overflow-wrap: anywhere; }
+pre, code { max-width: 100%; overflow-x: auto; }
+.modal { max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; }
+.page-shell > .topbar { flex-wrap: wrap; gap: 12px; }
+.topbar > div { min-width: 0; }
+.top-actions { flex-wrap: wrap; }
+.library-tabs, .tabs, [role=tablist] { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.library-tabs::-webkit-scrollbar, .tabs::-webkit-scrollbar, [role=tablist]::-webkit-scrollbar { display: none; }
+
+/* 3 ─ Floating chrome never hides content. PlaybackHost publishes the mini player's height as --mini-h; every page keeps that
+   much room (plus the tab bar on phones / the quick-action button on desktop) below its last line. */
+.app .main-col .main .page-shell { padding-bottom: calc(var(--mini-h, 0px) + 104px); }
+@media (max-width: 900px) {
+  /* the tab bar on phones, or the quick-action button where there is no tab bar */
+  .app .main-col .main .page-shell { padding-bottom: calc(max(var(--dock-h, 0px), 68px) + var(--mini-h, 0px) + 20px); }
+}
+.global-mini { transition: transform .2s ease, opacity .2s ease; }
+/* the mini player sits clear of the quick-action button on every layout */
+@media (min-width: 681px) { .global-mini { right: 92px; } }
+@media (max-width: 680px) { .global-mini { left: 10px; right: 10px; width: auto; } .quick-actions:not(.inline) { display: none; } }
+
+/* 4 ─ Reader header: Reader/Zen/Vibe switch, language, Book hub and tools sat in a 3-column grid sized for the whole window, but
+   the reader only gets what is left after the sidebar — so the centred switch landed on top of the tools. A wrapping flex row
+   adapts to whatever width it really has: the tools drop to a second row instead of overlapping. */
+@media (min-width: 681px) {
+  .reader-page > .reader-top:not(.zen-backdrop):not(.vibe-equalizer):not(.reading-ruler) { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+  .reader-top .rt-left { flex: 1 1 220px; min-width: 0; }
+  .reader-top .mode-switch { flex: 0 0 auto; order: 2; width: 252px; margin: 0; }
+  .reader-top .reader-actions { flex: 0 0 auto; order: 3; margin-left: auto; }
+  .reader-title span, .reader-title strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tool-group > .hub-button span, .reader-actions .read-lang-label { display: none; }
+  .tool-group > .hub-button { width: 36px; padding: 0; justify-content: center; }
+  .view-toggle button { padding: 5px 10px; }
+}
+@media (min-width: 1360px) {
+  .reader-top .mode-switch { width: 312px; }
+  .tool-group > .hub-button span, .reader-actions .read-lang-label { display: inline; }
+  .tool-group > .hub-button { width: auto; padding: 0 13px 0 11px; }
+}
+@media (max-width: 720px) and (min-width: 681px) { .reader-top .mode-switch { order: 3; flex-basis: 100%; width: 100%; } .reader-top .reader-actions { order: 2; } }
+
+/* 5 ─ Paged mobile reader: the footer label is only tappable while the toolbars are hidden; otherwise it sat on top of the
+   Contents / Pages buttons and swallowed their taps. */
+.mobile-reader.chrome-on .mr-foot, .mobile-reader.chrome-on .mr-foot-l, .mobile-reader.chrome-on .mr-backto { pointer-events: none; }
+
+/* 6 ─ Phones in landscape (short screens): compact everything that floats or repeats. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .page-shell { padding-top: 14px; }
+  .page-shell h1 { font-size: clamp(22px, 5vh, 30px); }
+  .topbar { margin-bottom: 10px; }
+  .global-mini { right: 70px; bottom: 8px; left: auto; width: min(380px, 56vw); }
+  .global-mini .mini-now { padding: 4px 8px 4px 4px; margin: 0; }
+  .global-mini .mini-now .album-art { width: 34px; }
+  .global-mini .mini-now button { width: 34px; height: 34px; }
+  .quick-fab { width: 44px; height: 44px; }
+  .quick-actions { right: 12px; bottom: 10px; }
+  .modal { max-height: calc(100dvh - 12px); }
+  .st-card { min-height: 150px; padding: 16px; } .st-text { font-size: 17px; }
+  .original-pane { top: 52px; }
+  .lookup-sheet { max-height: 92dvh; }
+}
+
+/* 7 ─ Touch: bigger hit areas without changing the layout (a transparent ring around small controls), no double-tap zoom
+   delay, no grey tap flash. */
+@media (pointer: coarse), (max-width: 1024px) {
+  .menu-trigger, .icon-ghost, .text-button, .theme-switch, .switch, .tabs button, [role=tab], .chip, .q-toggle { position: relative; }
+  .menu-trigger::after, .icon-ghost::after, .theme-switch::after, .switch::after { content: ''; position: absolute; inset: -8px; }
+  .text-button::after, .tabs button::after, [role=tab]::after { content: ''; position: absolute; inset: -6px -4px; }
+  label:has(> input[type=checkbox]), label:has(> input[type=radio]) { min-height: 36px; }
+  input[type=checkbox], input[type=radio] { width: 18px; height: 18px; }
+}
+button, a, [role=button], input, select, summary { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+
+/* 8 ─ Smoothness. Scrolling containers don't chain into the page; the scrollbar appearing doesn't shift the layout; long
+   grids skip painting off-screen cards; blur (very costly on phones) is replaced with near-opaque panels on small screens. */
+.main, .chapter-nav, .modal, .menu, .popover, .lookup-sheet .lk-body, .mr-list, .mr-grid-scroll, .q-list, .chapter-list-scroll { overscroll-behavior: contain; }
+.main { scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; }
+.library-grid > *, .album-grid > *, .deck-grid > *, .research-grid > * { content-visibility: auto; contain-intrinsic-size: auto 240px; }
+.page-shell { animation-duration: .18s; }
+@media (max-width: 900px), (pointer: coarse) {
+  .mini-now, .mobile-header, .mobile-nav, .mini-reading, .modal-backdrop, .global-mini .mini-now, .selection-toolbar, .toast {
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  .mini-now, .global-mini .mini-now { background: color-mix(in srgb, var(--panel) 97%, transparent); }
+  .mobile-header, .mobile-nav { background: color-mix(in srgb, var(--bg) 97%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) { .page-shell { animation: none; } .global-mini { transition: none; } }
+
+/* 10 ─ Reader side rails are sticky and scroll on their own; they keep the mini player's height free at their bottom so their
+   last items can be scrolled clear of it. */
+.reader-layout .context-rail, .reader-layout .zen-rail, .reader-layout .vibe-rail, .reader-layout .chapter-nav { padding-bottom: calc(var(--mini-h, 0px) + 16px); }
+
+/* 9 ─ Reader: the global mini player is as narrow as the right-hand rail so it sits beside the page, never on top of its footer
+   (Ask AI / Overview / Listen). On narrower or shorter screens it rises above that footer instead; the rails end above it. */
+@media (min-width: 681px) {
+  .app.in-reader .global-mini { right: 18px; bottom: 76px; width: min(300px, 34vw); }
+  .app.in-reader .reader-layout .context-rail, .app.in-reader .reader-layout .zen-rail, .app.in-reader .reader-layout .vibe-rail {
+    max-height: calc(100dvh - 96px - var(--mini-h, 0px) - 90px); padding-bottom: 12px;
+  }
+}
+@media (min-width: 1280px) {
+  .app.in-reader .global-mini { bottom: 16px; width: 252px; }
+  .app.in-reader .reader-layout .context-rail, .app.in-reader .reader-layout .zen-rail, .app.in-reader .reader-layout .vibe-rail {
+    max-height: calc(100dvh - 96px - var(--mini-h, 0px) - 30px);
+  }
+}
+
+/* 11 ─ Audio player on narrow screens: a grid track sized by its widest child (a row of 7 transport buttons, chapter rows) made the
+   whole player ~14px wider than the phone, so its right edge was cut off. Tracks may now shrink and rows wrap or ellipsise. */
+.audio-player, .player-columns, .player-chapters, .queue-panel, .powerseek, .chapter-list-scroll { grid-template-columns: minmax(0, 1fr); }
+.audio-player > *, .player-columns > *, .player-chapters > *, .queue-panel > *, .chapter-list-scroll > *, .q-list > *, .q-item { min-width: 0; }
+.player-controls { flex-wrap: wrap; justify-content: center; row-gap: 6px; }
+.player-footer { flex-wrap: wrap; row-gap: 8px; }
+.queue-head { flex-wrap: wrap; row-gap: 8px; }
+.q-eyebrow { flex-wrap: wrap; row-gap: 6px; }
+.chapter-row .ch-name, .q-main strong, .q-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.chapter-row, .q-row { min-width: 0; }
+@media (max-width: 680px) {
+  .player-hero { grid-template-columns: minmax(0, 1fr); }
+  .player-controls button { flex: 0 0 auto; }
+}

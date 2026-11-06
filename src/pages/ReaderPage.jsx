@@ -27,6 +27,10 @@ import { VibePlayer } from '../lib/vibeMusic';
 import { EmptyState, ErrorState, Field, Menu, Modal, PageLoader, ProgressBar } from '../components/ui';
 import ChapterText, { splitParagraphs } from '../components/reader/ChapterText';
 import MobileReader from '../components/reader/MobileReader';
+import OriginalPane from '../components/reader/OriginalPane';
+import LookUpSheet from '../components/reader/LookUpSheet';
+import AboutBook from '../components/reader/AboutBook';
+import ReportSheet from '../components/reader/ReportSheet';
 import { DocSearch, HighlightPopover, ReaderSettings, SelectionToolbar, WordMenu, categoryColor } from '../components/reader/ReaderTools';
 import { ZEN_PRESETS, ZenBackdrop } from '../components/reader/Scenes';
 import VibePanel from '../components/reader/VibePanel';
@@ -84,9 +88,11 @@ function Reader({ docId }) {
   const [rawChapter, setChapter] = useState(null);
   // the reader's chosen language for this document ('orig' = as written); the page, read-aloud and transcript all follow it
   const langKey = `readvibe.readlang.${docId}`;
-  const [readLang, setReadLangState] = useState(() => { try { return localStorage.getItem(langKey) || 'orig'; } catch { return 'orig'; } });
+  const [readLang, setReadLangState] = useState(() => { try { return localStorage.getItem(langKey) || prefs.languages?.reader || 'orig'; } catch { return 'orig'; } });
   const setReadLang = (code) => { setReadLangState(code); try { localStorage.setItem(langKey, code); } catch { /* private mode */ } };
   const sourceLang = useMemo(() => detectLanguage(rawChapter?.content), [rawChapter]);
+  const [lookup, setLookup] = useState(null); // text being looked up (dictionary + Wikipedia)
+  const [report, setReport] = useState(null); // text being reported as an extraction error
   const { chapter, status: tr } = useChapterTranslation(rawChapter, readLang, sourceLang);
   const [chapterLoading, setChapterLoading] = useState(false);
   const chapterCache = useRef(new Map());
@@ -101,6 +107,9 @@ function Reader({ docId }) {
   const pendingScroll = useRef(null); // ratio to restore
   const pendingFind = useRef(params.get('q'));
   const [searchQuery, setSearchQuery] = useState(params.get('q') || '');
+  const [view, setView] = useState('reader'); // reader | original | split — original is available for PDFs
+  const [pdfPage, setPdfPage] = useState(null); // page the reader chose by hand; cleared whenever the text moves on
+  const [paraPage, setParaPage] = useState(null); // page of the paragraph last clicked / being read
 
   useEffect(() => {
     let cancelled = false;
@@ -306,6 +315,13 @@ function Reader({ docId }) {
   const langToggle = (compact) => (
     <ReadLanguage languages={nv.languages} value={readLang} onChange={setReadLang} status={tr} sourceLang={sourceLang} compact={compact} />
   );
+  const sheets = (
+    <>
+      <AboutBook doc={doc} enabled={prefs.reading.aboutBook !== false} />
+      {lookup && <LookUpSheet term={lookup} lang={sourceLang || 'en'} onClose={() => setLookup(null)} onExplain={(t) => { setLookup(null); openAI({ documentId: docId, chapterIndex, selection: t, tool: 'explain', tab: 'tools', nonce: Date.now() }); }} />}
+      {report && <ReportSheet documentId={docId} chapterIndex={chapterIndex} text={report} onClose={() => setReport(null)} />}
+    </>
+  );
   const translateBanner = tr.running && (
     <div className="translate-banner" role="status"><Loader2 size={14} className="spin" /> Translating this page… <span className="tb-bar"><i style={{ width: `${tr.progress}%` }} /></span> {tr.progress}%</div>
   );
@@ -459,9 +475,12 @@ function Reader({ docId }) {
 
   const onArticleClick = useCallback((e) => {
     if (e.target.closest('mark[data-hl], a, button, .selection-toolbar, .popover, .modal') || window.getSelection()?.toString()) return;
+    const para = e.target.closest('[data-p]');
+    const pages = chapter?.paragraph_pages;
+    if (para && pages) { setParaPage(pages[Number(para.dataset.p)] ?? null); setPdfPage(null); }
     const hit = wordAtPoint(e.clientX, e.clientY, articleRef.current);
     if (hit) onWordTap(hit); else setWordMenu(null);
-  }, [onWordTap]);
+  }, [onWordTap, chapter]);
 
   useEffect(() => {
     if (!wordMenu) return undefined;
@@ -533,13 +552,14 @@ function Reader({ docId }) {
     };
   }, [readSelection]);
 
-  const addHighlight = async (text, category) => {
-    const temp = { id: `tmp-${Date.now()}`, chapter_index: chapterIndex, text, category, note: null };
+  const addHighlight = async (text, category = 'Important', extra = {}) => {
+    const temp = { id: `tmp-${Date.now()}`, chapter_index: chapterIndex, text, category, note: null, marks: extra.marks || {}, pinned: !!extra.pinned };
     setHighlights((h) => [...h, temp]);
     try {
-      const saved = await api.documents.addHighlight(docId, { chapter_index: chapterIndex, text, category });
+      const saved = await api.documents.addHighlight(docId, { chapter_index: chapterIndex, text, category, ...extra });
       setHighlights((h) => h.map((x) => (x.id === temp.id ? saved : x)));
-      notify(`Highlighted as ${category}`, 'success', { action: { label: 'Undo', onClick: () => removeHighlight(saved) } });
+      if (!extra.quiet) notify(extra.pinned ? 'Pinned to your notebook' : 'Annotation saved', 'success', { action: { label: 'Undo', onClick: () => removeHighlight(saved) } });
+      return saved;
     } catch (err) {
       setHighlights((h) => h.filter((x) => x.id !== temp.id));
       notify(err.message, 'error');
@@ -556,20 +576,64 @@ function Reader({ docId }) {
     try { await api.documents.removeHighlight(h.id); } catch (err) { notify(err.message, 'error'); }
   }
 
+  // ─── annotations: stacked styles on a selection, Look Up, Pin, Share, Report, Copy ───
+  const annotated = useRef(new Map()); // selection text -> saved highlight, so repeated style changes edit one annotation
+  async function annotateSelection(text, marks) {
+    const existing = annotated.current.get(text);
+    const empty = !Object.values(marks).some(Boolean);
+    if (existing) {
+      if (empty) { annotated.current.delete(text); removeHighlight(existing); return; }
+      updateHighlight(existing, { marks });
+      return;
+    }
+    if (empty) return;
+    const saved = await addHighlight(text, 'Important', { marks, quiet: true });
+    if (!saved) return;
+    annotated.current.set(text, saved);
+    // Painting the mark replaces the text node and clears the browser selection, so continue in the annotation popover
+    // (same Annotate panel) anchored under the new mark, where more styles can be stacked.
+    window.getSelection()?.removeAllRanges();
+    setSelection(null);
+    setTimeout(() => {
+      const el = document.querySelector(`mark[data-hl="${saved.id}"]`);
+      if (el) { onHighlightClick(saved, el); setHlPop((p) => (p ? { ...p, styles: true } : p)); }
+    }, 80);
+  }
+  const pinPassage = async (text) => {
+    const found = highlights.find((h) => h.chapter_index === chapterIndex && h.text.trim() === text.trim());
+    if (found) { updateHighlight(found, { pinned: !found.pinned }); notify(found.pinned ? 'Unpinned' : 'Pinned to your notebook'); } else addHighlight(text, 'Important', { pinned: true, marks: { highlight: 'yellow' } });
+  };
+  const passageLink = (text) => `${window.location.origin}/read/${docId}?q=${encodeURIComponent(text.split(/\s+/).slice(0, 8).join(' '))}`;
+  const sharePassage = async (text) => {
+    const url = passageLink(text);
+    try {
+      if (navigator.share) await navigator.share({ title: doc.title, text, url });
+      else { await navigator.clipboard.writeText(`“${text}” — ${doc.title}\n${url}`); notify('Link to this passage copied'); }
+    } catch { /* the share sheet was dismissed */ }
+  };
+  const copyPassage = (text) => {
+    navigator.clipboard?.writeText(text).then(() => notify(`Text copied to clipboard — “${text.length > 48 ? `${text.slice(0, 48)}…` : text}”`, 'success', { action: { label: 'Share', onClick: () => sharePassage(text) } }));
+  };
   const onSelectionAction = (action, arg) => {
     const text = selection?.text;
     if (!text) return;
     const clear = () => { window.getSelection()?.removeAllRanges(); setSelection(null); };
     switch (action) {
       case 'highlight': addHighlight(text, arg); break;
+      case 'annotate': annotateSelection(text, arg); return; // keeps the selection so styles can be stacked
+      case 'lookup': setLookup(text); break;
+      case 'pin': pinPassage(text); break;
+      case 'share': sharePassage(text); break;
+      case 'report': setReport(text); break;
       case 'note': setNoteDraft({ quote: text, title: text.split(/\s+/).slice(0, 8).join(' '), content: '', category: 'Note' }); break;
       case 'explain': openAI({ documentId: docId, chapterIndex, selection: text, tool: 'explain', tab: 'tools', nonce: Date.now() }); break;
       case 'ask': openAI({ documentId: docId, chapterIndex, selection: text, tab: 'chat', nonce: Date.now() }); break;
+      case 'search': setSearchQuery(text.slice(0, 80)); setSearchOpen(true); break;
       case 'define': openAI({ documentId: docId, chapterIndex, selection: text, tool: 'define', tab: 'tools', nonce: Date.now() }); break;
       case 'diagram': openAI({ documentId: docId, chapterIndex, selection: text, tool: 'diagram', tab: 'tools', nonce: Date.now() }); break;
       case 'listen': speak(stripDirections(text), { rate: prefs.audio.rate, voice: voiceRef.current }); break;
       case 'translate': window.open(`https://translate.google.com/?sl=auto&tl=${(navigator.language || 'en').slice(0, 2)}&text=${encodeURIComponent(text)}&op=translate`, '_blank', 'noopener'); break;
-      case 'copy': navigator.clipboard?.writeText(text).then(() => notify('Copied')); break;
+      case 'copy': copyPassage(text); break;
       default:
     }
     clear();
@@ -668,12 +732,14 @@ function Reader({ docId }) {
     '--read-lh': r.lineHeight,
     '--read-width': READING_WIDTHS[r.width],
     '--read-gap': `${r.paragraphSpacing}em`,
+    '--read-ls': `${r.letterSpacing || 0}em`,
     '--read-align': r.align,
     '--vibe-contrast': prefs.vibe.contrast / 100,
   };
   const zenPreset = ZEN_PRESETS.find((p) => p.id === prefs.zen.preset) || ZEN_PRESETS[0];
   const chapterHighlights = highlights.filter((h) => h.chapter_index === chapterIndex);
   const meta = doc.chapters?.[chapterIndex];
+  const canOriginal = !!doc.has_original_view && !offlineMode;
   const isLast = chapterIndex === doc.chapter_count - 1;
   const titleParts = (chapter?.title || meta?.title || '').split(/ · |: /);
 
@@ -724,11 +790,12 @@ function Reader({ docId }) {
         navigate={navigate} openAI={openAI} notify={notify}
       >
         {translateBanner}
+        {sheets}
         {overviewOpen && <OverviewSheet doc={doc} chapterIndex={chapterIndex} chapterTitle={chapter?.title} sourceLang={sourceLang} initialLang={overviewLang} onClose={() => setOverviewOpen(false)} />}
         <SelectionToolbar pos={selection?.pos} onAction={onSelectionAction} />
         <WordMenu menu={wordMenu} onAction={onWordAction} />
         {hlPop && (
-          <HighlightPopover highlight={hlPop.highlight} pos={hlPop.pos} onClose={() => setHlPop(null)}
+          <HighlightPopover startStyles={!!hlPop.styles} highlight={hlPop.highlight} pos={hlPop.pos} onClose={() => setHlPop(null)} onAction={(a, t) => { if (a === 'lookup') setLookup(t); else if (a === 'copy') copyPassage(t); else if (a === 'share') sharePassage(t); else if (a === 'report') setReport(t); }}
             onUpdate={(patch) => updateHighlight(hlPop.highlight, patch)} onDelete={() => removeHighlight(hlPop.highlight)}
             onExplain={(t) => { setHlPop(null); openAI({ documentId: docId, chapterIndex, selection: t, tool: 'explain', tab: 'tools', nonce: Date.now() }); }} />
         )}
@@ -745,6 +812,7 @@ function Reader({ docId }) {
       {r.ruler && ruler != null && <div className="reading-ruler" style={{ top: ruler - 22 }} aria-hidden="true" />}
 
       {translateBanner}
+        {sheets}
       <header className="reader-top">
         <div className="rt-left">
           <button className="back-button" onClick={() => navigate('/library')} aria-label="Back to library"><ArrowLeft size={17} /></button>
@@ -756,6 +824,13 @@ function Reader({ docId }) {
         </div>
         <ModeSwitch modes={MODES} mode={mode} onChange={setMode} live={{ Zen: ambientOn || timer.running, Vibe: music.playing }} />
         <div className="reader-actions">
+          {canOriginal && (
+            <div className="view-toggle" role="group" aria-label="Reader view">
+              {[['reader', 'Reader'], ['original', 'Original'], ['split', 'Split']].map(([id, label]) => (
+                <button key={id} className={view === id ? 'on' : ''} aria-pressed={view === id} onClick={() => setView(id)}>{label}</button>
+              ))}
+            </div>
+          )}
           <div className="tool-group">
             {langToggle(false)}
             <button className="hub-button" onClick={() => setHubOpen(true)} aria-label="Everything for this book (H)"><LayoutGrid size={15} /> <span>Book hub</span></button>
@@ -787,7 +862,11 @@ function Reader({ docId }) {
           onJump={(m) => goChapter(m.chapter_index, { find: `${m.match}${m.after}`.slice(0, 40).replace(/…$/, '') })} />
       )}
 
-      <div className="reader-layout">
+      {canOriginal && view !== 'reader' && (
+        <OriginalPane documentId={docId} kind={doc.format === 'PDF' ? 'pdf' : 'blocks'} mode={view === 'split' ? 'split' : 'full'} page={pdfPage ?? paraPage ?? chapter?.page_start ?? meta?.page_start ?? 1}
+          sectionTitle={chapter?.title} onPage={setPdfPage} onClose={() => setView('reader')} />
+      )}
+      <div className="reader-layout" style={view === 'split' ? { marginRight: 'min(48vw, 760px)' } : view === 'original' ? { display: 'none' } : undefined}>
         <aside className={`chapter-nav ${tocOpen ? 'open' : ''}`} aria-label="Table of contents">
           <div className="chapter-nav-head">
             <div><div className="eyebrow">CONTENTS</div><h3>{doc.chapter_count} sections</h3></div>
@@ -817,7 +896,7 @@ function Reader({ docId }) {
           <SelectionToolbar pos={selection?.pos} onAction={onSelectionAction} />
           <WordMenu menu={wordMenu} onAction={onWordAction} />
           {hlPop && (
-            <HighlightPopover highlight={hlPop.highlight} pos={hlPop.pos} onClose={() => setHlPop(null)}
+            <HighlightPopover startStyles={!!hlPop.styles} highlight={hlPop.highlight} pos={hlPop.pos} onClose={() => setHlPop(null)} onAction={(a, t) => { if (a === 'lookup') setLookup(t); else if (a === 'copy') copyPassage(t); else if (a === 'share') sharePassage(t); else if (a === 'report') setReport(t); }}
               onUpdate={(patch) => updateHighlight(hlPop.highlight, patch)} onDelete={() => removeHighlight(hlPop.highlight)}
               onExplain={(t) => { setHlPop(null); openAI({ documentId: docId, chapterIndex, selection: t, tool: 'explain', tab: 'tools', nonce: Date.now() }); }} />
           )}

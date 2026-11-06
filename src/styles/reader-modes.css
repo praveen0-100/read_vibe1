@@ -218,3 +218,71 @@ html[data-motion="reduced"] .ms-thumb { transition: none; }
   .reader-layout .chapter-nav, .reader-layout .zen-rail, .reader-layout .vibe-rail, .reader-layout .context-rail { top: 12px; max-height: calc(100vh - 24px); }
   .mode-switch { width: 260px; }
 }
+
+/* ─── Original PDF beside / instead of the extracted text ─── */
+.view-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; margin-right: 10px; }
+.view-toggle button { padding: 5px 12px; font-size: 12px; color: var(--text-2); }
+.view-toggle button.on { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+.original-pane { position: fixed; z-index: 45; top: 64px; right: 0; bottom: 0; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line); }
+.original-pane.split { width: min(48vw, 760px); }
+.original-pane.full { left: 0; }
+.op-bar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.op-ref { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.op-ref small { font-weight: 400; color: var(--muted); }
+.op-bar button { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; color: var(--text-2); }
+.op-bar button:hover:not(:disabled) { background: var(--panel-2); }
+.op-body { flex: 1; min-height: 0; display: flex; }
+.op-body iframe { flex: 1; border: 0; width: 100%; background: #fff; }
+.op-msg { margin: auto; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+@media (max-width: 900px) { .original-pane.split { width: 100vw; } .view-toggle { display: none; } }
+
+.op-doc { flex: 1; overflow-y: auto; padding: 22px 26px 40px; background: #fff; color: #1b1b1b; font: 16px/1.65 Georgia, 'Times New Roman', serif; }
+.op-doc h1, .op-doc h2, .op-doc h3 { font-family: system-ui, sans-serif; line-height: 1.25; margin: 1.2em 0 .5em; }
+.op-doc p { margin: 0 0 1em; white-space: pre-wrap; }
+.op-doc table { border-collapse: collapse; margin: 1em 0; font: 14px system-ui, sans-serif; }
+.op-doc td { border: 1px solid #c9ccd1; padding: 5px 9px; }
+
+/* ─── Stacked annotation styles: highlight + underline + outline on the same text ─── */
+mark.hl-marked { background: transparent; color: inherit; border-radius: 3px; padding: 0 1px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+mark.hl-marked.m-bg { background: var(--m-bg); color: #1a1a1a; }
+mark.hl-marked.m-ul { text-decoration: underline; text-decoration-color: var(--m-ul); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+mark.hl-marked.m-ol { box-shadow: 0 0 0 1.5px var(--m-ol); }
+mark.hl.is-pinned { border-bottom: 2px dotted currentColor; }
+
+/* ─── Annotate panel ─── */
+.annotate-panel { display: grid; gap: 8px; padding: 4px 6px 6px; min-width: 260px; }
+.ap-top { display: flex; align-items: center; gap: 6px; }
+.ap-back { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; }
+.ap-tabs { display: flex; gap: 2px; flex: 1; }
+.ap-tabs button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 8px; border-radius: 8px; font-size: 12px; color: var(--text-2); }
+.ap-tabs button.on { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+.ap-glyph { font-weight: 700; padding: 0 4px; border-radius: 3px; }
+.ap-highlight .ap-glyph { background: #fff176; color: #222; } .ap-underline .ap-glyph { text-decoration: underline; } .ap-outline .ap-glyph { box-shadow: 0 0 0 1.5px currentColor; }
+.ap-swatches { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 4px; }
+.ap-sw { width: 24px; height: 24px; border-radius: 50%; border: 1px solid rgba(128, 128, 128, .5); display: grid; place-items: center; color: var(--text-2); }
+.ap-sw.on { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
+.ap-name { font-size: 12px; text-align: center; color: var(--muted); min-height: 16px; }
+.ap-summary { font-size: 11.5px; text-align: center; color: var(--text-2); }
+.annotate-panel.compact { min-width: 240px; }
+.hl-actions.wrap { flex-wrap: wrap; gap: 4px 10px; }
+.selection-toolbar { flex-wrap: wrap; max-width: min(92vw, 420px); }
+
+/* ─── Look Up sheet ─── */
+.lookup-backdrop { position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, .35); display: flex; align-items: flex-end; justify-content: center; }
+.lookup-sheet { width: min(560px, 100%); max-height: 78vh; display: flex; flex-direction: column; background: var(--panel); border-radius: 18px 18px 0 0; border: 1px solid var(--line); outline: none; }
+.lookup-sheet header { display: flex; align-items: center; gap: 6px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.lookup-sheet header button { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; color: var(--text-2); }
+.lk-term { flex: 1; min-width: 0; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lk-body { overflow-y: auto; padding: 6px 16px 18px; display: grid; gap: 14px; }
+.lk-body h4 { display: flex; align-items: center; gap: 6px; margin: 10px 0 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.lk-phon { color: var(--muted); } .lk-meaning em { color: var(--accent-text); font-size: 13px; } .lk-meaning ol { margin: 4px 0 8px; padding-left: 20px; }
+.report-quote { margin: 0 0 12px; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--panel-2); border-radius: 0 8px 8px 0; font-size: 13px; }
+@media (min-width: 900px) { .lookup-backdrop { align-items: center; } .lookup-sheet { border-radius: 18px; } }
+
+.reading-inner, .mr-flow { letter-spacing: var(--read-ls, 0); }
+.about-facts { list-style: none; padding: 0; margin: 8px 0 12px; display: grid; gap: 6px; font-size: 14px; }
+.about-facts li { display: flex; align-items: center; gap: 8px; }
+.about-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.hl-popover { min-width: 290px; }
+.hl-popover .annotate-panel { min-width: 0; }
+.ap-tabs button { white-space: nowrap; padding: 6px 6px; }

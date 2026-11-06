@@ -2,14 +2,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Bell, BookOpen, Check, Headphones, Loader2, Trash2, XCircle } from 'lucide-react';
+import { Bell, BookOpen, Check, Headphones, Loader2, RotateCcw, Trash2, X, XCircle } from 'lucide-react';
 import { api } from '../../api/client';
 import { useApp } from '../../context/AppContext';
 import { timeAgo } from '../../lib/format';
 import { ProgressBar } from '../ui';
 
 export default function Notifications() {
-  const { jobs, loadJobs } = useApp();
+  const { jobs, loadJobs, notify } = useApp();
+  const act = async (e, fn, ok) => {
+    e.stopPropagation();
+    try { await fn(); await loadJobs(); if (ok) notify(ok, 'info'); } catch (err) { notify(err.message, 'error'); }
+  };
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const navigate = useNavigate();
@@ -73,17 +77,25 @@ export default function Notifications() {
           {jobs.map((j) => {
             const Icon = j.kind === 'audiobook' ? Headphones : BookOpen;
             return (
-              <button key={j.id} className={`notif-item ${j.status}`} onClick={() => openJob(j)} disabled={j.status !== 'completed'}>
+              <button key={j.id} className={`notif-item ${j.status}`} onClick={() => openJob(j)} aria-disabled={j.status !== 'completed'}>
                 <span className="notif-icon"><Icon size={14} /></span>
                 <span className="notif-body">
                   <strong>{j.title}</strong>
                   <small>
-                    {j.status === 'failed' ? (j.error || 'Failed') : j.status === 'completed' ? `Ready · ${timeAgo(j.updated_at)}` : j.stage}
+                    {j.status === 'cancelled' ? 'Cancelled' : j.status === 'failed' ? (j.error || 'Failed') : j.status === 'completed' ? `Ready · ${timeAgo(j.updated_at)}` : j.stage}
                   </small>
                   {(j.status === 'processing' || j.status === 'queued') && <ProgressBar value={j.progress} thin />}
                 </span>
                 {j.status === 'completed' && <Check size={14} className="ok" />}
                 {j.status === 'failed' && <XCircle size={14} className="bad" />}
+                {(j.status === 'processing' || j.status === 'queued') && (
+                  <span role="button" tabIndex={0} className="notif-act" title="Cancel" aria-label={`Cancel ${j.title}`}
+                    onClick={(e) => act(e, () => api.activity.cancelJob(j.id), 'Cancelled')}><X size={14} /></span>
+                )}
+                {(j.status === 'failed' || j.status === 'cancelled') && j.retryable && (
+                  <span role="button" tabIndex={0} className="notif-act" title="Retry" aria-label={`Retry ${j.title}`}
+                    onClick={(e) => act(e, () => api.activity.retryJob(j.id), 'Trying again')}><RotateCcw size={14} /></span>
+                )}
               </button>
             );
           })}

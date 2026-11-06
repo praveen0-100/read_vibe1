@@ -47,3 +47,18 @@ def decode_access_token(token: str) -> str | None:
     if payload.get("type") != "access":
         return None
     return payload.get("sub")
+
+
+def create_purpose_token(user_id: str, purpose: str, minutes: int = 5) -> str:
+    """A short-lived token that is valid for ONE purpose only (e.g. finishing a two-factor sign-in) — never a session."""
+    now = datetime.now(timezone.utc)
+    payload = {"sub": user_id, "type": purpose, "iat": now, "exp": now + timedelta(minutes=minutes)}
+    return jwt.encode(payload, get_settings().jwt_secret, algorithm=get_settings().jwt_algorithm)
+
+
+def decode_purpose_token(token: str, purpose: str) -> str | None:
+    try:
+        payload = jwt.decode(token, get_settings().jwt_secret, algorithms=[get_settings().jwt_algorithm])
+    except jwt.PyJWTError:
+        return None
+    return payload.get("sub") if payload.get("type") == purpose else None

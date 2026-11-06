@@ -4,6 +4,7 @@ import { createStore } from './localStore';
 const store = createStore('readvibe.playlists.v1', { lists: [] });
 
 export const usePlaylists = store.use;
+export const playlistStore = store;
 
 const update = (id, fn) => store.set((s) => ({ ...s, lists: s.lists.map((l) => (l.id === id ? fn(l) : l)) }));
 

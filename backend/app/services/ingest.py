@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..database import SessionLocal
 from ..models import Chapter, Document
-from . import extraction, jobs, nlp, storage
+from . import covers, extraction, jobs, nlp, storage
 
 COLORS = ["coral", "blue", "lavender", "amber", "green", "rose"]
 
@@ -21,7 +21,8 @@ def write_chapters(db: Session, doc: Document, chapters: list[extraction.Extract
     doc.chapters.clear()
     db.flush()
     for i, ch in enumerate(chapters):
-        doc.chapters.append(Chapter(position=i, title=ch.title[:300], content=ch.content, word_count=ch.word_count))
+        doc.chapters.append(Chapter(position=i, title=ch.title[:300], content=ch.content, word_count=ch.word_count,
+                                    page_start=ch.page_start, page_end=ch.page_end, paragraph_pages=ch.paragraph_pages))
     doc.word_count = sum(c.word_count for c in chapters)
 
 
@@ -108,6 +109,15 @@ def _process(ctx: jobs.JobContext, document_id: str, filename: str) -> dict:
                 "The full original file is stored and can be downloaded. " + description
             )
         doc.tags = tags
+        if extracted.ocr:
+            doc.description = ("Scanned document: the text was recognised with OCR and may contain errors. " + doc.description)[:900]
+        if filename.lower().endswith(".epub") and not doc.cover_path:
+            cover = covers.epub_cover(path)
+            if cover:
+                try:
+                    doc.cover_path = covers.save_cover(doc.owner_id, doc.id, cover)
+                except (ValueError, OSError):
+                    pass
         doc.status = "ready"
         doc.error = None
         db.commit()

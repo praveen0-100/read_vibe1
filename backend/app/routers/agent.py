@@ -20,6 +20,7 @@ def agent_chat(body: AgentChatIn, user: CurrentUser, db: DB):
     return orchestrator.respond(
         db, user, message=body.message.strip(), document=doc, chapter_index=body.chapter_index, selection=body.selection,
         history=[t.model_dump() for t in body.history], tz_offset=body.tz_offset, session_minutes=body.session_minutes,
+        reply_language=body.reply_language,
     )
 
 

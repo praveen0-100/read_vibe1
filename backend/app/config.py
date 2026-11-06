@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     ]
 
     max_upload_mb: int = 5 * 1024  # 5 GB; uploads stream to disk in chunks
+    metrics_token: str | None = None  # set to expose GET /api/metrics (Bearer token); unset = endpoint disabled
+    login_max_failures: int = 5
+    login_lockout_minutes: int = 15
     rate_limit_per_minute: int = 600
     ai_rate_limit_per_minute: int = 40
 

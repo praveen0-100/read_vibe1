@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 // In production set VITE_API_URL to the deployed API (e.g. https://api.example.com/api).
 export default defineConfig({
   plugins: [react()],
+  test: { environment: 'jsdom', include: ['src/**/*.test.js'], restoreMocks: true },
   server: {
     port: 5173,
     proxy: {

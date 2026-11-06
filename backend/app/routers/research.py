@@ -16,9 +16,11 @@ from ..schemas import (
     ResearchUpdate,
     SectionAction,
     SectionEdit,
+    GraphIn,
+    VerifyIn,
 )
 from ..serializers import SECTION_KEYS, reference_out, research_out
-from ..services import nlp, research, storage
+from ..services import graph, nlp, provenance, research, storage
 
 router = APIRouter(prefix="/research", tags=["research"])
 MAX_VERSIONS = 12
@@ -255,3 +257,36 @@ def export(project_id: str, body: ExportIn, user: CurrentUser, db: DB):
     return Response(research.export_docx(p, user.name),
                     media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     headers={"Content-Disposition": f'attachment; filename="{name}.docx"'})
+
+
+@router.post("/graph")
+def knowledge_graph(body: GraphIn, user: CurrentUser, db: DB):
+    """Concepts across the chosen documents, linked when they share a paragraph; every node and link keeps its source locators."""
+    docs = [get_owned_document(db, user, i) for i in dict.fromkeys(body.document_ids)]
+    return graph.build(docs, max_nodes=body.max_nodes)
+
+
+@router.post("/verify")
+def verify_claim(body: VerifyIn, user: CurrentUser, db: DB):
+    """Trace a statement to passages in the chosen sources, per source, and flag where sources disagree.
+    Lexical evidence only: a verdict of 'supported' means a passage covers the claim's content words, not that it is true."""
+    docs = [get_owned_document(db, user, i) for i in dict.fromkeys(body.document_ids)]
+    per_source = []
+    for d in docs:
+        res = provenance.verify_claim([d], body.claim, k=2)
+        per_source.append({"document_id": d.id, "title": d.title, **{k: res[k] for k in ("verdict", "confidence", "evidence")}})
+    overall = provenance.verify_claim(docs, body.claim, k=4)
+    verdicts = {s["verdict"] for s in per_source}
+    # sources that engage the claim but contain different figures are surfaced, never silently merged
+    nums = {s["document_id"]: provenance.numbers_in(s["evidence"][0]["text"]) for s in per_source if s["evidence"] and s["verdict"] != "unsupported"}
+    conflict = len({frozenset(v) for v in nums.values() if v}) > 1
+    return {
+        "claim": body.claim,
+        "verdict": overall["verdict"],
+        "confidence": overall["confidence"],
+        "evidence": overall["evidence"],
+        "by_source": per_source,
+        "sources_disagree": ("supported" in verdicts and "unsupported" in verdicts and len(docs) > 1) or conflict,
+        "possible_numeric_conflict": conflict,
+        "note": "Generated analysis, not source text. Evidence passages are quoted from your documents.",
+    }

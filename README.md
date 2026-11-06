@@ -75,3 +75,59 @@ Behind a reverse proxy, raise its body limit too — `deploy/nginx.conf` sets `c
 
 - **Docker:** `npm run build && docker compose up --build`, then open http://localhost:8080.
 - **Vercel (frontend):** unchanged (`vercel.json`). Deploy the API separately (Docker, Render, Railway, Fly…) and set `VITE_API_URL`.
+
+## Playback, artwork & sources (Nov 2026 upgrade)
+
+- **One global player** — `src/features/playback/` (`PlaybackHost` in the app shell, `playbackStore`, `Player`). Audio keeps playing across pages; a mini player follows you; the full UI portals into the Audio Studio.
+- **Queue** — `src/lib/queue.js`: whole-book and single-chapter entries (`id#chapter`), add / play next / reorder / remove / clear / shuffle / repeat, no duplicate chapters. Persisted locally and synced per account (`GET/PUT /api/playback/state`, last-writer-wins by timestamp; `playbackSync.js`).
+- **Playlists & Library actions** — Play / Play next / Add to queue / Add to playlist / New playlist from every Library item.
+- **Artwork** — EPUB covers are extracted on import; custom covers via `PUT /api/documents/{id}/cover` (content-sniffed, 4 MB cap); generated art remains the fallback.
+- **Sources → artifacts** — `GET /api/sources/{id}/artifacts` lists everything generated from one upload with its provenance.
+- **Jobs** — `POST /api/jobs/{id}/cancel` (a cancelled job never ends "ready").
+- **Reader** — running book title, tap-to-cycle footer (minutes left / location / pages left), page-grid navigator with "Back to N", Search on selection.
+- **Tests / CI** — `npm test` (vitest), `cd backend && pytest`; `.github/workflows/ci.yml` runs both plus the build.
+
+### Second pass: provenance, jobs, reader, languages
+
+- **PDF page mapping** — PDF imports record the page of every paragraph (`Chapter.page_start/page_end/paragraph_pages`); `GET /api/documents/{id}/locate` returns a SourceLocator. The desktop reader has **Reader / Original / Split** for PDFs and the original follows the paragraph you click.
+- **Claim checking** — `POST /api/research/verify` grades a statement against chosen sources (lexical evidence, labelled as such), returns quoted passages with chapter/paragraph/page, and flags sources that disagree or give different figures. UI: Research → Claim checker.
+- **Audio Overview styles** — Deep Dive, Brief, Critique, Debate, Lecture, Revision; every statement is checked against the document and carries `source_refs` (only when the overview is in the document's own language).
+- **Durable jobs** — jobs store their config, can be cancelled or retried (`/api/jobs/{id}/retry`), and jobs left running by a restart are re-queued or failed honestly on startup.
+- **Languages** — Settings → Audio → Languages: reader, narration, AI answers and overview languages are chosen independently.
+
+Not done: OCR for scanned PDFs (needs an OCR engine such as Tesseract on the server; scanned PDFs still get a clear error), EPUB/DOCX/PPTX original preview, bounding-box highlights, knowledge graph, presenter Q&A, Indic ASR/TTS evaluation (Project Vaani), an external task queue (Redis/RabbitMQ) and the measured quality benchmarks.
+
+### Third pass: OCR, graph, presenter Q&A
+
+- **OCR** — scanned PDFs are recognised automatically when the server has Tesseract + `pytesseract` + `pypdfium2` (`services/ocr.py`); otherwise the import fails with a message naming exactly what is missing. OCR'd documents are marked in their description and still get page mapping.
+- **Original view for DOCX / text / Markdown** — `GET /api/documents/{id}/render` returns headings, paragraphs and tables as data; shown in the reader's Original/Split pane.
+- **Knowledge graph** — `POST /api/research/graph`; Research → Knowledge graph. Nodes and links keep locators to their source paragraphs; shared concepts are ringed.
+- **Presenter Q&A** — `POST /api/decks/{id}/ask`; the presenter view has an Audience Q&A card that answers from the slide and the source with citations, and says so when the source doesn't cover a question.
+- **Benchmark** — `tests/test_studio.py::test_benchmark_*` measures citation correctness and false-support on a labelled fixture (a regression guard, not the 98%/95% product targets).
+
+### Reader features guide (Kindle-style behaviours)
+
+- **Annotations** — Highlight / Underline / Outline styles that stack on the same text (named colours: `marks` on a highlight, validated server-side), Pin, Share (native share or a link to the passage), Copy with a toast + Share action, Report extraction error (`POST /api/documents/{id}/reports`). Tap an annotation for Delete / Annotate / Look Up / Copy / Pin / Share / Report.
+- **Look Up** — `GET /api/lookup?term=&lang=`: dictionary (English single words) + Wikipedia summary, cached 7 days, failures degrade per section; phrases skip the dictionary and offer "Explain with AI".
+- **Outline** — `GET /api/documents/{id}/outline` (chapter offsets). **Settings** — letter spacing and an optional "About this book" card on first open.
+- Already present from earlier passes: page-turn/curl in the paged reader, running header + cycling footer, page-grid navigator with "Back to N", bookmarks, Original/Split view, reading ruler, fonts incl. dyslexic-friendly.
+- Not built: two-page landscape spreads, in-book image viewer (extraction keeps text only), scrubber live previews, continuous-scroll mode, community "popular highlights" (needs many users), offset-anchored offline sync queue, Flutter client.
+
+### Platform hardening & study (production-grade additions)
+
+- **Two-factor authentication** — TOTP (RFC 6238, verified against the RFC test vectors) with single-use recovery codes; the seed is encrypted at rest (Fernet) and a used code can't be replayed. Sign-in returns a short-lived, single-purpose `mfa_token` until the code is verified. Settings → Security.
+- **Brute-force protection & audit trail** — lock an account for 15 min after 5 wrong passwords (`READVIBE_LOGIN_MAX_FAILURES`, `READVIBE_LOGIN_LOCKOUT_MINUTES`); unknown emails get an identical response and timing; every sign-in/lockout/2FA/password event is recorded and visible to the user (`GET /api/auth/security`).
+- **Security headers** — CSP `default-src 'none'` on API responses, `X-Frame-Options`, COOP, Permissions-Policy, HSTS over HTTPS.
+- **Observability** — `GET /api/metrics` (Prometheus text; disabled unless `READVIBE_METRICS_TOKEN` is set) with request counts and latency histograms labelled by route *template*, auth-event counters and job-state gauges; `GET /api/ready` readiness probe.
+- **Idempotency keys** — `Idempotency-Key` on audiobook and deck creation replays the first result instead of starting a second job (24 h, per user, body-fingerprinted; a reused key with a different body is rejected). The web client sends one automatically.
+- **Spaced repetition** — SM-2 scheduling with Again/Hard/Good/Easy, cards from highlights (cloze) or a document's key terms, streak/retention/maturity stats, keyboard review (Space, 1–4). `/study`.
+- Production note: set a strong `READVIBE_JWT_SECRET` (it also derives the encryption key for 2FA seeds; rotating it makes users re-enrol 2FA) and `READVIBE_METRICS_TOKEN`.
+
+### Responsive hardening (`src/styles/fit.css`)
+
+Loaded last so it can settle conflicts between the older sheets. Verified with `scripts/layout-audit.js` (page-level overflow, content clipped by its container, overlapping controls/chrome, small tap targets) in iframes at 320×640, 360×740, 390×844, 844×390, 931×430, 768×1024, 820×1180, 1024×768, 1180×820, 1280×800, 1366×768 across every route.
+
+- `100dvh` instead of `100vh` (the mobile URL bar no longer pushes the tab bar off-screen); `--mini-h` published by the playback host so no page ends under the mini player, tab bar or quick-action button.
+- Reader header wraps instead of overlapping at tablet widths; mini player no longer covers the reader footer or side rails; reader footer label no longer swallows taps on the toolbar.
+- Audio player grid can shrink (it was ~14px wider than a phone); queue/chapter rows wrap or ellipsise.
+- Landscape phones: compact floating chrome; touch: larger hit areas without layout changes; `overscroll-behavior`, `scrollbar-gutter`, `content-visibility` on long grids, blur removed on small screens.

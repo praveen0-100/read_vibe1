@@ -3,13 +3,18 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle, ArrowUpDown, BookOpen, Check, CloudDownload, CloudOff, Download, Edit3, Grid, Headphones,
-  List, Loader2, MoreHorizontal, Pin, Play, Search, Star, Trash2, Upload, X,
+  ImagePlus, List, ListEnd, ListMusic, ListPlus, ListStart, Loader2, MoreHorizontal, Pin, Play, Search, Star, Trash2, Upload, X,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
 import { useDebounce, useQuery } from '../hooks/useAsync';
 import { formatDuration, formatMinutes, timeAgo } from '../lib/format';
 import { offline } from '../lib/offline';
+import { invalidateCover } from '../lib/covers';
+import { queueActions } from '../lib/queue';
+import { playlistActions, usePlaylists } from '../lib/playlists';
+import { playbackActions } from '../features/playback/playbackStore';
+import { NewPlaylistModal } from '../components/audio/LibraryViews';
 import Suggestions from '../components/library/Suggestions';
 import { Cover, EmptyState, ErrorState, Field, Menu, Modal, ProgressBar, Segmented, Skeleton, Tabs } from '../components/ui';
 
@@ -26,6 +31,14 @@ function EditModal({ doc, onClose, onSaved }) {
   const { notify } = useApp();
   const [form, setForm] = useState(() => ({ title: doc.title, author: doc.author, doc_type: doc.type, tags: (doc.tags || []).join(', '), color: doc.color, description: doc.description || '' }));
   const [saving, setSaving] = useState(false);
+  const [hasCover, setHasCover] = useState(!!doc.has_cover);
+  const uploadCover = async (file) => {
+    if (!file) return;
+    try { const d = await api.documents.setCover(doc.id, file); invalidateCover(doc.id); setHasCover(true); onSaved(d, { keepOpen: true }); notify('Cover updated'); } catch (err) { notify(err.message, 'error'); }
+  };
+  const dropCover = async () => {
+    try { await api.documents.removeCover(doc.id); invalidateCover(doc.id); setHasCover(false); onSaved({ ...doc, has_cover: false }, { keepOpen: true }); notify('Using the generated cover'); } catch (err) { notify(err.message, 'error'); }
+  };
   const save = async (e) => {
     e.preventDefault();
     setSaving(true);
@@ -53,6 +66,18 @@ function EditModal({ doc, onClose, onSaved }) {
             ))}
           </div>
         </Field>
+        <Field label="Cover image" hint="PNG, JPEG, WebP or GIF up to 4 MB. EPUB covers are picked up automatically.">
+          <div className="cover-edit">
+            <Cover doc={{ ...doc, has_cover: hasCover, color: form.color }} size="lg" />
+            <div className="stack" style={{ gap: 8 }}>
+              <label className="secondary-button" style={{ cursor: 'pointer' }}>
+                <ImagePlus size={14} /> {hasCover ? 'Replace' : 'Upload'} cover
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onChange={(e) => { uploadCover(e.target.files?.[0]); e.target.value = ''; }} />
+              </label>
+              {hasCover && <button type="button" className="text-button" onClick={dropCover}>Use generated cover</button>}
+            </div>
+          </div>
+        </Field>
         <Field label="Description"><textarea className="input" rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></Field>
         <div className="modal-actions">
           <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
@@ -63,8 +88,9 @@ function EditModal({ doc, onClose, onSaved }) {
   );
 }
 
-function DocCard({ doc, view, onChange, onRemove, onEdit, savedOffline }) {
+function DocCard({ doc, view, onChange, onRemove, onEdit, savedOffline, albums = [], onNewPlaylist }) {
   const { notify, confirm } = useApp();
+  const { lists } = usePlaylists();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const ready = doc.status === 'ready';
@@ -102,9 +128,19 @@ function DocCard({ doc, view, onChange, onRemove, onEdit, savedOffline }) {
     } catch (err) { notify(err.message, 'error'); }
   };
 
+  const label = (b) => (albums.length > 1 ? ` (${b.tone})` : '');
+  const audioItems = albums.flatMap((b) => [
+    { label: `Play audiobook${label(b)}`, icon: Headphones, onClick: () => { playbackActions.play(b.id); notify(`Playing “${doc.title}”`); } },
+    { label: `Play next${label(b)}`, icon: ListStart, onClick: () => { queueActions.add(b, { next: true }); notify('Will play next'); } },
+    { label: `Add to queue${label(b)}`, icon: ListEnd, onClick: () => { queueActions.add(b); notify('Added to queue'); } },
+    ...lists.slice(0, 5).map((l) => ({ label: `Add to “${l.name}”${label(b)}${l.ids.includes(b.id) ? ' ✓' : ''}`, icon: ListMusic, disabled: l.ids.includes(b.id), onClick: () => { playlistActions.add(l.id, b.id); notify(`Added to “${l.name}”`); } })),
+    { label: `New playlist…${label(b)}`, icon: ListPlus, onClick: () => onNewPlaylist?.(b.id) },
+  ]);
+
   const menu = (
     <Menu trigger={<MoreHorizontal size={15} />} label={`Actions for ${doc.title}`} items={[
       ready && { label: 'Open', icon: BookOpen, onClick: open },
+      ...audioItems,
       ready && { label: 'Generate audiobook', icon: Headphones, onClick: () => navigate(`/audio?tab=generate&doc=${doc.id}`) },
       { label: doc.favorite ? 'Remove from favorites' : 'Add to favorites', icon: Star, onClick: () => patch({ favorite: !doc.favorite }) },
       { label: doc.pinned ? 'Unpin' : 'Pin to top', icon: Pin, onClick: () => patch({ pinned: !doc.pinned }) },
@@ -166,7 +202,7 @@ function DocCard({ doc, view, onChange, onRemove, onEdit, savedOffline }) {
 }
 
 export default function LibraryPage() {
-  const { setUploadOpen, dataVersion, refreshData } = useApp();
+  const { setUploadOpen, dataVersion, refreshData, notify } = useApp();
   const navigate = useNavigate();
   const [tab, setTab] = useState('all');
   const [query, setQuery] = useState('');
@@ -184,7 +220,9 @@ export default function LibraryPage() {
   const tags = useQuery(() => api.documents.tags(), [dataVersion]);
   const rec = useQuery(() => api.documents.recommendations(), [dataVersion]);
   const [category, setCategory] = useState(null);
-  const books = useQuery(() => api.audio.list(), [dataVersion], { enabled: tab === 'audiobooks' });
+  const books = useQuery(() => api.audio.list(), [dataVersion]);
+  const [newPl, setNewPl] = useState({ open: false, seed: null });
+  const albumsOf = (id) => (books.data || []).filter((b) => b.document_id === id && b.status === 'ready');
 
   // poll while something is processing
   const processing = (docs.data || []).some((d) => d.status === 'processing');
@@ -296,7 +334,7 @@ export default function LibraryPage() {
       ) : (
         <div className={view === 'grid' ? 'library-grid' : 'library-list'}>
           {filtered.map((doc) => (
-            <DocCard key={doc.id} doc={doc} view={view} savedOffline={offlineIds.has(doc.id)}
+            <DocCard key={doc.id} doc={doc} view={view} savedOffline={offlineIds.has(doc.id)} albums={albumsOf(doc.id)} onNewPlaylist={(seed) => setNewPl({ open: true, seed })}
               onChange={onChangeOffline} onRemove={remove} onEdit={setEditing} />
           ))}
         </div>
@@ -313,7 +351,8 @@ export default function LibraryPage() {
         </div>
       )}
 
-      {editing && <EditModal doc={editing} onClose={() => setEditing(null)} onSaved={(d) => { replace(d); setEditing(null); }} />}
+      <NewPlaylistModal open={newPl.open} seedBookId={newPl.seed} onClose={() => setNewPl({ open: false, seed: null })} onCreated={() => notify('Playlist created')} />
+      {editing && <EditModal doc={editing} onClose={() => setEditing(null)} onSaved={(d, o) => { replace(d); if (!o?.keepOpen) setEditing(null); }} />}
     </div>
   );
 }

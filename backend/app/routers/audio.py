@@ -1,7 +1,9 @@
 """Audio Studio: multi-tone audiobooks and the collaborative recording studio."""
 import uuid
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from typing import Annotated
+
+from fastapi import APIRouter, File, Form, Header, HTTPException, Response, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 
@@ -10,7 +12,7 @@ from ..deps import DB, CurrentUser, get_owned, get_owned_document
 from ..models import Audiobook, CollabProject, Document, Recording
 from ..schemas import AudiobookCreate, AudiobookUpdate, CollabCreate, CollabUpdate, PreviewIn
 from ..serializers import audiobook_out, collab_out, recording_out
-from ..services import jobs, narration, storage
+from ..services import idempotency, jobs, narration, storage
 
 router = APIRouter(prefix="/audio", tags=["audio"])
 
@@ -37,7 +39,15 @@ def list_audiobooks(user: CurrentUser, db: DB):
 
 
 @router.post("/audiobooks", status_code=status.HTTP_202_ACCEPTED)
-def create_audiobook(body: AudiobookCreate, user: CurrentUser, db: DB):
+def create_audiobook(body: AudiobookCreate, user: CurrentUser, db: DB, response: Response, idempotency_key: Annotated[str | None, Header()] = None):
+    """Starts generation. Send an Idempotency-Key header so a retried request replays the first result instead of starting a second job."""
+    data, replayed = idempotency.run(db, user.id, idempotency_key, "audiobook", body.model_dump(), lambda: _create_audiobook(body, user, db))
+    if replayed:
+        response.headers["Idempotent-Replay"] = "true"
+    return data
+
+
+def _create_audiobook(body: AudiobookCreate, user, db) -> dict:
     doc = get_owned_document(db, user, body.document_id)
     if doc.status != "ready":
         raise HTTPException(status_code=409, detail="The document is still processing")
@@ -48,31 +58,40 @@ def create_audiobook(body: AudiobookCreate, user: CurrentUser, db: DB):
     )
     db.add(book)
     db.commit()
-    job = jobs.create_job(db, user.id, "audiobook", f"{body.tone} narration of “{doc.title}”", ref_id=book.id)
-    selected = body.chapter_indexes
+    config = {"book_id": book.id, "document_id": doc.id, "tone": body.tone, "selected": body.chapter_indexes}
+    job = jobs.create_job(db, user.id, "audiobook", f"{body.tone} narration of “{doc.title}”", ref_id=book.id, config=config)
+    jobs.submit(job.id, _audiobook_runner(config))
+    return {"audiobook": audiobook_out(book), "job_id": job.id}
+
+
+def _audiobook_runner(config: dict):
+    """Build the job function from its saved settings, so it can be retried or resumed after a restart."""
+    book_id, document_id, tone, selected = config["book_id"], config["document_id"], config["tone"], config.get("selected")
 
     def run(ctx: jobs.JobContext) -> dict:
         ctx.update("Extracting text", 10)
         with SessionLocal() as s:
-            d = s.get(Document, doc.id)
-            b = s.get(Audiobook, book.id)
+            d = s.get(Document, document_id)
+            b = s.get(Audiobook, book_id)
             chapters = [(c.position, c.title, c.content) for c in d.chapters if selected is None or c.position in selected]
             ctx.update("Splitting chapters", 30)
             script, chapter_scripts = [], []
             total = 0
             for i, ch in enumerate(chapters):
-                part, secs = narration.build_script([ch], body.tone)
+                part, secs = narration.build_script([ch], tone)
                 chapter_scripts.extend(part)
                 total += secs
-                ctx.update(f"Generating {body.tone.lower()} narration · chapter {i + 1} of {len(chapters)}", 30 + 60 * (i + 1) / max(1, len(chapters)))
+                ctx.update(f"Generating {tone.lower()} narration · chapter {i + 1} of {len(chapters)}", 30 + 60 * (i + 1) / max(1, len(chapters)))
             script = chapter_scripts
             ctx.update("Finalizing", 95)
             b.script, b.duration_seconds, b.status = script, total, "ready"
             s.commit()
             return {"audiobook_id": b.id, "chapters": len(script), "duration_seconds": total}
 
-    jobs.submit(job.id, run)
-    return {"audiobook": audiobook_out(book), "job_id": job.id}
+    return run
+
+
+jobs.register("audiobook", _audiobook_runner)
 
 
 @router.get("/audiobooks/{book_id}")

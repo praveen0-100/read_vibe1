@@ -16,11 +16,22 @@ import logging
 
 from ..config import get_settings
 from ..models import Document
-from . import ai, directions, languages, llm, nlp, translate, tts
+from . import ai, directions, languages, llm, nlp, provenance, translate, tts
 
 log = logging.getLogger("readvibe.overview")
 
 FORMATS = ("conversation", "narrative")
+
+# Editorial templates built on the same source intelligence and voices. `turns` scales the script length; `brief` is the
+# instruction added to the generation prompt so each style has a different job, not just a different length.
+STYLES = {
+    "deep_dive": {"label": "Deep Dive", "scale": 1.0, "brief": "Explore the material in depth: background, the key concepts, the evidence the text gives, a worked example and the implications."},
+    "brief": {"label": "Brief", "scale": 0.4, "brief": "Give only the essential findings, as concisely as possible. No digressions."},
+    "critique": {"label": "Critique", "scale": 0.8, "brief": "Evaluate the document: its strongest arguments, its weaknesses, what is assumed but not shown, and what is missing. Stay fair and ground every criticism in the text."},
+    "debate": {"label": "Debate", "scale": 0.9, "brief": "The hosts take opposing viewpoints that the text itself supports or raises, argue them respectfully, and end by stating what the evidence does and does not settle."},
+    "lecture": {"label": "Lecture", "scale": 1.0, "brief": "Teach progressively: define terms first, build from simple to complex, give examples, and close with a short recap."},
+    "revision": {"label": "Revision Audio", "scale": 0.7, "brief": "Exam-revision style: the tutor states the key points, the learner asks recall questions, and the tutor confirms and corrects. End with a rapid summary."},
+}
 
 
 class OverviewError(Exception):
@@ -59,7 +70,7 @@ _SYSTEM = (
 )
 
 
-def _prompt(lang: languages.Language, fmt: str, title: str, doc_title: str, text: str, turns: tuple[int, int]) -> str:
+def _prompt(lang: languages.Language, fmt: str, title: str, doc_title: str, text: str, turns: tuple[int, int], style: str = "deep_dive") -> str:
     if fmt == "conversation":
         shape = (
             "FORMAT — a conversation between two hosts. host_a is curious and asks the questions a thoughtful listener "
@@ -82,6 +93,7 @@ def _prompt(lang: languages.Language, fmt: str, title: str, doc_title: str, text
         "if a line should sound a certain way (warm, excited, curious, serious, gentle, whisper …) set its emotion field instead; "
         "the voice will act it, and nothing in the text is read out except words a person would say.\n"
         f"{shape}\n"
+        f"STYLE — {STYLES[style]['label']}. {STYLES[style]['brief']} Only claim what the document supports.\n"
         f"LENGTH — {turns[0]}–{turns[1]} turns. Each turn is at most 3 short sentences (under 60 words) so it can be spoken "
         "in one natural breath.\n\n"
         f"<document>\n{text}\n</document>"
@@ -201,15 +213,15 @@ def humanise(turns: list[dict], code: str) -> list[dict]:
     return out
 
 
-def _cache_path(doc: Document, chapter_index: int | None, code: str, fmt: str):
+def _cache_path(doc: Document, chapter_index: int | None, code: str, fmt: str, style: str = "deep_dive"):
     stamp = doc.updated_at.isoformat() if doc.updated_at else ""
-    key = hashlib.sha1(f"v2|{doc.id}|{stamp}|{chapter_index}|{code}|{fmt}|{llm.available()}".encode()).hexdigest()
+    key = hashlib.sha1(f"v3|{doc.id}|{stamp}|{chapter_index}|{code}|{fmt}|{style}|{llm.available()}".encode()).hexdigest()
     folder = get_settings().storage_dir / "overviews"
     folder.mkdir(parents=True, exist_ok=True)
     return folder / f"{key}.json"
 
 
-def generate(doc: Document, chapter_index: int | None, language: str, fmt: str) -> dict:
+def generate(doc: Document, chapter_index: int | None, language: str, fmt: str, style: str = "deep_dive") -> dict:
     lang = languages.BY_CODE.get((language or "").lower())
     if lang is None:
         raise OverviewError(f"“{language}” isn’t a supported language")
@@ -218,7 +230,9 @@ def generate(doc: Document, chapter_index: int | None, language: str, fmt: str) 
     if fmt not in FORMATS:
         raise OverviewError(f"Unknown format “{fmt}”")
 
-    path = _cache_path(doc, chapter_index, lang.code, fmt)
+    if style not in STYLES:
+        raise OverviewError(f"Unknown style “{style}”")
+    path = _cache_path(doc, chapter_index, lang.code, fmt, style)
     if path.exists():
         return json.loads(path.read_text("utf-8"))
 
@@ -230,9 +244,10 @@ def generate(doc: Document, chapter_index: int | None, language: str, fmt: str) 
     raw_turns: list[dict] | None = None
     overview_title = title
     if llm.available():
-        span = (14, 20) if chapter_index is not None else (22, 32)
+        base = (14, 20) if chapter_index is not None else (22, 32)
+        span = tuple(max(4, round(n * STYLES[style]["scale"])) for n in base)
         try:
-            data = llm.complete_json(_SYSTEM, _prompt(lang, fmt, title, doc.title, ai._trim(text, 6000), span), _SCHEMA, max_tokens=9000)
+            data = llm.complete_json(_SYSTEM, _prompt(lang, fmt, title, doc.title, ai._trim(text, 6000), span, style), _SCHEMA, max_tokens=9000)
             raw_turns = data.get("turns", [])
             overview_title = (data.get("title") or title).strip()
         except llm.LLMUnavailable as exc:
@@ -287,12 +302,16 @@ def generate(doc: Document, chapter_index: int | None, language: str, fmt: str) 
         "language_name": lang.name,
         "native": lang.native,
         "format": fmt,
+        "style": style,
+        "style_label": STYLES[style]["label"],
         "title": overview_title,
         "engine": engine,
         "hosts": {k: v for k, v in hosts.items() if (k == "narrator") == (fmt == "narrative")},
         "turns": turns,
         "minutes": max(1, round(words / 125)),
         "note": note,
+        # every statement is checked against the source: grounded turns carry source_refs (chapter, paragraph, page)
+        "verification": provenance.ground_turns(doc, turns) if doc_lang == lang.code else {"claim_turns": 0, "grounded_turns": 0, "score": None, "note": "Checking is lexical, so it only runs when the overview is in the document own language."},
     }
     if not degraded:
         path.write_text(json.dumps(result, ensure_ascii=False), "utf-8")

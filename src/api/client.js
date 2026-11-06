@@ -66,7 +66,7 @@ async function parseError(res) {
   return new ApiError(message, res.status, data);
 }
 
-export async function request(path, { method = 'GET', body, query, signal, raw = false, retry } = {}) {
+export async function request(path, { method = 'GET', body, query, signal, raw = false, retry, headers: extraHeaders } = {}) {
   const url = new URL(`${API_BASE}${path}`, window.location.origin);
   if (query) Object.entries(query).forEach(([k, v]) => v !== undefined && v !== null && v !== '' && url.searchParams.set(k, v));
   const isForm = body instanceof FormData;
@@ -83,7 +83,7 @@ export async function request(path, { method = 'GET', body, query, signal, raw =
       res = await fetch(url, {
         method,
         signal: timeout.signal,
-        headers: authHeaders(body && !isForm ? { 'Content-Type': 'application/json' } : {}),
+        headers: authHeaders({ ...(body && !isForm ? { 'Content-Type': 'application/json' } : {}), ...extraHeaders }),
         body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
       });
       if (!RETRY_STATUS.has(res.status)) { setWaking(false); break; }
@@ -115,10 +115,10 @@ export async function request(path, { method = 'GET', body, query, signal, raw =
 }
 
 /** Upload with progress events (fetch has no upload progress). */
-export function upload(path, formData, onProgress) {
+export function upload(path, formData, onProgress, method = 'POST') {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${API_BASE}${path}`);
+    xhr.open(method, `${API_BASE}${path}`);
     const token = tokenStore.get();
     if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(Math.round((e.loaded / e.total) * 100));
@@ -132,6 +132,12 @@ export function upload(path, formData, onProgress) {
     xhr.onerror = () => reject(new ApiError('Upload failed — the server is unreachable.', 0));
     xhr.send(formData);
   });
+}
+
+/** A protected binary (cover art) as a Blob — <img> tags cannot send the auth header themselves. */
+export async function fetchBlob(path) {
+  const res = await request(path, { raw: true });
+  return res.blob();
 }
 
 /** Download a protected file and hand it to the browser as a save. */
@@ -170,7 +176,16 @@ const get = (p, query, opts) => {
   promise.catch(() => reads.delete(key));
   return promise.then((d) => (d && typeof d === 'object' ? structuredClone(d) : d));
 };
-const write = (method) => (p, body) => { invalidateCache(); return request(p, { method, body }); };
+const write = (method) => (p, body, opts) => { invalidateCache(); return request(p, { method, body, ...opts }); };
+
+/** Same request within the same 15 s window => same key, so a double-click or a retry never starts a second generation job. */
+const idempotencyKey = (scope, body) => {
+  let h = 5381;
+  const text = `${scope}|${JSON.stringify(body)}|${Math.floor(Date.now() / 15000)}`;
+  for (let i = 0; i < text.length; i += 1) h = ((h * 33) ^ text.charCodeAt(i)) >>> 0;
+  return `rv-${h.toString(36)}-${text.length}`;
+};
+const postOnce = (scope) => (p, body) => post(p, body, { headers: { 'Idempotency-Key': idempotencyKey(scope + p, body) } });
 const post = write('POST');
 const put = write('PUT');
 const patch = write('PATCH');
@@ -181,6 +196,11 @@ export const api = {
 
   auth: {
     login: (email, password) => post('/auth/login', { email, password }),
+    verifyMfa: (mfa_token, code) => post('/auth/2fa/verify', { mfa_token, code }),
+    security: () => get('/auth/security'),
+    mfaSetup: () => post('/auth/2fa/setup'),
+    mfaEnable: (code) => post('/auth/2fa/enable', { code }),
+    mfaDisable: (code, password) => post('/auth/2fa/disable', { code, password }),
     register: (name, email, password) => post('/auth/register', { name, email, password }),
     demo: () => post('/auth/demo'),
     config: () => get('/auth/config'),
@@ -216,6 +236,11 @@ export const api = {
     chapter: (id, index) => get(`/documents/${id}/chapters/${index}`),
     package: (id) => get(`/documents/${id}/package`),
     downloadFile: (id) => download(`/documents/${id}/file`),
+    render: (id) => get(`/documents/${id}/render`),
+    report: (id, data) => post(`/documents/${id}/reports`, data),
+    outline: (id) => get(`/documents/${id}/outline`),
+    setCover: (id, file) => { const fd = new FormData(); fd.append('file', file, file.name || 'cover'); return upload(`/documents/${id}/cover`, fd, undefined, 'PUT'); },
+    removeCover: (id) => del(`/documents/${id}/cover`),
     progress: (id, data) => put(`/documents/${id}/progress`, data),
     search: (id, q) => get(`/documents/${id}/search`, { q }),
     highlights: (id) => get(`/documents/${id}/highlights`),
@@ -268,8 +293,9 @@ export const api = {
   decks: {
     list: () => get('/decks'),
     get: (id) => get(`/decks/${id}`),
+    ask: (id, data) => post(`/decks/${id}/ask`, data),
     /** From a library document. */
-    create: (data) => post('/decks', data),
+    create: (data) => postOnce('deck')('/decks', data),
     /** From any readable file (TXT, MD, DOCX, PDF, XML, HTML, EPUB, PPTX…), without adding it to the library. */
     upload: (file, opts, onProgress) => {
       const fd = new FormData();
@@ -286,7 +312,7 @@ export const api = {
     tones: () => get('/audio/tones'),
     preview: (tone, text) => post('/audio/preview', { tone, text }),
     list: () => get('/audio/audiobooks'),
-    create: (data) => post('/audio/audiobooks', data),
+    create: (data) => postOnce('audio')('/audio/audiobooks', data),
     get: (id) => get(`/audio/audiobooks/${id}`),
     update: (id, data) => patch(`/audio/audiobooks/${id}`, data),
     remove: (id) => del(`/audio/audiobooks/${id}`),
@@ -358,11 +384,33 @@ export const api = {
     forgetAll: () => request('/agent/memories', { method: 'DELETE' }),
   },
 
+  study: {
+    queue: (params) => get('/study/queue', params),
+    stats: () => get('/study/stats'),
+    review: (id, grade) => post(`/study/cards/${id}/review`, { grade }),
+    create: (data) => post('/study/cards', data),
+    fromHighlights: (document_id) => post('/study/from-highlights', { document_id, count: 40 }),
+    fromDocument: (document_id, count = 10) => post('/study/from-document', { document_id, count }),
+    suspend: (id) => patch(`/study/cards/${id}`, { suspended: true }),
+    remove: (id) => del(`/study/cards/${id}`),
+  },
+  playback: {
+    state: () => get('/playback/state'),
+    saveState: (body) => put('/playback/state', body),
+  },
+  lookup: (term, lang = 'en') => get('/lookup', { term, lang }),
+  research_verify: (data) => post('/research/verify', data),
+  research_graph: (data) => post('/research/graph', data),
+  sources: {
+    artifacts: (documentId) => get(`/sources/${documentId}/artifacts`),
+  },
   activity: {
     logSession: (data) => post('/sessions', data),
     stats: () => get('/stats', { tz_offset: new Date().getTimezoneOffset() }),
     search: (q, signal) => get('/search', { q }, { signal }),
     jobs: (active) => get('/jobs', { active }),
+    cancelJob: (id) => post(`/jobs/${id}/cancel`),
+    retryJob: (id) => post(`/jobs/${id}/retry`),
     job: (id) => get(`/jobs/${id}`),
     markSeen: () => post('/jobs/mark-seen'),
     clearJobs: () => del('/jobs'),

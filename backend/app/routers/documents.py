@@ -8,7 +8,7 @@ from sqlalchemy import func, or_, select
 
 from ..config import get_settings
 from ..deps import DB, CurrentUser, get_owned, get_owned_document
-from ..models import Audiobook, Bookmark, Chapter, Document, Highlight, Sketch, utcnow
+from ..models import Audiobook, Bookmark, Chapter, Document, ExtractionReport, Highlight, Sketch, utcnow
 from ..schemas import (
     BookmarkCreate,
     CastIn,
@@ -17,10 +17,11 @@ from ..schemas import (
     HighlightCreate,
     HighlightUpdate,
     ProgressUpdate,
+    ReportIn,
     SketchCreate,
 )
-from ..serializers import bookmark_out, document_out, highlight_out, sketch_out
-from ..services import cast, extraction, ingest, recommend, storage
+from ..serializers import bookmark_out, document_out, highlight_out, iso, sketch_out
+from ..services import cast, covers, provenance, render, extraction, ingest, recommend, storage
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -130,6 +131,7 @@ def update_document(document_id: str, body: DocumentUpdate, user: CurrentUser, d
 def delete_document(document_id: str, user: CurrentUser, db: DB):
     doc = get_owned_document(db, user, document_id)
     storage.delete(doc.file_path)
+    storage.delete(doc.cover_path)
     db.delete(doc)
     db.commit()
 
@@ -150,7 +152,8 @@ def get_chapter(document_id: str, index: int, user: CurrentUser, db: DB):
     ch = db.scalar(select(Chapter).where(Chapter.document_id == doc.id, Chapter.position == index))
     if not ch:
         raise HTTPException(status_code=404, detail="Chapter not found")
-    return {"index": ch.position, "title": ch.title, "content": ch.content, "word_count": ch.word_count, "total": len(doc.chapters)}
+    return {"index": ch.position, "title": ch.title, "content": ch.content, "word_count": ch.word_count, "total": len(doc.chapters),
+            "page_start": ch.page_start, "page_end": ch.page_end, "paragraph_pages": ch.paragraph_pages}
 
 
 @router.get("/{document_id}/package")
@@ -165,6 +168,45 @@ def offline_package(document_id: str, user: CurrentUser, db: DB):
     }
 
 
+@router.get("/{document_id}/outline")
+def outline(document_id: str, user: CurrentUser, db: DB):
+    """Chapter tree with character offsets into the concatenated text, so a position can be stored as an offset."""
+    doc = get_owned_document(db, user, document_id)
+    offset, items = 0, []
+    for c in doc.chapters:
+        items.append({"index": c.position, "title": c.title, "level": 1, "start_offset": offset, "chars": len(c.content), "page_start": c.page_start})
+        offset += len(c.content)
+    return {"items": items, "total_chars": offset}
+
+
+@router.post("/{document_id}/reports", status_code=201)
+def report_extraction_error(document_id: str, body: ReportIn, user: CurrentUser, db: DB):
+    doc = get_owned_document(db, user, document_id)
+    r = ExtractionReport(owner_id=user.id, document_id=doc.id, chapter_index=body.chapter_index, text=body.text, kind=body.kind, comment=body.comment)
+    db.add(r)
+    db.commit()
+    return {"id": r.id, "kind": r.kind, "created_at": iso(r.created_at)}
+
+
+@router.get("/{document_id}/render")
+def render_original(document_id: str, user: CurrentUser, db: DB):
+    """The uploaded file shown as written (DOCX / text / Markdown). PDFs are displayed by the browser from /file."""
+    doc = get_owned_document(db, user, document_id)
+    if not doc.file_path or not render.can_render(doc.file_format):
+        raise HTTPException(status_code=404, detail="There is no original view for this kind of document")
+    path = storage.resolve(doc.file_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File missing from storage")
+    return render.render(path, doc.file_format)
+
+
+@router.get("/{document_id}/locate")
+def locate(document_id: str, user: CurrentUser, db: DB, chapter: int = Query(ge=0), paragraph: int = Query(ge=0)):
+    """SourceLocator for one paragraph: chapter, paragraph and (for PDFs) the original page."""
+    doc = get_owned_document(db, user, document_id)
+    return provenance.locator(doc, chapter, paragraph)
+
+
 @router.get("/{document_id}/file")
 def download_file(document_id: str, user: CurrentUser, db: DB):
     doc = get_owned_document(db, user, document_id)
@@ -174,6 +216,40 @@ def download_file(document_id: str, user: CurrentUser, db: DB):
     if not path.exists():
         raise HTTPException(status_code=404, detail="File missing from storage")
     return FileResponse(path, filename=f"{storage.safe_name(doc.title)}.{doc.file_format.lower()}")
+
+
+@router.get("/{document_id}/cover")
+def get_cover(document_id: str, user: CurrentUser, db: DB):
+    doc = get_owned_document(db, user, document_id)
+    path = storage.resolve(doc.cover_path) if doc.cover_path else None
+    if not path or not path.exists():
+        raise HTTPException(status_code=404, detail="This document has no cover image")
+    media = covers.MEDIA_TYPES.get(path.suffix.lstrip(".").lower(), "application/octet-stream")
+    return FileResponse(path, media_type=media, headers={"Cache-Control": "private, max-age=3600"})
+
+
+@router.put("/{document_id}/cover")
+async def set_cover(document_id: str, user: CurrentUser, db: DB, file: UploadFile = File(...)):
+    """Custom artwork (highest priority in the cover hierarchy). The bytes are sniffed, not trusted by name."""
+    doc = get_owned_document(db, user, document_id)
+    data = await file.read(covers.MAX_COVER_BYTES + 1)
+    try:
+        new_path = covers.save_cover(user.id, doc.id, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=415 if "must be a" in str(exc) else 413, detail=str(exc)) from exc
+    if doc.cover_path and doc.cover_path != new_path:
+        storage.delete(doc.cover_path)
+    doc.cover_path = new_path
+    db.commit()
+    return document_out(doc, with_chapters=False)
+
+
+@router.delete("/{document_id}/cover", status_code=204)
+def delete_cover(document_id: str, user: CurrentUser, db: DB):
+    doc = get_owned_document(db, user, document_id)
+    storage.delete(doc.cover_path)
+    doc.cover_path = None
+    db.commit()
 
 
 @router.put("/{document_id}/progress")
@@ -228,7 +304,7 @@ def list_highlights(document_id: str, user: CurrentUser, db: DB):
 @router.post("/{document_id}/highlights", status_code=201)
 def create_highlight(document_id: str, body: HighlightCreate, user: CurrentUser, db: DB):
     doc = get_owned_document(db, user, document_id)
-    h = Highlight(owner_id=user.id, document_id=doc.id, **body.model_dump())
+    h = Highlight(owner_id=user.id, document_id=doc.id, **{**body.model_dump(exclude={"marks"}), "marks": body.marks.model_dump(exclude_none=True) if body.marks else {}})
     db.add(h)
     db.commit()
     return highlight_out(h)
@@ -238,6 +314,8 @@ def create_highlight(document_id: str, body: HighlightCreate, user: CurrentUser,
 def update_highlight(highlight_id: str, body: HighlightUpdate, user: CurrentUser, db: DB):
     h = get_owned(db, Highlight, user, highlight_id, "Highlight")
     for k, v in body.model_dump(exclude_unset=True).items():
+        if k == "marks":
+            v = {m: c for m, c in (v or {}).items() if c}  # a null colour removes that style
         setattr(h, k, v)
     db.commit()
     return highlight_out(h)

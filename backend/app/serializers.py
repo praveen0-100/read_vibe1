@@ -44,6 +44,8 @@ def chapter_meta(ch: Chapter) -> dict:
         "title": ch.title,
         "word_count": ch.word_count,
         "minutes": max(1, round(ch.word_count / WORDS_PER_MINUTE)),
+        "page_start": ch.page_start,
+        "page_end": ch.page_end,
     }
 
 
@@ -68,6 +70,8 @@ def document_out(doc: Document, *, with_chapters: bool = True, audio_ready: bool
         "word_count": doc.word_count,
         "file_size": doc.file_size,
         "has_file": bool(doc.file_path),
+        "has_cover": bool(doc.cover_path),
+        "has_original_view": bool(doc.file_path) and (doc.file_format.upper() == "PDF" or doc.file_format.lower() in ("docx", "txt", "md", "markdown", "log", "rst", "tex")),
         "favorite": doc.favorite,
         "pinned": doc.pinned,
         "offline": doc.offline,
@@ -107,6 +111,8 @@ def highlight_out(h: Highlight) -> dict:
         "text": h.text,
         "category": h.category,
         "note": h.note,
+        "marks": {k: v for k, v in (h.marks or {}).items() if v},
+        "pinned": bool(h.pinned),
         "created_at": iso(h.created_at),
     }
 
@@ -152,6 +158,8 @@ def job_out(j: Job) -> dict:
         "result": j.result,
         "error": j.error,
         "seen": j.seen,
+        "attempts": j.attempts or 1,
+        "retryable": j.status in ("failed", "cancelled") and bool(j.config),
         "created_at": iso(j.created_at),
         "updated_at": iso(j.updated_at),
     }
@@ -180,6 +188,7 @@ def audiobook_out(a: Audiobook, *, with_script: bool = False, doc: Document | No
             for i, c in enumerate(a.script or [])
         ],
         "color": doc.color if doc else "coral",
+        "document_has_cover": bool(doc and doc.cover_path),
         "created_at": iso(a.created_at),
     }
     if with_script:

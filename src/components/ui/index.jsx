@@ -5,6 +5,7 @@ import { AlertCircle, AlertTriangle, ArrowRight, Check, Info, RotateCcw, X } fro
 import { useApp } from '../../context/AppContext';
 import { useClickOutside } from '../../hooks/useAsync';
 import { coverSymbol } from '../../lib/format';
+import { useCoverUrl } from '../../lib/covers';
 
 // ─── Toasts ───────────────────────────────────────────────────────────────────
 export function Toasts() {
@@ -264,19 +265,22 @@ export function SectionHead({ eyebrow, title, actionLabel, onAction, children })
 }
 
 export function Cover({ doc, size = 'md' }) {
+  const coverUrl = useCoverUrl(doc?.has_cover ? doc.id : null);
   const lastName = (doc?.author || '').split(' ').slice(-1)[0];
   if (size === 'lg') {
     return (
       <div className={`book-cover cover-${doc?.color || 'coral'}`} aria-hidden="true">
-        <div className="cover-symbol">{coverSymbol(doc)}</div>
-        <small>{(doc?.title || '').toUpperCase().slice(0, 40)}</small>
-        <b>{lastName.toUpperCase()}</b>
+        {coverUrl ? <img className="cover-img" src={coverUrl} alt="" draggable={false} /> : <>
+          <div className="cover-symbol">{coverSymbol(doc)}</div>
+          <small>{(doc?.title || '').toUpperCase().slice(0, 40)}</small>
+          <b>{lastName.toUpperCase()}</b>
+        </>}
       </div>
     );
   }
   return (
     <div className={`mini-cover mini-cover-${size} cover-${doc?.color || 'coral'}`} aria-hidden="true">
-      <span>{coverSymbol(doc)}</span>
+      {coverUrl ? <img className="cover-img" src={coverUrl} alt="" draggable={false} /> : <span>{coverSymbol(doc)}</span>}
     </div>
   );
 }

@@ -9,6 +9,8 @@ export const DEFAULT_PREFS = {
     lineHeight: 1.42,
     width: 'comfortable', // narrow | comfortable | wide
     paragraphSpacing: 1.1,
+    letterSpacing: 0, // em, 0–0.12
+    aboutBook: true, // show a short "About this book" card the first time a book is opened
     align: 'justify', // left | justify
     paper: 'paper', // white | paper | sepia | night | contrast
     focusLine: false,
@@ -37,6 +39,8 @@ export const DEFAULT_PREFS = {
     sleepTimer: 0,
     autoAdvance: true,
   },
+  // Independent language choices (each 'auto' / 'orig' = follow the document or the language you type in)
+  languages: { reader: 'orig', narration: 'orig', ai: 'auto', overview: 'ta' },
   zen: { preset: 'rainy_library', volume: 55, focusMinutes: 25, breakMinutes: 5, mix: { rain: 70 } },
   vibe: { preset: 'midnight', volume: 60, contrast: 85, intensity: 70, savedCombos: [] },
   notifications: { jobs: true, focusEnd: true },

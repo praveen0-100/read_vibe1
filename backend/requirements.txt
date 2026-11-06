@@ -16,3 +16,4 @@ requests>=2.32
 psycopg[binary]>=3.2
 python-pptx>=1.0
 Pillow>=10.0
+cryptography>=42

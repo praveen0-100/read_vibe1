@@ -60,7 +60,7 @@ export function AlbumGrid({ books, playingId, playing, onPlay, onGenerate, onDel
           return (
             <div key={b.id} className="album-card">
               <div className="art-wrap">
-                <AlbumArt title={b.title} kicker={`${b.tone} narration`} color={b.color} playing={isNow && playing} className="hoverable" />
+                <AlbumArt title={b.title} kicker={`${b.tone} narration`} color={b.color} cover={b.document_has_cover ? b.document_id : null} playing={isNow && playing} className="hoverable" />
                 {b.status === 'ready' && <button className="play-fab" onClick={() => onPlay(b.id)} aria-label={`Play ${b.title}`}><Play size={18} fill="currentColor" /></button>}
               </div>
               <div className="meta">
@@ -125,7 +125,7 @@ export function PlaylistsView({ books, playingId, playing, onPlay, onNewPlaylist
               <div key={b.id} className={`q-row ${b.id === playingId ? 'current' : ''}`}>
                 <span className="q-dur" style={{ width: 20, textAlign: 'center' }}>{i + 1}</span>
                 <button className="q-main" onClick={() => onPlay(queueActions.playAll(items.slice(i)))}>
-                  <span className="q-art"><AlbumArt title={b.title} color={b.color} size="sm" playing={b.id === playingId && playing} bare /></span>
+                  <span className="q-art"><AlbumArt title={b.title} color={b.color} cover={b.document_has_cover ? b.document_id : null} size="sm" playing={b.id === playingId && playing} bare /></span>
                   <span><strong>{b.title}</strong><small>{b.tone} narration</small></span>
                 </button>
                 <span className="q-dur">{formatDuration(b.duration_seconds)}</span>

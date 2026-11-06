@@ -2,16 +2,18 @@
 import re
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
+from typing import Annotated
+
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy import select
 
 from ..database import SessionLocal
 from ..deps import DB, CurrentUser, get_owned, get_owned_document
 from ..models import Deck, Document
-from ..schemas import DeckCreate, DeckStyle, DeckTheme, DeckUpdate
+from ..schemas import AskSlideIn, DeckCreate, DeckStyle, DeckTheme, DeckUpdate
 from ..serializers import iso
-from ..services import art, deck as deck_svc, extraction, jobs, pptx_export
+from ..services import art, deck as deck_svc, extraction, idempotency, jobs, pptx_export, presenter
 
 router = APIRouter(prefix="/decks", tags=["decks"])
 
@@ -75,7 +77,15 @@ def list_decks(user: CurrentUser, db: DB):
 
 
 @router.post("", status_code=status.HTTP_202_ACCEPTED)
-def create_from_document(body: DeckCreate, user: CurrentUser, db: DB):
+def create_from_document(body: DeckCreate, user: CurrentUser, db: DB, response: Response, idempotency_key: Annotated[str | None, Header()] = None):
+    """Starts deck generation; an Idempotency-Key header makes retries safe."""
+    data, replayed = idempotency.run(db, user.id, idempotency_key, "deck", body.model_dump(), lambda: _create_deck(body, user, db))
+    if replayed:
+        response.headers["Idempotent-Replay"] = "true"
+    return data
+
+
+def _create_deck(body: DeckCreate, user, db) -> dict:
     doc = get_owned_document(db, user, body.document_id)
     if doc.status != "ready":
         raise HTTPException(status_code=409, detail="The document is still processing")
@@ -161,6 +171,16 @@ def update_deck(deck_id: str, body: DeckUpdate, user: CurrentUser, db: DB):
 def delete_deck(deck_id: str, user: CurrentUser, db: DB):
     db.delete(get_owned(db, Deck, user, deck_id, "Presentation"))
     db.commit()
+
+
+@router.post("/{deck_id}/ask")
+def ask_about_slide(deck_id: str, body: AskSlideIn, user: CurrentUser, db: DB):
+    """Audience Q&A while presenting: answered from the slide on screen and the deck's source document, with citations."""
+    deck = get_owned(db, Deck, user, deck_id, "Deck")
+    doc = db.get(Document, deck.document_id) if deck.document_id else None
+    if doc is not None and doc.owner_id != user.id:
+        doc = None
+    return presenter.answer(deck, doc, body.slide_index, body.question.strip(), body.language)
 
 
 @router.get("/{deck_id}/export.pptx")

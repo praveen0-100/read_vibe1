@@ -2,7 +2,7 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
-  BookOpen, Brain, Compass, FileText, Headphones, Home, Library, LogOut, Menu as MenuIcon, Moon,
+  BookOpen, Brain, Compass, FileText, GraduationCap, Headphones, Home, Library, LogOut, Menu as MenuIcon, Moon,
   Presentation, Search, Settings, Sparkles, Sun, User, WifiOff,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
@@ -20,6 +20,7 @@ export const NAV_ITEMS = [
   { to: '/audio', label: 'Audio Studio', icon: Headphones },
   { to: '/decks', label: 'Presentations', icon: Presentation },
   { to: '/research', label: 'Research', icon: Brain },
+  { to: '/study', label: 'Study', icon: GraduationCap },
   { to: '/notes', label: 'Notebook', icon: FileText },
 ];
 

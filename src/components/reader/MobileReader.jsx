@@ -4,7 +4,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, AudioLines, BookOpen, Bookmark, BookmarkCheck, CloudDownload, Download, Headphones, LayoutGrid, List, MoreHorizontal, Moon, Search,
-  Sparkles, StickyNote, Trash2, Type, WifiOff, X, ChevronUp, SlidersHorizontal,
+  Sparkles, StickyNote, Trash2, Type, WifiOff, X, ChevronUp, SlidersHorizontal, Rows3,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { READING_FONTS } from '../../lib/prefs';
@@ -14,6 +14,7 @@ import { Menu } from '../ui';
 import ChapterText from './ChapterText';
 import { DocSearch, categoryColor } from './ReaderTools';
 import ListenSheet from './ListenSheet';
+import PageGrid from './PageGrid';
 
 const PAD = 22; // horizontal page margin (px)
 const GAP = PAD * 2; // column gap, wide enough that neighbouring pages never peek in
@@ -187,6 +188,8 @@ export default function MobileReader({
   const [chrome, setChrome] = useState(true); // toolbars are visible on entering the reader, like other PDF/document readers
   const [sheet, setSheet] = useState(null); // 'display' | 'contents' | 'listen'
   const [scrub, setScrub] = useState(null);
+  const [backTo, setBackTo] = useState(null); // page to return to after jumping around ("Back to 98")
+  const [footMode, setFootMode] = useState(() => { try { return Number(localStorage.getItem('rv.footmode')) || 0; } catch { return 0; } });
   const lastChapter = useRef(null);
   const lastKey = useRef('');
 
@@ -231,7 +234,7 @@ export default function MobileReader({
   }, [pageOfRect]); // eslint-disable-line
 
   // ─── Paginate (and land on the right page) ────────────────────────────────
-  const typography = `${r.font}|${r.fontSize}|${r.lineHeight}|${r.paragraphSpacing}|${r.align}`;
+  const typography = `${r.font}|${r.fontSize}|${r.lineHeight}|${r.paragraphSpacing}|${r.align}|${r.letterSpacing || 0}`;
   useLayoutEffect(() => {
     const flow = flowEl();
     if (!chapter || !flow || !dims.w || !dims.h) return;
@@ -384,8 +387,9 @@ export default function MobileReader({
     return { weights, total, before, totalPages, frac, globalPage: clamp(Math.round(frac * totalPages) + 1, 1, totalPages) };
   }, [doc.chapters, chapterIndex, page, pages]);
 
-  const commitScrub = (value) => {
+  const commitScrub = (value, { remember = true } = {}) => {
     setScrub(null);
+    if (remember && Math.abs(value - progress.globalPage) > 1) setBackTo(progress.globalPage); else if (!remember) setBackTo(null);
     const pos = ((value - 1) / progress.totalPages) * progress.total;
     let acc = 0;
     let ci = 0;
@@ -399,7 +403,16 @@ export default function MobileReader({
   };
 
   const pagesLeft = pages - page - 1;
-  const leftLabel = pagesLeft <= 0 ? 'Last page of chapter' : `${pagesLeft} page${pagesLeft === 1 ? '' : 's'} left in chapter`;
+  const chapterMinutes = Math.max(0, doc.chapters?.[chapterIndex]?.minutes || 0);
+  const minsLeft = Math.max(1, Math.ceil(chapterMinutes * (Math.max(0, pagesLeft) / Math.max(1, pages))));
+  const locTotal = Math.max(1, Math.ceil((doc.word_count || progress.total) / 110));
+  const pagesLabel = pagesLeft <= 0 ? 'Last page of chapter' : `${pagesLeft} page${pagesLeft === 1 ? '' : 's'} left in chapter`;
+  const leftLabel = [
+    progress.globalPage <= 1 && chapterIndex === 0 ? 'Learning reading speed' : pagesLeft <= 0 ? 'Last page of chapter' : `${minsLeft} min${minsLeft === 1 ? '' : 's'} left in chapter`,
+    `Location ${Math.max(1, Math.round(progress.frac * locTotal))} of ${locTotal}`,
+    pagesLabel,
+  ][footMode % 3];
+  const cycleFoot = () => setFootMode((m) => { const n = (m + 1) % 3; try { localStorage.setItem('rv.footmode', String(n)); } catch { /* private mode */ } return n; });
   const percent = Math.round(progress.frac * 100);
 
   // ─── Bookmark helpers ─────────────────────────────────────────────────────
@@ -429,6 +442,7 @@ export default function MobileReader({
     '--read-size': `${r.fontSize}px`,
     '--read-lh': r.lineHeight,
     '--read-gap': `${r.paragraphSpacing}em`,
+    '--read-ls': `${r.letterSpacing || 0}em`,
     '--read-align': r.align,
     width: dims.w || undefined,
     height: dims.h || undefined,
@@ -464,10 +478,15 @@ export default function MobileReader({
       </div>
       <div className="mr-leafhost" ref={leafHost} aria-hidden="true" />
 
+      {!dk && <div className="mr-runtitle" aria-hidden="true">{(doc.title || '').toUpperCase()}</div>}
       <footer className="mr-foot" aria-live="off">
-        <span>{leftLabel}</span>
+        <button type="button" className="mr-foot-l" onClick={cycleFoot} title="Tap to change what is shown">{leftLabel}</button>
         <span>{percent}%</span>
       </footer>
+
+      {backTo != null && !sheet && (
+        <button className="mr-backto" onClick={() => commitScrub(backTo, { remember: false })}>Back to {backTo}</button>
+      )}
 
       {listen.playing && sheet !== 'listen' && (
         <button className="mr-nowplaying" onClick={() => setSheet('listen')} aria-label="Open player">
@@ -508,6 +527,7 @@ export default function MobileReader({
       {/* bottom chrome: contents + page scrubber */}
       <div className="mr-bar mr-bottom" aria-hidden={!chrome}>
         <button onClick={() => setSheet('contents')} aria-label="Contents" tabIndex={chrome ? 0 : -1}><List size={20} /></button>
+        <button onClick={() => setSheet('pages')} aria-label="Browse pages" tabIndex={chrome ? 0 : -1}><Rows3 size={20} /></button>
         {languageToggle}
         <input type="range" className="mr-scrub" min={1} max={progress.totalPages} value={scrub ?? progress.globalPage} aria-label="Page"
           tabIndex={chrome ? 0 : -1} style={{ '--fill': `${(((scrub ?? progress.globalPage) - 1) / Math.max(1, progress.totalPages - 1)) * 100}%` }}
@@ -531,6 +551,10 @@ export default function MobileReader({
       )}
 
       {sheet === 'display' && <DisplaySheet onClose={() => setSheet(null)} />}
+      {sheet === 'pages' && (
+        <PageGrid doc={doc} chapterIndex={chapterIndex} weights={progress.weights} total={progress.total} totalPages={progress.totalPages}
+          currentPage={progress.globalPage} onClose={() => setSheet(null)} onGoPage={(n) => { setSheet(null); setChrome(false); commitScrub(n); }} />
+      )}
       {sheet === 'contents' && (
         <ContentsSheet doc={doc} chapterIndex={chapterIndex} bookmarks={bookmarks} highlights={allHighlights}
           onGo={goFromSheet} onDeleteBookmark={onDeleteBookmark} onClose={() => setSheet(null)} />

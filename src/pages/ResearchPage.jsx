@@ -7,6 +7,8 @@ import { useApp } from '../context/AppContext';
 import { useQuery } from '../hooks/useAsync';
 import { timeAgo } from '../lib/format';
 import { EmptyState, ErrorState, Menu, ProgressBar, Skeleton } from '../components/ui';
+import ClaimChecker from '../components/research/ClaimChecker';
+import KnowledgeGraph from '../components/research/KnowledgeGraph';
 
 const PIPELINE = ['Topic or sources', 'Discover papers', 'Include / exclude', 'Outline', 'Draft sections', 'Citation & similarity review', 'Export DOCX / PDF'];
 
@@ -101,6 +103,9 @@ export default function ResearchPage() {
             </div>
           ))}
         </section>
+
+        <ClaimChecker documents={docs.data || []} />
+        <KnowledgeGraph documents={docs.data || []} />
 
         <section className="research-card discover-card">
           <div className="section-top"><span className="eyebrow">HOW IT WORKS</span></div>

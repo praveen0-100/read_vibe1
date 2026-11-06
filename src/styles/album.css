@@ -209,3 +209,20 @@
 @media (prefers-reduced-motion: reduce) { .powerseek.is-playing .ps-bars i.on { animation: none; } }
 .reader-actions > .menu-wrap:first-child { margin-right: 6px; }
 .reader-actions .read-lang { padding: 0 6px; }
+
+/* ─── Global mini player (PlaybackHost) ─────────────────────────────────────── */
+.global-mini { position: fixed; z-index: 60; right: 84px; bottom: calc(var(--dock-h, 0px) + 14px); width: min(420px, calc(100vw - 24px)); }
+.global-mini:empty { display: none; }
+.global-mini .mini-now { position: relative; top: auto; margin: 0; }
+@media (max-width: 760px) { .global-mini { right: 12px; left: 12px; width: auto; bottom: calc(var(--dock-h, 0px) + 8px); } }
+
+.chapter-line { display: flex; align-items: center; gap: 2px; }
+.chapter-line .chapter-row { flex: 1; min-width: 0; }
+
+/* ─── Real artwork (EPUB cover / uploaded image) over the generated fallback ─── */
+.album-art .aa-cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center top; z-index: 1; border-radius: inherit; background: var(--panel-2); }
+.album-art .aa-grain, .album-art .aa-sheen, .album-art .aa-eq { z-index: 2; }
+.book-cover, .mini-cover { position: relative; overflow: hidden; }
+.cover-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; border-radius: inherit; display: block; }
+.cover-edit { display: flex; align-items: center; gap: 16px; }
+.cover-edit .book-cover { width: 74px; height: 100px; padding: 8px; }

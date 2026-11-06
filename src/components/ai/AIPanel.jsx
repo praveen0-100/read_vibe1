@@ -84,7 +84,7 @@ function ChatView({ ctx, saveNote, openChapter, openTool, initialQuestion }) {
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
   const sentInitial = useRef(false);
-  const { notify } = useApp();
+  const { notify, prefs } = useApp();
   const speech = useQuery(() => api.transcribe.status(), []);
   const dictation = useDictation((text) => setInput((v) => (v ? `${v} ${text}` : text)), (msg) => notify(msg, 'error'));
 
@@ -103,6 +103,7 @@ function ChatView({ ctx, saveNote, openChapter, openTool, initialQuestion }) {
       const res = await api.agent.chat({
         document_id: ctx.documentId, chapter_index: ctx.chapterIndex, message: q,
         history: history.slice(-8).filter((m) => !m.error && m.role !== 'notice').map(({ role, content }) => ({ role, content })), selection: ctx.selection || null,
+        reply_language: prefs.languages?.ai && prefs.languages.ai !== 'auto' ? prefs.languages.ai : undefined,
       });
       setHistory([...next, {
         role: 'assistant', content: res.reply, citations: res.citations, engine: res.engine, affect: res.affect,

@@ -1,6 +1,7 @@
 // Square, animated album art — drifting aurora, film grain, moving sheen and glowing type.
 import React from 'react';
 import { ListMusic } from 'lucide-react';
+import { useCoverUrl } from '../../lib/covers';
 
 const hash = (s = '') => { let h = 2166136261; for (let i = 0; i < s.length; i += 1) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
 const unit = (h, n) => ((h >>> (n * 5)) & 31) / 31; // 0..1, independent per n
@@ -17,13 +18,16 @@ function variation(seed) {
   };
 }
 
-export default function AlbumArt({ title = '', kicker = '', color = 'coral', playing = false, size = 'md', bare = false, className = '' }) {
+/** `cover` = id of the document whose real cover to show; the generated art stays underneath as the fallback. */
+export default function AlbumArt({ title = '', kicker = '', color = 'coral', playing = false, size = 'md', bare = false, className = '', cover = null }) {
+  const coverUrl = useCoverUrl(cover);
   return (
     <div className={`album-art aa-${size} pal-${color} ${playing ? 'is-playing' : ''} ${className}`} style={variation(`${title}|${color}`)} aria-hidden="true">
       <i className="aa-blob b1" /><i className="aa-blob b2" /><i className="aa-blob b3" />
       <i className="aa-ring" />
+      {coverUrl && <img className="aa-cover" src={coverUrl} alt="" draggable={false} />}
       <i className="aa-grain" /><i className="aa-sheen" />
-      {!bare && (
+      {!bare && !coverUrl && (
         <div className="aa-text">
           {kicker && <span className="aa-kicker">{kicker}</span>}
           <strong className="aa-title">{title}</strong>
@@ -43,7 +47,7 @@ export function PlaylistArt({ name = '', books = [], playing = false, size = 'md
       <i className="aa-blob b1" /><i className="aa-blob b2" /><i className="aa-blob b3" />
       {tiles.length > 1 && (
         <div className={`pa-mosaic n${Math.min(tiles.length, 4)}`}>
-          {tiles.map((b) => <AlbumArt key={b.id} title={b.title} color={b.color} size="tile" bare />)}
+          {tiles.map((b) => <AlbumArt key={b.id} title={b.title} color={b.color} cover={b.cover ?? (b.document_has_cover ? b.document_id : null)} size="tile" bare />)}
         </div>
       )}
       {tiles.length < 2 && <ListMusic className="pa-icon" strokeWidth={1.2} />}

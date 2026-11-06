@@ -14,12 +14,14 @@ export function createStore(key, initial) {
 
   const get = () => state;
   const set = (next) => {
-    state = typeof next === 'function' ? next(state) : next;
+    const value = typeof next === "function" ? next(state) : next;
+    if (value === state) return; // nothing changed: no write, no re-render, no sync
+    state = value;
     try { localStorage.setItem(key, JSON.stringify(state)); } catch { /* private mode / quota */ }
     emit();
   };
   const subscribe = (f) => { subs.add(f); return () => subs.delete(f); };
   window.addEventListener('storage', (e) => { if (e.key === key) { state = read(); emit(); } });
 
-  return { get, set, use: () => useSyncExternalStore(subscribe, get) };
+  return { get, set, subscribe, use: () => useSyncExternalStore(subscribe, get) };
 }

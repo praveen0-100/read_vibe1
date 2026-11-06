@@ -3,7 +3,9 @@ import io
 import json
 import zipfile
 
-from fastapi import APIRouter, HTTPException, status
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -11,12 +13,12 @@ from sqlalchemy.exc import IntegrityError
 
 from ..config import get_settings
 from ..deps import DB, CurrentUser
-from ..models import Document, Highlight, Note, ResearchProject, User
+from ..models import Document, Highlight, Note, ResearchProject, User, aware
 from ..schemas import LoginIn, PasswordChange, PreferencesUpdate, ProfileUpdate, RegisterIn
-from ..security import create_access_token, hash_password, verify_password
+from ..security import create_access_token, create_purpose_token, hash_password, verify_password
 from ..serializers import document_out, highlight_out, note_out, research_out, user_out
 from ..seed import DEMO_EMAIL, DEMO_PASSWORD
-from ..services import google_auth, storage
+from ..services import audit, google_auth, storage
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 NO_PASSWORD = "!"  # never matches verify_password()
@@ -42,11 +44,36 @@ def register(body: RegisterIn, db: DB):
     return _token_response(user)
 
 
+_DUMMY_HASH = hash_password("timing-equaliser")  # verified when the email is unknown, so response time doesn't reveal which emails exist
+
+
 @router.post("/login")
-def login(body: LoginIn, db: DB):
+def login(body: LoginIn, request: Request, db: DB):
+    s = get_settings()
+    ip, agent = audit.client_ip(request), request.headers.get("user-agent")
     user = db.scalar(select(User).where(User.email == body.email.lower()))
+    now = datetime.now(timezone.utc)
+    if user and aware(user.locked_until) and aware(user.locked_until) > now:
+        wait = int((aware(user.locked_until) - now).total_seconds()) + 1
+        audit.record(db, "login_locked", user.id, ip, agent)
+        raise HTTPException(status_code=429, detail=f"Too many failed attempts. Try again in {max(1, wait // 60)} minute(s).", headers={"Retry-After": str(wait)})
     if not user or not verify_password(body.password, user.password_hash):
+        if not user:
+            verify_password(body.password, _DUMMY_HASH)
+        else:
+            user.failed_logins = (user.failed_logins or 0) + 1
+            if user.failed_logins >= s.login_max_failures:
+                user.failed_logins = 0
+                user.locked_until = now + timedelta(minutes=s.login_lockout_minutes)
+            db.commit()
+            audit.record(db, "login_failed", user.id, ip, agent)
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+    user.failed_logins, user.locked_until = 0, None
+    db.commit()
+    if user.totp_enabled:
+        # password was right, but the session only starts after the second factor
+        return {"mfa_required": True, "mfa_token": create_purpose_token(user.id, "mfa", 5)}
+    audit.record(db, "login_success", user.id, ip, agent)
     return _token_response(user)
 
 
@@ -125,12 +152,13 @@ def update_preferences(body: PreferencesUpdate, user: CurrentUser, db: DB):
 
 
 @router.post("/me/password", status_code=204)
-def change_password(body: PasswordChange, user: CurrentUser, db: DB):
+def change_password(body: PasswordChange, request: Request, user: CurrentUser, db: DB):
     # Google-only accounts have no password yet and may set one without a current password.
     if user.password_hash != NO_PASSWORD and not verify_password(body.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     user.password_hash = hash_password(body.new_password)
     db.commit()
+    audit.record(db, "password_changed", user.id, audit.client_ip(request), request.headers.get("user-agent"))
 
 
 @router.get("/me/export")

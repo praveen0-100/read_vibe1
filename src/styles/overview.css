@@ -149,3 +149,12 @@
 .ov-player .tx-head { padding: 6px 18px 0; }
 .ov-tx-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 13px; border-radius: 20px; font-size: 12.5px; font-weight: 600; border: 1px solid currentColor; opacity: .7; }
 .ov-tx-btn.on { opacity: 1; background: var(--accent-soft); color: var(--accent-text); border-color: transparent; }
+
+.ov-styles { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 14px; }
+.ov-styles button { padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px; color: var(--text-2); }
+.ov-styles button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+.ov-verify { opacity: .85; }
+.ov-cite { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.notif-act { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; color: var(--text-2); cursor: pointer; }
+.notif-act:hover { background: var(--panel-2); color: var(--text); }
+.notif-item[aria-disabled="true"] { cursor: default; }

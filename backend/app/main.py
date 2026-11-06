@@ -21,8 +21,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from . import __version__
 from .config import get_settings
 from .database import DB_CONFIG_ERROR, SessionLocal, engine, init_db
-from .routers import activity, agent, ai, audio, auth, catalog, decks, documents, notes, research, transcribe, tts
-from .services import llm
+from .routers import activity, agent, ai, audio, auth, catalog, decks, documents, lookup, mfa, notes, ops, playback, research, study, transcribe, tts
+from .services import llm, metrics
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("readvibe")
@@ -44,6 +44,12 @@ async def lifespan(_: FastAPI):
     if settings.environment == "production" and settings.jwt_secret.startswith("change-me"):
         raise RuntimeError("Set READVIBE_JWT_SECRET to a long random value before running in production")
     init_db()
+    try:
+        recovered = jobs.recover()
+        if recovered["requeued"] or recovered["failed"]:
+            log.info("Recovered background jobs after restart: %s", recovered)
+    except Exception:  # noqa: BLE001 - recovery must never stop the API from starting
+        log.exception("job recovery failed")
     if settings.seed_demo_data:
         # Seeding hashes passwords and builds documents; do it off the startup path so the port opens (and a
         # sleeping free-tier instance answers its first request) sooner. /auth/demo seeds on demand as a fallback.
@@ -114,6 +120,23 @@ async def request_context(request: Request, call_next):
     response.headers["X-Request-ID"] = request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Permissions-Policy"] = "camera=(), geolocation=(), payment=()"
+    if path.startswith("/api/") and not path.startswith("/api/docs") and path != "/api/openapi.json":
+        # the API returns data, never pages: forbid it from ever being rendered or embedded as one
+        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+    if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    if path.startswith("/api/"):
+        # label by route template: swap each path-parameter value for its {name}, so cardinality stays bounded
+        template = path
+        for name, value in (request.scope.get("path_params") or {}).items():
+            template = template.replace(str(value), "{" + name + "}", 1)
+        label = template if request.scope.get("route") is not None else "unmatched"
+    else:
+        label = "static"
+    metrics.observe(request.method, label, response.status_code, elapsed / 1000)
     if path.startswith("/api/") and elapsed > 1500:
         log.info("slow request %s %s %.0fms id=%s", request.method, path, elapsed, request_id)
     return response
@@ -163,5 +186,5 @@ def health():
     }
 
 
-for module in (auth, catalog, documents, notes, ai, agent, audio, decks, research, activity, tts, transcribe):
+for module in (auth, catalog, documents, notes, ai, agent, audio, decks, research, activity, playback, lookup, mfa, study, ops, tts, transcribe):
     app.include_router(module.router, prefix="/api")

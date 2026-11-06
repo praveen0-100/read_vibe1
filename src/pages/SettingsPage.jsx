@@ -3,9 +3,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Accessibility, AudioLines, BookOpen, Check, Database, Download, HardDrive, Keyboard, LogOut, Monitor, Moon, Palette,
-  Play, Server, Sparkles, Sun, Trash2, User, Volume2,
+  Play, Server, ShieldCheck, Sparkles, Sun, Trash2, User, Volume2,
 } from 'lucide-react';
 import { api } from '../api/client';
+import SecuritySettings from '../components/settings/SecuritySettings';
 import { useApp } from '../context/AppContext';
 import { useQuery } from '../hooks/useAsync';
 import { formatBytes, initials, timeAgo } from '../lib/format';
@@ -24,6 +25,7 @@ const SECTIONS = [
   { id: 'vibe', label: 'Music & Vibe', icon: AudioLines },
   { id: 'storage', label: 'Storage & Offline', icon: HardDrive },
   { id: 'account', label: 'Account', icon: User },
+  { id: 'security', label: 'Security', icon: ShieldCheck },
   { id: 'shortcuts', label: 'Shortcuts', icon: Keyboard },
 ];
 
@@ -152,7 +154,26 @@ function AudioSettings() {
       await audio.play();
     } catch { setTesting(false); }
   };
+  const L = prefs.languages || {};
+  const langRow = (key, label, hint, autoLabel) => (
+    <div className="voice-lang-row" key={key}>
+      <span className="voice-lang-name"><b>{label}</b><small>{hint}</small></span>
+      <select value={L[key] || 'auto'} aria-label={label} onChange={(e) => setPrefs({ languages: { [key]: e.target.value }, ...(key === 'overview' ? { audio: { overviewLang: e.target.value } } : {}) })}>
+        {key !== 'overview' && <option value={key === 'ai' ? 'auto' : 'orig'}>{autoLabel}</option>}
+        {langs.map((l) => <option key={l.code} value={l.code}>{l.native} — {l.name}</option>)}
+      </select>
+    </div>
+  );
   return (
+    <>
+    <Section title="Languages" description="Each part of ReadVibe can use a different language — for example read in English, listen in Tamil, and ask the AI in Tamil.">
+      <div className="voice-langs" role="group" aria-label="Language preferences">
+        {langRow('reader', 'Reader display', 'Translate the page you read', 'Original language of the document')}
+        {langRow('narration', 'Narration', 'Language audiobooks are spoken in', 'Original language of the document')}
+        {langRow('ai', 'AI answers', 'Language the AI companion replies in', 'Match what I type')}
+        {langRow('overview', 'Audio Overview', 'Opens with this language', '')}
+      </div>
+    </Section>
     <Section title="Narration defaults" description={natural ? 'Natural neural voices, like an audiobook narrator.' : speechSupported ? 'Uses your device’s speech engine — works offline.' : 'This browser has no speech engine; narration is unavailable.'}>
       {neural.length > 0 && (
         <Switch label="Natural voices" description="Human-sounding narration with real accents. Turn off to use your device’s own voices offline." checked={au.engine !== 'device'} onChange={(v) => setPrefs({ audio: { engine: v ? 'natural' : 'device' } })} />
@@ -194,6 +215,7 @@ function AudioSettings() {
       <Switch label="Auto-play next chapter" checked={au.autoAdvance} onChange={(v) => setPrefs({ audio: { autoAdvance: v } })} />
       <button className="secondary-button" onClick={test} disabled={(!speechSupported && !natural) || testing}><Play size={13} /> {testing ? 'Playing…' : 'Test voice'}</button>
     </Section>
+    </>
   );
 }
 
@@ -346,7 +368,7 @@ export default function SettingsPage() {
           ))}
         </nav>
         <div className="settings-content">
-          {tab === 'shortcuts' ? (
+          {tab === 'security' ? <SecuritySettings /> : tab === 'shortcuts' ? (
             <Section title="Keyboard shortcuts" description="Shortcuts are ignored while typing in a text field.">
               {SHORTCUTS.map(([group, list]) => (
                 <div key={group} className="shortcut-group">

@@ -2,6 +2,7 @@
 import React, { memo, useMemo } from 'react';
 import { escapeRegExp } from '../../lib/format';
 import { categoryColor } from './ReaderTools';
+import { describeMarks, markPresentation } from '../../lib/annotations';
 
 const norm = (s) => s.replace(/\s+/g, ' ').trim();
 
@@ -25,6 +26,14 @@ function highlightRanges(para, hl) {
   return [];
 }
 
+/** Stacked styles (highlight + underline + outline) when present; otherwise the original category colour. */
+function markProps(h) {
+  const pres = markPresentation(h.marks);
+  const note = h.note ? ' has-note' : '';
+  const pin = h.pinned ? ' is-pinned' : '';
+  return pres ? { className: `hl ${pres.className}${note}${pin}`, style: pres.style } : { className: `hl hl-${categoryColor(h.category)}${note}${pin}` };
+}
+
 function Paragraph({ text, index, highlights, query, active, lead, onHighlightClick }) {
   const nodes = useMemo(() => {
     const ranges = [];
@@ -45,8 +54,8 @@ function Paragraph({ text, index, highlights, query, active, lead, onHighlightCl
       out.push(r.search
         ? <mark key={`s${i}`} className="search-hit">{content}</mark>
         : (
-          <mark key={`h${i}`} data-hl={r.h.id} className={`hl hl-${categoryColor(r.h.category)} ${r.h.note ? 'has-note' : ''}`}
-            title={r.h.note ? `${r.h.category}: ${r.h.note}` : r.h.category} tabIndex={0}
+          <mark key={`h${i}`} data-hl={r.h.id} {...markProps(r.h)}
+            title={r.h.note ? `${describeMarks(r.h.marks) || r.h.category}: ${r.h.note}` : (describeMarks(r.h.marks) || r.h.category)} tabIndex={0}
             onClick={(e) => onHighlightClick(r.h, e.currentTarget)} onKeyDown={(e) => e.key === 'Enter' && onHighlightClick(r.h, e.currentTarget)}>
             {content}
           </mark>

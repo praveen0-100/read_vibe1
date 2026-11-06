@@ -186,7 +186,13 @@ export function AppProvider({ children }) {
   }, [loadJobs, finishLogin, refreshData]);
 
   const auth = useMemo(() => ({
-    login: async (email, password) => { markDemo(false); return finishLogin(await api.auth.login(email, password)); },
+    // Returns the user, or { mfa: true, token } when the account has two-factor on (finish with completeMfa).
+    login: async (email, password) => {
+      markDemo(false);
+      const res = await api.auth.login(email, password);
+      return res.mfa_required ? { mfa: true, token: res.mfa_token } : finishLogin(res);
+    },
+    completeMfa: async (token, code) => finishLogin(await api.auth.verifyMfa(token, code)),
     register: async (name, email, password) => { markDemo(false); return finishLogin(await api.auth.register(name, email, password)); },
     demo: async () => { const res = await api.auth.demo(); markDemo(true); return finishLogin(res); },
     google: async (credential) => { markDemo(false); return finishLogin(await api.auth.google(credential)); },
