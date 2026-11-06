@@ -127,3 +127,14 @@ describe('playlists', () => {
     expect(pl.playlistStore.get().lists.find((l) => l.id === two).ids).toEqual(['a']);
   });
 });
+
+describe('current album', () => {
+  it('removeWhole drops only the whole-book entry of the loaded album, keeping its queued chapters', () => {
+    q.queueActions.add([book('a'), book('b')]);
+    q.queueActions.addChapter(book('c'), 1);
+    q.queueActions.removeWhole('a');
+    expect(ids()).toEqual(['b', 'c#1']);
+    q.queueActions.removeWhole('c'); // c only has a chapter entry: untouched
+    expect(ids()).toEqual(['b', 'c#1']);
+  });
+});

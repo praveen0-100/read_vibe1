@@ -142,3 +142,7 @@ button, a, [role=button], input, select, summary { touch-action: manipulation; -
   .player-hero { grid-template-columns: minmax(0, 1fr); }
   .player-controls button { flex: 0 0 auto; }
 }
+
+/* "Add a book" dropdown lists book titles: give it room instead of squeezing them into a sliver */
+.q-eyebrow .menu { min-width: min(300px, 86vw); max-width: min(380px, 92vw); }
+.q-eyebrow .menu button { white-space: normal; text-align: left; }

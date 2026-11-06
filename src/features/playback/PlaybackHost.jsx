@@ -5,7 +5,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useApp } from '../../context/AppContext';
 import { useQuery } from '../../hooks/useAsync';
-import { queueActions } from '../../lib/queue';
+import { queueActions, useQueue } from '../../lib/queue';
 import { playlistActions } from '../../lib/playlists';
 import Player from './Player';
 import { getPlayerSlot, playbackActions, subscribeSlot, usePlayback } from './playbackStore';
@@ -39,11 +39,15 @@ export default function PlaybackHost() {
   // On the Audio Studio with nothing chosen yet, show the first ready album (same as before the player went global).
   const fallback = onAudio ? list.find((b) => b.status === 'ready')?.id : null;
   const bookId = pb.bookId || fallback;
+  const queueVersion = useQueue().queue.length; // re-check when something is added while that album is loaded
   // an album shown on the Audio Studio becomes "the current album", so its mini player follows you to other pages
   useEffect(() => { if (fallback && !pb.bookId) playbackActions.remember(fallback); }, [fallback, pb.bookId]);
 
   // Queue + playlists follow the account across devices.
   useEffect(() => (authStatus === 'authed' ? startPlaybackSync(api.playback) : undefined), [authStatus]);
+
+  // The queue never holds the album that is loaded in the player (adding the only/current book would otherwise list it twice).
+  useEffect(() => { if (bookId) queueActions.removeWhole(bookId); }, [bookId, pb.nonce, queueVersion]);
 
   // Housekeeping: drop deleted albums from the queue, playlists and the player.
   useEffect(() => {

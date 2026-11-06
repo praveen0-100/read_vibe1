@@ -70,6 +70,8 @@ export const queueActions = {
   removeAt(i) { store.set((s) => ({ ...s, queue: s.queue.filter((_, k) => k !== i) })); },
   /** Remove by entry key (a chapter entry) or, for a book id, every entry of that book. */
   remove(idOrKey) { store.set((s) => ({ ...s, queue: s.queue.filter((q) => keyOf(q) !== idOrKey && q.id !== idOrKey) })); },
+  /** Drop the whole-book entry for `id` (the album that is now loaded in the player); single-chapter entries of it stay. */
+  removeWhole(id) { store.set((s) => (s.queue.some((q) => q.id === id && q.chapter == null) ? { ...s, queue: s.queue.filter((q) => !(q.id === id && q.chapter == null)) } : s)); },
   move(from, to) {
     store.set((s) => {
       if (to < 0 || to >= s.queue.length || from === to) return s;

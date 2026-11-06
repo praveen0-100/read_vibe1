@@ -82,7 +82,7 @@ export function AppProvider({ children }) {
       const active = list.filter((j) => j.status === 'queued' || j.status === 'processing');
       for (const [id, cb] of watchers.current) {
         const job = list.find((j) => j.id === id);
-        if (job && (job.status === 'completed' || job.status === 'failed')) {
+        if (job && (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled')) {
           watchers.current.delete(id);
           cb?.(job);
           refreshData();
