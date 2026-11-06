@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, AudioLines, BookmarkCheck, Bookmark as BookmarkIcon, BookOpen, ChevronLeft, ChevronRight, CircleHelp,
-  Clock3, CloudDownload, Download, Headphones, LayoutGrid, List, Loader2, Moon, MoreHorizontal, Pause, Play, Search, Share2, Sparkles,
+  Clock3, CloudDownload, Download, Headphones, LayoutGrid, List, Loader2, Moon, MoreHorizontal, Pause, Play, Search, Share2, Maximize, Minimize, Sparkles,
   StickyNote, Trash2, Type, WifiOff, X,
 } from 'lucide-react';
 import { api } from '../api/client';
@@ -30,6 +30,7 @@ import MobileReader from '../components/reader/MobileReader';
 import OriginalPane from '../components/reader/OriginalPane';
 import LookUpSheet from '../components/reader/LookUpSheet';
 import AboutBook from '../components/reader/AboutBook';
+import { useBookView } from '../hooks/useFullscreen';
 import ShareSheet from '../components/reader/ShareSheet';
 import ReportSheet from '../components/reader/ReportSheet';
 import { DocSearch, HighlightPopover, ReaderSettings, SelectionToolbar, WordMenu, categoryColor } from '../components/reader/ReaderTools';
@@ -95,6 +96,9 @@ function Reader({ docId }) {
   const [lookup, setLookup] = useState(null); // text being looked up (dictionary + Wikipedia)
   const [report, setReport] = useState(null); // text being reported as an extraction error
   const [shareOpen, setShareOpen] = useState(false);
+  const bv = useBookView(); // full screen / book view, shared by the Reader, Zen and Vibe modes
+  const [bvChrome, setBvChrome] = useState(false); // the header is tucked away in book view; true while it is revealed
+  const bvTimer = useRef(null);
   const { chapter, status: tr } = useChapterTranslation(rawChapter, readLang, sourceLang);
   const [chapterLoading, setChapterLoading] = useState(false);
   const chapterCache = useRef(new Map());
@@ -702,11 +706,22 @@ function Reader({ docId }) {
       else if (e.key === 'v') setMode('Vibe');
       else if (e.key === 'm') setMode(MODES[(MODES.findIndex((x) => x.id === mode) + 1) % MODES.length].id);
       else if (e.key === 't') setSettingsOpen((s) => !s);
-      else if (e.key === 'Escape') { setSettingsOpen(false); setHlPop(null); setSelection(null); setTocOpen(false); }
+      else if (e.key === 'f') bv.toggle();
+      else if (e.key === 'Escape') { if (bv.bookView && !bv.fullscreen) bv.exit(); setSettingsOpen(false); setHlPop(null); setSelection(null); setTocOpen(false); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
+
+  useEffect(() => {
+    if (!bv.bookView) { setBvChrome(false); return undefined; }
+    const show = () => { setBvChrome(true); clearTimeout(bvTimer.current); bvTimer.current = setTimeout(() => setBvChrome(false), 2600); };
+    const near = (e) => { const y = e.touches ? e.touches[0]?.clientY : e.clientY; if (y != null && y < 72) show(); };
+    window.addEventListener('pointermove', near);
+    window.addEventListener('touchstart', near, { passive: true });
+    show(); // flash it once so people see where the controls are
+    return () => { window.removeEventListener('pointermove', near); window.removeEventListener('touchstart', near); clearTimeout(bvTimer.current); };
+  }, [bv.bookView]);
 
   const saveOffline = async () => {
     try {
@@ -773,7 +788,7 @@ function Reader({ docId }) {
   if (paged) {
     return (
       <MobileReader
-        doc={doc} chapter={chapter} chapterIndex={chapterIndex} chapterLoading={chapterLoading}
+        fullscreen={{ supported: bv.supported, active: bv.bookView, toggle: bv.toggle }} doc={doc} chapter={chapter} chapterIndex={chapterIndex} chapterLoading={chapterLoading}
         highlights={chapterHighlights} allHighlights={highlights} bookmarks={bookmarks}
         searchOpen={searchOpen} setSearchOpen={setSearchOpen} searchQuery={searchQuery} setSearchQuery={setSearchQuery}
         onToggleBookmark={toggleBookmark}
@@ -809,14 +824,17 @@ function Reader({ docId }) {
   }
 
   return (
-    <div className={`reader-page mode-${mode.toLowerCase()} paper-${r.paper} ${r.focusLine ? 'focus-line' : ''}`}
+    <div className={`reader-page mode-${mode.toLowerCase()} paper-${r.paper} ${r.focusLine ? 'focus-line' : ''} ${bv.bookView ? 'bookview' : ''} ${bvChrome ? 'bv-chrome' : ''}`}
       onPointerMove={r.ruler ? (e) => setRuler(e.clientY) : undefined}>
       {mode === 'Zen' && <ZenBackdrop palette={zenPreset.palette} />}
       {r.ruler && ruler != null && <div className="reading-ruler" style={{ top: ruler - 22 }} aria-hidden="true" />}
 
       {translateBanner}
         {sheets}
-      <header className="reader-top">
+      {bv.bookView && (
+        <button className="bv-exit" onClick={bv.exit} aria-label="Exit full screen (Esc)" title="Exit full screen (Esc)"><Minimize size={16} /> <span>Exit</span></button>
+      )}
+      <header className="reader-top" onFocusCapture={() => bv.bookView && setBvChrome(true)}>
         <div className="rt-left">
           <button className="back-button" onClick={() => navigate('/library')} aria-label="Back to library"><ArrowLeft size={17} /></button>
           <div className="reader-title">
@@ -840,6 +858,7 @@ function Reader({ docId }) {
           </div>
           <span className="tool-sep" aria-hidden="true" />
           <div className="tool-group">
+          <button onClick={bv.toggle} aria-label={bv.bookView ? 'Exit full screen (F)' : 'Full screen book view (F)'} title={bv.bookView ? 'Exit full screen (F)' : 'Full screen book view (F)'} aria-pressed={bv.bookView}>{bv.bookView ? <Minimize size={17} /> : <Maximize size={17} />}</button>
           <button className="toc-toggle" onClick={() => setTocOpen((o) => !o)} aria-label="Contents" aria-expanded={tocOpen}><List size={17} /></button>
           <button onClick={() => setSearchOpen((s) => !s)} aria-label="Search in document (Ctrl+F)" className={searchOpen ? 'active' : ''}><Search size={17} /></button>
           <button onClick={toggleBookmark} aria-label={currentBookmark ? 'Remove bookmark (B)' : 'Bookmark this position (B)'} className={currentBookmark ? 'active' : ''}>

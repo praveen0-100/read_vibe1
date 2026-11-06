@@ -146,3 +146,29 @@ button, a, [role=button], input, select, summary { touch-action: manipulation; -
 /* "Add a book" dropdown lists book titles: give it room instead of squeezing them into a sliver */
 .q-eyebrow .menu { min-width: min(300px, 86vw); max-width: min(380px, 92vw); }
 .q-eyebrow .menu button { white-space: normal; text-align: left; }
+
+/* 12 ─ Full screen "book view" (Reader, Zen and Vibe modes). The page fills the screen; the sidebar, tab bars, floating buttons and
+   side rails go away; the header tucks itself above the screen and slides back when the pointer/finger nears the top edge. An
+   always-available "Exit" button and Esc / F leave. Nothing here applies unless body.rv-bookview is set by the reader. */
+body.rv-bookview .sidebar, body.rv-bookview .mobile-header, body.rv-bookview .mobile-nav, body.rv-bookview .dock,
+body.rv-bookview .quick-actions, body.rv-bookview .global-mini { display: none !important; }
+body.rv-bookview .main-col { height: 100dvh; }
+.reader-page.bookview { padding: 0 clamp(12px, 4vw, 56px) 28px; min-height: 100dvh; }
+.reader-page.bookview > .reader-top:not(.zen-backdrop):not(.vibe-equalizer):not(.reading-ruler) {
+  position: fixed; top: 0; left: 0; right: 0; margin: 0; padding: 12px clamp(14px, 4vw, 56px); z-index: 70;
+  transform: translateY(-105%); opacity: 0; pointer-events: none; transition: transform .22s ease, opacity .22s ease;
+}
+.reader-page.bookview.bv-chrome > .reader-top:not(.zen-backdrop):not(.vibe-equalizer):not(.reading-ruler),
+.reader-page.bookview > .reader-top:focus-within { transform: none; opacity: 1; pointer-events: auto; }
+.reader-page.bookview .reader-layout { grid-template-columns: minmax(0, 1fr); max-width: 1040px; margin: 0 auto; padding-top: 36px; }
+.reader-page.bookview .reader-layout > .context-rail, .reader-page.bookview .reader-layout > .zen-rail, .reader-page.bookview .reader-layout > .vibe-rail { display: none; }
+/* the contents list becomes a slide-over opened from the header's list button */
+.reader-page.bookview .reader-layout > .chapter-nav { display: none; }
+.reader-page.bookview .reader-layout > .chapter-nav.open { display: block; position: fixed; left: 14px; top: 70px; bottom: 14px; width: min(300px, 86vw); z-index: 75; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.reader-page.bookview .toc-toggle { display: grid; }
+/* beats `.reader-page > *:not(...) { position: relative; z-index: 2 }` from the older sheet, which would otherwise un-fix it */
+.reader-page > .bv-exit:not(.zen-backdrop):not(.vibe-equalizer):not(.reading-ruler),
+.bv-exit { position: fixed; right: 14px; bottom: 14px; z-index: 72; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line-2, var(--line)); background: color-mix(in srgb, var(--panel) 92%, transparent); color: var(--text-2); font-size: 13px; opacity: .45; transition: opacity .2s; }
+.bv-exit:hover, .bv-exit:focus-visible, .reader-page.bv-chrome .bv-exit { opacity: 1; }
+@media (hover: none) { .bv-exit { opacity: .8; } }
+@media (prefers-reduced-motion: reduce) { .reader-page.bookview > .reader-top { transition: none; } }

@@ -4,7 +4,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, AudioLines, BookOpen, Bookmark, BookmarkCheck, CloudDownload, Download, Headphones, LayoutGrid, List, MoreHorizontal, Moon, Search,
-  Sparkles, StickyNote, Trash2, Type, WifiOff, X, ChevronUp, SlidersHorizontal, Rows3,
+  Sparkles, StickyNote, Trash2, Type, WifiOff, X, ChevronUp, SlidersHorizontal, Rows3, Maximize, Minimize,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { READING_FONTS } from '../../lib/prefs';
@@ -168,7 +168,7 @@ function ContentsSheet({ doc, chapterIndex, bookmarks, highlights, onGo, onDelet
 // ─── The reader ───────────────────────────────────────────────────────────────
 export default function MobileReader({
   doc, chapter, chapterIndex, chapterLoading, highlights, allHighlights, searchQuery, setSearchQuery, searchOpen, setSearchOpen,
-  bookmarks, onToggleBookmark, onDeleteBookmark, onHighlightClick, goChapter, setMode,
+  bookmarks, onToggleBookmark, onDeleteBookmark, onHighlightClick, goChapter, setMode, fullscreen,
   surfaceRef, articleRef, ratioRef, pendingScroll, pendingFind, saveProgress, lastActivity,
   narrator, listen, startListening, segMeta, onWordTap, lang = 'en', onOverview, languageToggle, transcriptLanguage, offlineMode, saveOffline, onHub, downloadOriginal, navigate, openAI, notify, children,
 }) {
@@ -513,6 +513,7 @@ export default function MobileReader({
         <Menu label="More" align="right" trigger={<MoreHorizontal size={20} />} items={[
           { label: existingBookmark ? 'Remove bookmark' : 'Bookmark this page', icon: existingBookmark ? BookmarkCheck : Bookmark, onClick: toggleBookmark },
           { label: 'Contents & highlights', icon: List, onClick: () => setSheet('contents') },
+          fullscreen?.supported && { label: fullscreen.active ? 'Exit full screen' : 'Full screen', icon: fullscreen.active ? Minimize : Maximize, onClick: fullscreen.toggle },
           { label: 'Zen mode', icon: Moon, onClick: () => setMode('Zen') },
           { label: 'Vibe mode', icon: AudioLines, onClick: () => setMode('Vibe') },
           '-',

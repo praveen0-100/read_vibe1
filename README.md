@@ -140,3 +140,7 @@ Loaded last so it can settle conflicts between the older sheets. Verified with `
 - **Share links** — public, read-only, expiring page of a book's highlights (`/s/<token>`), optional notes, instant revoke. Only a hash of the token is stored; unknown/expired/revoked links return the same 404.
 - **Export** — highlights as Markdown/CSV, study cards as an Anki-importable file or CSV (formula-injection guarded).
 - **Installable app (PWA)** — manifest + icons + service worker (`public/`): `/api/*` is never cached, hashed assets are cache-first, navigations are network-first with an offline page.
+
+### Full screen book view
+
+Reader, Zen and Vibe all have a **Full screen** button (header, or press `F`). It uses the browser Fullscreen API and switches to a distraction-free layout: sidebar, tab bars, floating buttons and side rails are hidden, the page is centred, and the header tucks away and slides back when the pointer/finger nears the top edge (the contents list opens as a slide-over). An **Exit** button, `F` or `Esc` leave; leaving fullscreen any other way also leaves book view. On phones the paged reader has "Full screen" in its ⋯ menu. Where the Fullscreen API is unavailable (e.g. iPhone Safari) the layout still applies without browser fullscreen.
