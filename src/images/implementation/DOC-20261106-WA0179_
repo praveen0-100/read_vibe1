@@ -1,0 +1,747 @@
+# ReadVibe — Reader Features Implementation Guide
+
+> Source: analysis of the screen recording `screen-20261106-134001.mp4` (2 min 56 s, phone screen, **no audio**), which tours the reading features of an e-book reader app (it appears to be the Kindle Android app) using the book *Visual Studio Code – The Essentials*.
+> Goal: implement the same **behaviours** inside ReadVibe's Reader Mode (Part 5, Sections 42–48 of the project document).
+
+**How to read this file**
+
+| Tag | Meaning |
+|---|---|
+| **[V]** | Observed in the video (timestamp given as ≈ m:ss) |
+| **[A]** | Assumed — not visible in the video; my design choice |
+| **[R]** | ReadVibe addition that builds on your AI / TTS modules |
+
+**Assumptions about your project** (I have not seen your repository)
+
+- The live app (`readvibe-app.vercel.app`) is a web client; the project document also lists a Flutter mobile client. The code below is **framework-agnostic TypeScript + DOM** so it drops into React / Vue / Svelte. Section 12 maps it to Flutter.
+- Paths such as `frontend/src/modes/reader/` follow the folder structure in Section 67 of the project document. Adjust them to your real repo.
+- Backend and storage follow the project document: Node.js gateway, MongoDB for documents and annotations, Redis cache, existing `/sessions/:docId/progress` endpoint.
+- Build the **behaviours**, not the look of another product. Use your own icons, colours and names. Do not use Kindle's trademarks or assets, and avoid names such as "X-Ray" or "Whispersync". The generic feature names below ("Page Flip", "Back to…") are replaced by neutral ones.
+
+---
+
+## 1. What the video shows — feature inventory
+
+| # | Feature | Evidence | Priority | ReadVibe status |
+|---|---|---|---|---|
+| F1 | Book opens on its cover; page-curl page turn; two-page spread in landscape, single page in portrait | [V] ≈0:00–0:48, 1:40 | P1 (layout) / P3 (curl) | Reader Mode exists; spread + curl new |
+| F2 | Reader chrome: top bar (back, contents, title, search, bookmark, display settings, overflow) and bottom bar (location label, scrubber, grid button) | [V] ≈0:04, 1:28, 1:52 | P1 | Partly new |
+| F3 | Running header (book title) and footer ("5 min left in chapter", "24 mins left in book", % read) | [V] ≈0:28–0:56 | P1 | New |
+| F4 | Table of contents dialog with nested entries and page numbers | [V] ≈1:48 | P1 | New |
+| F5 | Page scrubber with chapter ticks, live page previews while dragging, "Back to N" return chip | [V] ≈0:04, 1:28–1:44 | P2 | New |
+| F6 | Page-thumbnail grid view | [V] ≈1:32 (grid icon bottom-left) | P3 | New |
+| F7 | Bookmark ribbon on a page; bookmark toggle in top bar | [V] ≈0:04, 1:28 | P1 | New |
+| F8 | Image viewer: tap a figure → full-screen, pinch-zoom, mini-map, close button | [V] ≈0:56, 1:12–1:24 | P2 | New |
+| F9 | Display settings panel with tabs **Font / Layout / Themes / More** | [V] ≈1:58–2:08 | P1 | Partly (fonts, night mode) |
+| F10 | Layout tab: page colour (white / sepia / green / black), follow system theme, continuous-scroll toggle, margins (3 levels), alignment, brightness + Auto | [V] ≈2:00 | P1 | Partly |
+| F11 | More tab: Assistive Reader (read aloud with highlighted text), real-time text highlighting, **reading ruler**, reading progress, About this book, page-turn animation, popular highlights, annotation menu | [V] ≈2:04–2:08 | P1–P3 | TTS exists; rest new |
+| F12 | Text selection with drag handles across both pages and a floating toolbar: Annotate, Look Up, Note, Copy, Pin, Share, Report | [V] ≈2:16–2:24 | P1 | New |
+| F13 | Annotate panel: **Highlight / Underline / Outline** styles, colour swatches with a colour name, "None" option; styles combine on the same text | [V] ≈2:28–2:36 | P1 | New |
+| F14 | Tap an existing annotation → menu with Delete, Annotate, Look Up, Note, Copy, Pin, Share, Report | [V] ≈2:44 | P1 | New |
+| F15 | Look Up bottom sheet with **Dictionary** (download language) and **Wikipedia** sections | [V] ≈2:16 | P2 | New (dictionary lookup planned in Section 42) |
+| F16 | Copy → toast "Text copied to clipboard" with snippet chip and share button | [V] ≈2:48 | P1 | New |
+| F17 | Popular (community) highlights shown on the page | [V] toggle only, ≈2:08 | P4 (needs many users) | New |
+
+**ReadVibe additions [R]** (Section 9): Explain, Ask-the-book and Listen-from-here in the selection toolbar; "Report extraction error"; highlights feeding summaries, flashcards and mind maps.
+
+---
+
+## 2. Architecture of the reader module
+
+```mermaid
+flowchart TB
+  subgraph UI["Reader UI (frontend/src/modes/reader)"]
+    CH["Chrome: TopBar · BottomBar · Scrubber"]
+    VP["Viewport: paginated flow + overlay layer"]
+    SEL["SelectionToolbar · AnnotatePanel · NoteEditor"]
+    SH["Sheets: TOC · Settings · LookUp · Grid"]
+    IMG["ImageViewer"]
+    RUL["ReadingRuler"]
+  end
+  subgraph CORE["Reader core (framework-agnostic TS)"]
+    PAG["paginate.ts"]
+    ANC["anchors.ts (offset ⇄ Range)"]
+    PNT["paintMarks.ts"]
+    POS["position.ts + jumpStack.ts"]
+    SET["settings.ts"]
+    PRG["progress.ts (time left)"]
+  end
+  subgraph SVC["Services"]
+    API["annotationsApi · bookmarksApi · progressApi · lookupApi"]
+    OFF["IndexedDB queue (offline)"]
+    TTS["SyncHighlighter (existing, Section 47)"]
+  end
+  UI --> CORE
+  CORE --> SVC
+  SVC --> GW["API Gateway → Document service → MongoDB / Redis"]
+```
+
+**Key principle:** everything is addressed by a **character offset inside the chapter's canonical text** (the same text produced by your extraction pipeline, Section 41). Page numbers are *derived* from layout and change with font size; offsets never do. Position, bookmarks, highlights, TTS word timings and AI citations all use the same offsets, which is what keeps the features consistent with each other.
+
+### Suggested files
+
+```
+frontend/src/modes/reader/
+  ReaderMode.tsx            // composes everything
+  core/
+    paginate.ts  anchors.ts  paintMarks.ts  position.ts
+    jumpStack.ts progress.ts settings.ts   ruler.ts
+  components/
+    TopBar  BottomBar  Scrubber  TocSheet  SettingsSheet
+    SelectionToolbar  AnnotatePanel  NoteEditor
+    LookUpSheet  ImageViewer  GridView  BackChip  Toast
+  styles/reader.css
+frontend/src/services/
+  annotationsApi.ts bookmarksApi.ts progressApi.ts lookupApi.ts offlineQueue.ts
+services/document-service/
+  routes/annotations.js  routes/bookmarks.js  routes/reports.js  routes/lookup.js
+```
+
+---
+
+## 3. Data model
+
+### 3.1 Anchor (shared by annotations, bookmarks, position) [A]
+
+```ts
+export interface Anchor {
+  chapterId: string;
+  start: number;        // char offset in chapter canonical text (inclusive)
+  end: number;          // exclusive; for a point (bookmark/position) end === start
+  exact?: string;       // selected text (annotations only)
+  prefix?: string;      // 32 chars before — used to re-anchor if text is re-extracted
+  suffix?: string;      // 32 chars after
+}
+```
+
+### 3.2 Annotation — styles combine, as seen at ≈2:36 (highlight + underline + outline on the same text) [V]
+
+```ts
+export type ColorId = string; // key into the palette (Section 5, F13)
+
+export interface Annotation {
+  id: string;                    // uuid generated on the client
+  userId: string;
+  docId: string;
+  anchor: Anchor;
+  marks: { highlight?: ColorId; underline?: ColorId; outline?: ColorId };
+  note?: string;                 // "Note" action
+  pinned?: boolean;              // "Pin" action (see F12)
+  createdAt: string;             // ISO
+  updatedAt: string;             // ISO, used for last-write-wins sync
+  deletedAt?: string | null;     // tombstone so deletes sync across devices
+  orphaned?: boolean;            // true when re-anchoring failed
+}
+```
+
+### 3.3 Other documents
+
+```ts
+interface Bookmark       { id; userId; docId; anchor: Anchor; label?: string; createdAt; deletedAt? }
+interface ReadingPos     { docId; userId; anchor: Anchor; percent: number; deviceId: string; updatedAt }
+interface ExtractionReport { id; userId; docId; anchor: Anchor; kind: 'typo'|'missing'|'garbled'|'other'; comment?: string; createdAt }
+```
+
+### 3.4 MongoDB collections and indexes
+
+| Collection | Index |
+|---|---|
+| `annotations` | `{ userId:1, docId:1, "anchor.chapterId":1, "anchor.start":1 }`, `{ userId:1, updatedAt:-1 }` |
+| `bookmarks` | `{ userId:1, docId:1, "anchor.chapterId":1, "anchor.start":1 }` |
+| `reading_positions` | `{ userId:1, docId:1 }` unique |
+| `reports` | `{ docId:1, createdAt:-1 }` |
+
+---
+
+## 4. API (add to Section 35)
+
+All routes are under `/api/v1`, JWT-protected, and filtered by `userId` from the token.
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/documents/:docId/annotations?since=ISO` | List (incremental sync with `since`) |
+| POST | `/documents/:docId/annotations` | Create (client-generated `id`) |
+| PATCH | `/annotations/:id` | Update marks / note / pinned |
+| DELETE | `/annotations/:id` | Soft delete (sets `deletedAt`) |
+| GET/POST/DELETE | `/documents/:docId/bookmarks` | Bookmarks |
+| PUT | `/sessions/:docId/progress` | **Existing** — extend body with `anchor`, `percent`, `deviceId` |
+| GET | `/lookup?term=&lang=en` | Dictionary + Wikipedia summary, cached in Redis (7 days) |
+| POST | `/documents/:docId/reports` | Report extraction error |
+| GET | `/documents/:docId/outline` | Chapters/headings tree with `startOffset`, `level`, `title`, `totalChars` |
+
+**Sync rule [A]:** last-write-wins on `updatedAt`; deletes are tombstones. The client keeps an IndexedDB queue (`offlineQueue.ts`) and replays it when online. Reading position syncs at most every 5 s and on page turn debounce.
+
+---
+
+## 5. Feature specifications
+
+Each feature lists the observed behaviour, how to build it, and acceptance criteria.
+
+### F1 — Pagination, spreads and page turns
+
+**Observed [V]:** the book opens on the cover. In landscape the text appears as a **two-page spread**; in portrait as one page (≈0:04). Turning a page plays a **page-curl** animation (≈0:12–0:28, 1:40). A setting can turn the animation off (F11).
+
+**Build**
+
+- Render **one chapter at a time** into a CSS-multi-column flow. Each "view" is one page (portrait) or two (landscape ≥ 900 px wide).
+
+```css
+.rv-viewport { position: relative; overflow: hidden; width: 100%; height: var(--page-h); }
+.rv-flow {
+  height: 100%;
+  column-count: var(--cols);          /* 1 or 2 */
+  column-gap: var(--gap);             /* equals 2 × side margin */
+  column-fill: auto;
+  transform: translateX(calc(var(--view) * (var(--vw) + var(--gap)) * -1));
+  transition: transform .25s ease;
+}
+.rv-flow p, .rv-flow h1, .rv-flow h2, .rv-flow li { orphans: 2; widows: 2; }
+.rv-flow figure, .rv-flow pre { break-inside: avoid; }
+```
+
+- With `n` columns, column width is `(W − gap·(n−1))/n`, so view `v` starts at `v·(W + gap)` for both `n = 1` and `n = 2`. Number of views = `ceil((flow.scrollWidth + gap) / (W + gap))`.
+- Page turn input: tap left 30 % / right 30 % of the viewport, horizontal swipe, ← → keys. **Tap the centre toggles the chrome** (F2) [A].
+- A chapter always starts on a new view. Turning past the last view loads the next chapter.
+- **Page numbers [A]:** "Page 17 of 62" is derived, not stored: `page = floor(globalOffset / charsPerPage) + 1`, where `charsPerPage` is calibrated from the current layout (`charsInView / viewsPerPage`). Recalibrate on font/margin change. Show "≈" if you prefer honesty. Never use the page number as a key; always use offsets.
+- **Page curl (P3):** snapshot the outgoing view (`html-to-image` or a cloned node clipped to the view), place it above the flow with `transform-origin: left center`, animate `rotateY(0 → -180deg)` with `perspective: 1800px`, a moving gradient shadow, and `backface-visibility: hidden`. Provide fade/slide as the default and curl as an option. **Respect `prefers-reduced-motion`.**
+
+**Acceptance**
+
+- Resizing / rotating re-flows and keeps the first visible character on screen.
+- Landscape ≥ 900 px shows two columns and turns by two.
+- Animation setting off → instant turn.
+
+### F2 — Reader chrome
+
+**Observed [V]:** top bar = back arrow, contents icon, search, bookmark, `Aa`, overflow (⋮), with the (truncated) book title under it. Bottom bar = a label (`Page 1 of 62 • 0%`; while scrubbing it is `Chapter title • Page 17 of 62 • 26%`), a slider with **chapter ticks and numbers** (e.g. 17, 60), and a grid button at the bottom-left.
+
+**Build:** `TopBar` and `BottomBar` overlay the page, hide after ~3 s idle, and re-appear on centre tap. They must not shift the text layout. Overflow menu: About this book, Settings, Report a problem, Notebook [R].
+
+### F3 — Running header and footer
+
+**Observed [V]:** a small grey running header with the book title on each page; footer-left "**5 min left in chapter**" (also "**24 mins left in book**"); footer-right "**11 %**".
+
+**Build [A]**
+
+```ts
+// progress.ts
+const MIN_WPM = 80, MAX_WPM = 600, DEFAULT_WPM = 200;
+export class ReadingSpeed {
+  private wpm = DEFAULT_WPM;
+  recordTurn(wordsOnView: number, seconds: number) {
+    if (seconds < 3 || seconds > 180) return;       // ignore skims and idle time
+    const sample = Math.min(MAX_WPM, Math.max(MIN_WPM, wordsOnView / (seconds / 60)));
+    this.wpm = 0.9 * this.wpm + 0.1 * sample;       // exponential moving average
+  }
+  minutesLeft(wordsRemaining: number) { return Math.max(1, Math.round(wordsRemaining / this.wpm)); }
+}
+```
+
+Format as "N min left in chapter" / "N mins left in book" (singular/plural). Footer-left cycles *chapter → book → page → none* when tapped; this cycle is **[A]**, and the Reading Progress setting (F11) chooses the default. Persist `wpm` per user.
+
+### F4 — Table of contents
+
+**Observed [V]:** a modal titled with the book title and authors, a close **✕** at the top right, nested entries (indented) with **right-aligned page numbers** (e.g. "Create Your First Extension … 55").
+
+**Build:** from `/documents/:docId/outline`. Tap an entry → `jumpTo(anchor)` (pushes the jump stack, F5) and closes the modal. Highlight the current chapter [A]. Add two extra tabs **Bookmarks** and **Highlights & Notes** [R].
+
+### F5 — Scrubber, previews and the "Back to N" chip
+
+**Observed [V]:** dragging the slider shows a filmstrip of **three page previews** (previous / current / next) with bookmark ribbons, and the label updates live. After a jump, a small floating **thumbnail labelled "Back to 17" / "Back to 60"** appears at the bottom-right and stays while you browse (≈0:04–1:58).
+
+**Build**
+
+```ts
+// jumpStack.ts — return-to-place after non-sequential jumps
+export class JumpStack {
+  private stack: Anchor[] = [];
+  push(a: Anchor) { if (!this.stack.length || far(this.stack.at(-1)!, a)) this.stack.push(a); }
+  pop(): Anchor | undefined { return this.stack.pop(); }
+  peek(): Anchor | undefined { return this.stack.at(-1); }
+  clear() { this.stack = []; }
+}
+// push the CURRENT position before: scrubber commit, TOC jump, search result, internal link, grid pick
+```
+
+- Scrubber ratio → offset: `offset = round(ratio · totalChars)`; ticks at `chapter.startOffset / totalChars`.
+- Previews: render three miniature clones of the chapter flow (scaled ≈ 0.3) translated to views *v−1, v, v+1*. Cache by `(chapterId, view, settingsHash)`; only build while the thumb is down. For very long chapters, throttle to 10 updates/s.
+- The chip: shows a thumbnail of the saved position; tap → `goTo(stack.pop())`. **[A]** It disappears when tapped, when you have read on > 10 views past the jump target, or when the book closes.
+
+### F6 — Page-thumbnail grid
+
+**Observed [V]:** grid icon (bottom-left) opens a full-screen grid of page thumbnails (cover, then pages 1, 2, 3…), with the "Back to" chip visible.
+
+**Build [A]:** virtualised grid (`IntersectionObserver`, render thumbnails only when visible), tap = jump, a **bookmarks-only filter** toggle. P3.
+
+### F7 — Bookmarks
+
+**Observed [V]:** bookmark icon in the top bar; a ribbon at the top-right corner of bookmarked pages (also in the scrubber previews).
+
+**Build:** toggle adds/removes a bookmark at the **first visible offset** of the current view. A view counts as bookmarked if any bookmark's offset lies within the view's offset range. Show the ribbon in the page corner.
+
+### F8 — Image viewer
+
+**Observed [V]:** tapping a figure opens it full-screen (≈0:56, 1:12). It supports **pinch zoom** until the text is huge (≈1:16), shows a **close ✕** top-right and a small **mini-map thumbnail top-left**.
+
+**Build**
+
+- Use a native `<dialog>` for focus handling and Esc to close. Pointer Events: two pointers = pinch, one pointer = pan, double-tap = toggle 1× / 2.5×, wheel = zoom on desktop.
+- Clamp pan so the image never leaves the viewport. Mini-map: a 96 px thumbnail with a rectangle showing the visible area.
+- Keep `alt` text; add a **"Describe this image"** button that sends the image to the vision model [R].
+
+### F9 / F10 — Display settings: Font, Layout, Themes, More
+
+**Observed [V]:** the `Aa` button opens a sheet with four tabs. The **Layout** tab has (≈2:00):
+
+| Control | Observed |
+|---|---|
+| Page Color | 4 round swatches: white, sepia/cream, light green, black |
+| "Update Page Using System Theme" | checkbox (on) |
+| Continuous Scrolling | toggle, caption "Read by scrolling vertically." (off) |
+| Margins | 3 options, middle selected |
+| Alignment | row present (its options are cut off in the video) |
+| Brightness | slider with sun icons and an **Auto** checkbox |
+
+The **Font** and **Themes** tabs are not opened in the video **[A]**: build Font (family incl. **OpenDyslexic**, size, line spacing, letter spacing, bold) and Themes (named presets) from your Section 42 list.
+
+**Settings schema**
+
+```ts
+export interface ReaderSettings {
+  // Font [A]
+  fontFamily: 'serif' | 'sans' | 'mono' | 'opendyslexic';
+  fontSize: number;              // px, 14–32, default 19
+  lineHeight: number;            // 1.2–2.0, default 1.55
+  letterSpacing: number;         // em, 0–0.12
+  // Layout [V]
+  pageColor: 'white' | 'sepia' | 'green' | 'black';
+  followSystemTheme: boolean;    // default true
+  continuousScroll: boolean;     // default false
+  margin: 0 | 1 | 2;             // default 1  → 4 % / 8 % / 14 % of width [A]
+  align: 'left' | 'justify';     // default 'justify' [A]
+  dimLevel: number;              // 0–0.6 in-app dimming overlay; web cannot set device brightness
+  dimAuto: boolean;              // Auto → no overlay, follow system
+  // More [V]
+  assistiveReader: boolean;      // read-aloud on/off  (F11)
+  realtimeHighlight: boolean;    // default true
+  ruler: { enabled: boolean; color: string; lines: number };
+  progressLabel: 'chapterTime' | 'bookTime' | 'page' | 'none';
+  showAboutBook: boolean;        // default true
+  pageTurnAnimation: boolean;    // default true
+  communityHighlights: boolean;  // default false, P4
+  annotationMenu: boolean;       // default true
+}
+```
+
+**Applying settings:** write to CSS variables on `.rv-reader` and **re-paginate**, then restore the first visible offset.
+
+```ts
+const THEME = {
+  white: { bg: '#ffffff', fg: '#1a1a1a' },
+  sepia: { bg: '#f4ecd8', fg: '#3b2f1e' },          // [A] values
+  green: { bg: '#d9ecda', fg: '#1d2b1f' },          // [A] values
+  black: { bg: '#0d0d0d', fg: '#d6d6d6' },
+};
+const MARGIN = [0.04, 0.08, 0.14];
+
+export function applySettings(root: HTMLElement, s: ReaderSettings, systemDark: boolean) {
+  const key = s.followSystemTheme ? (systemDark ? 'black' : 'white') : s.pageColor;
+  const t = THEME[key];
+  root.style.setProperty('--rv-bg', t.bg);
+  root.style.setProperty('--rv-fg', t.fg);
+  root.style.setProperty('--rv-size', `${s.fontSize}px`);
+  root.style.setProperty('--rv-line', String(s.lineHeight));
+  root.style.setProperty('--rv-ls', `${s.letterSpacing}em`);
+  root.style.setProperty('--rv-margin', `${MARGIN[s.margin] * 100}%`);
+  root.style.setProperty('--rv-align', s.align);
+  root.style.setProperty('--rv-dim', String(s.dimAuto ? 0 : s.dimLevel));
+  root.dataset.scroll = s.continuousScroll ? 'on' : 'off';
+}
+```
+
+**Persistence:** `localStorage` instantly, plus `PUT /users/me/preferences` (existing) debounced 1 s. **Continuous scroll** switches off the column layout and uses normal vertical flow; offsets still work unchanged.
+
+### F11 — The "More" tab
+
+| Setting [V] | Observed text | How to implement |
+|---|---|---|
+| Assistive Reader | "Listen to text-to-speech and read along with highlighted text." | **[R]** Start your TTS player (Section 45) from the first visible offset |
+| Real-time Text Highlighting | "Words will be highlighted while being narrated…" (on) | Feed word timings into `SyncHighlighter` and paint into the overlay (class `rv-tts`); auto-turn the page when the spoken word leaves the view |
+| Reading Ruler | "Add a colored ruler over text to help guide reading." (off) | See ruler below |
+| Reading Progress | row partly visible | Choose the footer label (F3) |
+| About This Book | "Show information about the book when you open it for the first time." (on) | Modal: title, author, length, estimated reading and listening time, AI 3-line summary [R] |
+| Page Turn Animation | "Use a page turn animation while reading." (on) | F1 |
+| Popular Highlights | "Show popular highlights on the page." (on) | F17 |
+| Annotation Menu | "Show the annotation menu when you select a passage of text." (on) | If off, selection shows handles only |
+
+**Reading ruler [A]**
+
+```ts
+// ruler.ts — a translucent band that snaps to text lines
+export function createRuler(host: HTMLElement, getLineRects: () => DOMRect[], color: string, lines = 1) {
+  const el = document.createElement('div');
+  el.className = 'rv-ruler';                         // position:absolute; left:0; right:0; pointer-events:none
+  el.style.background = color;                       // e.g. rgba(255, 214, 0, .25)
+  host.appendChild(el);
+  let top = 0;
+  const place = (y: number) => {
+    const rects = getLineRects();
+    const r = rects.reduce((best, c) => Math.abs(c.top - y) < Math.abs(best.top - y) ? c : best);
+    const origin = host.getBoundingClientRect();
+    top = r.top - origin.top;
+    el.style.top = `${top}px`;
+    el.style.height = `${r.height * lines}px`;
+  };
+  return { place, followWord: (r: DOMRect) => place(r.top), destroy: () => el.remove() };
+}
+```
+
+Drag vertically or tap a line to move it (`pointerdown` on the viewport when the ruler is enabled). While TTS plays, call `followWord(rect)` so the ruler tracks the narration, a nice ReadVibe-specific link [R].
+
+### F12 — Text selection and the floating toolbar
+
+**Observed [V]:** long-press selects a word; **two drag handles** extend the selection, **across the left and right page** of a spread (≈2:20). A floating toolbar appears with **Annotate · Note · Copy · Pin · Share · Report** (≈2:16) and, after a moment, **Look Up** too (≈2:24).
+
+**Build**
+
+- Use the browser's own `Selection`; style the handles through the OS. Show the toolbar on `selectionchange` (debounced 150 ms) when the range is inside `.rv-flow`, positioned above the first line rect and clamped to the viewport.
+- Custom actions:
+
+| Action | Behaviour |
+|---|---|
+| Annotate | Opens the Annotate panel (F13) |
+| Look Up | Opens the Look Up sheet (F15) |
+| Note | Creates/opens an annotation with a text note (editor sheet) |
+| Copy | `navigator.clipboard.writeText(text)` then toast (F16) |
+| Pin [A] | Pins the passage to the book's **Notebook** (starred list, shown first, exportable) |
+| Share | `navigator.share({ text, url })`, fallback to copy link; the link carries `docId` + `start`/`end` offsets |
+| Report [A] | Opens a small form → `POST /documents/:docId/reports` (useful for extraction quality, Section 41) |
+| **Explain** [R] | Sends the selection plus context to the concept-explanation endpoint |
+| **Ask book** [R] | Opens "Chat with this Book" with the selection quoted |
+| **Listen from here** [R] | Starts TTS at the selection start |
+
+- Convert the selection to an anchor:
+
+```ts
+// anchors.ts
+// Every block element is rendered as <p data-o="START">, START = the block's char offset in the chapter text.
+// data-o must be on LEAF blocks only (no nested data-o elements).
+export function toOffset(node: Node, nodeOffset: number): number {
+  const el = node instanceof Element ? node : node.parentElement!;
+  const block = el.closest<HTMLElement>('[data-o]')!;
+  const r = document.createRange();
+  r.selectNodeContents(block);
+  r.setEnd(node, nodeOffset);
+  return Number(block.dataset.o) + r.toString().length;
+}
+
+export function fromOffset(flow: HTMLElement, off: number): { node: Node; offset: number } {
+  const blocks = [...flow.querySelectorAll<HTMLElement>('[data-o]')];
+  let lo = 0, hi = blocks.length - 1;                       // last block with data-o <= off
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (Number(blocks[mid].dataset.o) <= off) lo = mid; else hi = mid - 1;
+  }
+  const block = blocks[lo];
+  let rem = off - Number(block.dataset.o);
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+  let last: Text | null = null, n: Text | null;
+  while ((n = walker.nextNode() as Text | null)) {
+    last = n;
+    if (rem <= n.data.length) return { node: n, offset: rem };
+    rem -= n.data.length;
+  }
+  return { node: last ?? block, offset: last ? last.data.length : 0 };
+}
+
+export function selectionToAnchor(chapterId: string, chapterText: string, sel: Selection): Anchor | null {
+  if (sel.rangeCount === 0 || sel.isCollapsed) return null;
+  const r = sel.getRangeAt(0);                               // DOM ranges are always start <= end
+  const start = toOffset(r.startContainer, r.startOffset);
+  const end = toOffset(r.endContainer, r.endOffset);
+  return {
+    chapterId, start, end,
+    exact: chapterText.slice(start, end),
+    prefix: chapterText.slice(Math.max(0, start - 32), start),
+    suffix: chapterText.slice(end, end + 32),
+  };
+}
+
+export function firstVisibleOffset(viewport: HTMLElement): number {
+  const b = viewport.getBoundingClientRect();
+  const x = b.left + 8, y = b.top + 8;
+  const pos = (document as any).caretPositionFromPoint?.(x, y);
+  if (pos) return toOffset(pos.offsetNode, pos.offset);
+  const rg = (document as any).caretRangeFromPoint(x, y) as Range;
+  return toOffset(rg.startContainer, rg.startOffset);
+}
+
+// If the chapter text is ever re-extracted, find the annotation again.
+export function reanchor(text: string, a: Anchor): Anchor | null {
+  if (!a.exact) return a;
+  const full = (a.prefix ?? '') + a.exact + (a.suffix ?? '');
+  let i = text.indexOf(full);
+  if (i >= 0) { const s = i + (a.prefix?.length ?? 0); return { ...a, start: s, end: s + a.exact.length }; }
+  const from = Math.max(0, a.start - 2000);
+  i = text.indexOf(a.exact, from);
+  if (i >= 0 && i < a.start + 2000) return { ...a, start: i, end: i + a.exact.length };
+  return null;                                               // mark annotation.orphaned = true
+}
+```
+
+**Acceptance**
+
+- Selecting across the two pages of a spread creates one annotation with one `start`/`end`.
+- Changing font size or margins keeps every highlight on the right words.
+- With *Annotation Menu* off, no toolbar appears.
+
+### F13 — Annotate panel: Highlight / Underline / Outline
+
+**Observed [V] (≈2:28–2:36)**
+
+- Three style tabs: **Highlight (A on a coloured block) · Underline · Outline (A in a box)**. A back arrow returns to the toolbar.
+- **Highlight** palette: *None* + 5 colours: yellow, peach/orange, green, cyan/blue, pink. The selected swatch is ringed and its **name is shown below** ("Green", "None").
+- **Underline / Outline** palette: *None* + 10 colours: black (named "Default"), grey, red, orange, gold, green, teal, blue, purple, magenta.
+- Styles **stack**: the final frames show cyan highlight + red underline + black outline on the same text. Outline draws a box that follows the text shape across lines.
+
+```ts
+export const PALETTE = {
+  highlight: {
+    yellow: '#fff176', orange: '#ffcc99', green: '#2bf5b0', blue: '#4de3ee', pink: '#ffc1d6',
+  },
+  line: {
+    black: '#000000', grey: '#6b6b6b', red: '#d32f2f', orange: '#ef6c00', gold: '#d4a017',
+    green: '#00875a', teal: '#00838f', blue: '#1976d2', purple: '#6a5acd', magenta: '#c2185b',
+  },
+};
+```
+
+Colour values are approximations of the video; choose your own brand-consistent set.
+
+**Painting** (an overlay layer above the text with `mix-blend-mode: multiply`, `pointer-events: none`):
+
+```ts
+// paintMarks.ts
+type Box = { left: number; top: number; width: number; height: number };
+
+function lineBoxes(rects: DOMRect[]): Box[] {
+  const lines: { l: number; t: number; r: number; b: number }[] = [];
+  for (const r of rects) {
+    if (r.width < 1) continue;
+    const ln = lines.find(x =>
+      Math.abs(x.t - r.top) < 3 && Math.abs(x.b - r.bottom) < 3 &&
+      r.left <= x.r + 12 && r.right >= x.l - 12);          // adjacency: keeps the two pages of a spread apart
+    if (ln) { ln.l = Math.min(ln.l, r.left); ln.r = Math.max(ln.r, r.right); }
+    else lines.push({ l: r.left, t: r.top, r: r.right, b: r.bottom });
+  }
+  return lines.map(x => ({ left: x.l, top: x.t, width: x.r - x.l, height: x.b - x.t }));
+}
+
+export function paintAnnotation(layer: HTMLElement, flow: HTMLElement, a: Annotation, hit: Map<string, Box[]>) {
+  const s = fromOffset(flow, a.anchor.start), e = fromOffset(flow, a.anchor.end);
+  const range = document.createRange();
+  range.setStart(s.node, s.offset);
+  range.setEnd(e.node, e.offset);
+  // layer and flow share the same transformed wrapper, so subtracting the flow's rect gives local coords
+  const o = flow.getBoundingClientRect();
+  const boxes = lineBoxes([...range.getClientRects()]).map(b => ({ ...b, left: b.left - o.left, top: b.top - o.top }));
+  hit.set(a.id, boxes);                                    // used for tap hit-testing (layer ignores pointer events)
+
+  boxes.forEach((b, i) => {
+    const d = document.createElement('div');
+    d.className = 'rv-mark';
+    Object.assign(d.style, { position: 'absolute', left: `${b.left}px`, top: `${b.top}px`, width: `${b.width}px`, height: `${b.height}px` });
+    if (a.marks.highlight) d.style.background = PALETTE.highlight[a.marks.highlight as keyof typeof PALETTE.highlight];
+    if (a.marks.underline) d.style.boxShadow = `inset 0 -2px 0 ${PALETTE.line[a.marks.underline as keyof typeof PALETTE.line]}`;
+    if (a.marks.outline) {
+      const c = PALETTE.line[a.marks.outline as keyof typeof PALETTE.line];
+      d.style.borderLeft = d.style.borderRight = `2px solid ${c}`;
+      if (i === 0) d.style.borderTop = `2px solid ${c}`;
+      if (i === boxes.length - 1) d.style.borderBottom = `2px solid ${c}`;
+    }
+    layer.appendChild(d);
+  });
+}
+// Repaint all marks of the chapter after: pagination, font/margin change, resize, annotation edits.
+// For plain highlights you may use the CSS Custom Highlight API where supported — but it cannot draw outlines.
+```
+
+**Rules**
+
+- Selecting *None* in a tab removes that style; when all three are none the annotation is deleted (or asks to confirm if it has a note).
+- Choosing a colour updates the existing annotation immediately (optimistic UI), then syncs.
+- Overlapping annotations: paint in `createdAt` order; the hit-test returns the **topmost** one.
+
+### F14 — Editing an existing annotation
+
+**Observed [V] (≈2:44):** tapping an annotated passage selects it and shows a toolbar with **Delete · Annotate · Look Up · Note · Copy · Pin · Share · Report**.
+
+**Build:** on `pointerup` with no drag, test the point against `hit` boxes; if matched, select that range and show the toolbar with **Delete** first. Delete = soft-delete + toast with **Undo** [A].
+
+### F15 — Look Up (Dictionary + Wikipedia)
+
+**Observed [V] (≈2:16):** a bottom sheet with a speaker icon and ✕, a **Dictionary** section ("To display definitions, select a language and download the free dictionary", language button "English…", a download icon) and a **Wikipedia** section with a loading bar. Each section has a collapse chevron.
+
+**Build**
+
+- Gateway endpoint `GET /lookup?term=&lang=en`, which calls both providers, caches the result in Redis for 7 days and returns:
+
+```json
+{
+  "dictionary": { "word": "snippet", "phonetic": "/ˈsnɪpɪt/", "audio": "https://…", "meanings": [{ "pos": "noun", "defs": ["a small piece…"] }] },
+  "wikipedia":  { "title": "Snippet", "extract": "…", "url": "https://en.wikipedia.org/wiki/…" }
+}
+```
+
+- Providers (both free, no key): `https://api.dictionaryapi.dev/api/v2/entries/en/<word>` and `https://en.wikipedia.org/api/rest_v1/page/summary/<title>`. Calling through your gateway avoids CORS surprises and rate-limit problems.
+- Selection of more than 3 words skips the dictionary and shows Wikipedia + an **Explain with AI** button [R].
+- The speaker icon plays the word's pronunciation (`audio`, or your TTS as fallback).
+- The "download the dictionary" step is an **offline pack**. Treat it as P4 and show only online lookup first.
+
+### F16 — Copy toast
+
+**Observed [V] (≈2:48):** a pill "**Text copied to clipboard**" with an icon, plus a small chip showing the beginning of the copied text and **share** and **send-to-device** buttons.
+
+**Build:** `Toast` component, 3 s timeout, with the snippet chip and a Share button (`navigator.share`). "Send to device" is out of scope.
+
+### F17 — Community ("popular") highlights [A, P4]
+
+Only worth doing with enough users. Aggregate anonymously: for each `(docId, chapterId, start, end)` bucket count the distinct users; **show a passage only when ≥ 5 users highlighted it**; never expose user identities; respect the setting and give an opt-out of contributing. Render as a subtle underline with a count.
+
+---
+
+## 6. Interaction map (summary)
+
+| Gesture | Result |
+|---|---|
+| Tap centre | Toggle top/bottom bars |
+| Tap left / right edge, swipe, ← → | Previous / next view |
+| Long-press word | Start selection + toolbar |
+| Tap an annotation | Annotation toolbar |
+| Tap a figure | Image viewer |
+| Drag scrubber | Previews; release = jump (push jump stack) |
+| Tap "Back to N" chip | Return to the saved position |
+| Tap bookmark icon | Toggle bookmark for the current view |
+| `Aa` | Settings sheet |
+| Contents icon | TOC sheet |
+| Grid icon | Page-thumbnail grid |
+
+---
+
+## 7. ReadVibe-specific extensions [R]
+
+These make the features reinforce your project's AI and audio modules:
+
+1. **Listen from here** — selection or first visible offset → `POST /audio/generate {docId, chapter, fromOffset, tone}`; highlight and ruler follow the narration.
+2. **Explain / Ask book** — selection → concept-explanation or RAG chat with the quoted text and surrounding paragraphs.
+3. **Highlights → study material** — "Summarise my highlights", "Make flashcards from highlights", "Mind map from highlights" (Sections 49–51). Pass highlight `exact` text as the source.
+4. **Mood-aware theme** — Vibe Reader Mode can reuse the same settings and overlay; only the background and audio change.
+5. **Report extraction error** — reports feed a quality dashboard for admins (Section 41 improvements).
+6. **Notebook export** — Markdown / DOCX / CSV of highlights and notes, grouped by chapter, with page references.
+
+---
+
+## 8. Accessibility, performance, offline
+
+- **Accessibility:** toolbar and sheets are real `<button>`s with labels; sheets are focus-trapped; the image viewer uses `<dialog>`; announce page changes through an `aria-live="polite"` region ("Page 18 of 62"); every swatch has a name (as in the video); contrast of the four page colours ≥ 4.5:1; full keyboard map (arrows, `b` bookmark, `/` search, `t` contents).
+- **Reduce motion:** disable the curl and slide animations when `prefers-reduced-motion` is set.
+- **Performance:** render one chapter; limit overlay repaint to the visible views; use `content-visibility: auto` for off-screen chapters; throttle scrubber previews; cache previews and `charsPerPage`; keep `getClientRects` calls batched (read all, then write all).
+- **Offline:** cache chapter text + annotations in IndexedDB (service worker caches the app shell); queue annotation writes; show a small "offline" badge. AI features (lookup, explain) are online-only.
+- **Privacy:** annotations and notes are private to the user; deleting a document deletes its annotations, bookmarks and reports.
+
+---
+
+## 9. Build plan
+
+**M1 — Reader core (P1)**
+- [ ] Canonical-text blocks with `data-o` offsets from the document service
+- [ ] Columns pagination, single page / two-page spread, view navigation, tap zones
+- [ ] `firstVisibleOffset` + progress sync (`PUT /sessions/:docId/progress`) and resume
+- [ ] Top / bottom bars, running header, footer labels (time left, %)
+- [ ] TOC sheet and `/outline` endpoint
+
+**M2 — Settings (P1)**
+- [ ] `ReaderSettings` store, CSS variables, re-pagination keeping position
+- [ ] Font, Layout, Themes, More tabs; persistence (local + server)
+- [ ] Continuous scroll mode, system-theme following, dim overlay
+
+**M3 — Annotations (P1)**
+- [ ] Selection → anchor, toolbar, Annotate panel (3 styles, palettes, names)
+- [ ] Overlay painter with merged line boxes, hit-testing, edit/delete/undo
+- [ ] Notes, Copy + toast, Share, Bookmarks (toolbar button + ribbon)
+- [ ] Annotation + bookmark APIs, offline queue, re-anchoring job
+
+**M4 — Navigation extras (P2)**
+- [ ] Scrubber with chapter ticks and live previews
+- [ ] Jump stack and "Back to N" chip
+- [ ] Image viewer (pinch, pan, mini-map)
+- [ ] Look Up sheet + `/lookup` with Redis cache
+
+**M5 — Reading aids and AI links (P2–P3)**
+- [ ] Reading ruler, real-time TTS highlight in the overlay, auto page-turn
+- [ ] Explain / Ask / Listen-from-here in the toolbar
+- [ ] Grid view, About-this-book modal, Report form
+
+**M6 — Polish (P3–P4)**
+- [ ] Page-curl animation (with reduced-motion fallback)
+- [ ] Notebook export; highlight-based flashcards / mind map
+- [ ] Community highlights (only if user base allows)
+- [ ] Accessibility audit, performance pass, e2e tests
+
+---
+
+## 10. Test plan
+
+| Area | Test |
+|---|---|
+| Pagination | Same chapter at 3 font sizes → no text lost or duplicated; first visible offset preserved across resize / rotation |
+| Offsets | `fromOffset(toOffset(x))` round-trips for text inside `<em>`, `<strong>`, links, and code blocks |
+| Annotations | Create → reload → same words highlighted; change font → still correct; delete → undo works |
+| Spread selection | Select from the bottom of the left page to the top of the right page → single annotation, 2 line groups painted |
+| Stacking | Highlight + underline + outline on one passage render together; *None* removes only that style |
+| Sync | Create offline → reconnect → appears on a second device; delete on one device removes it on the other |
+| Re-anchor | Edit the chapter text slightly → annotation moves with `prefix/suffix`; if impossible → `orphaned` |
+| Scrubber | Drag to 60 % → previews update; release → jump; "Back to N" returns to the exact prior offset |
+| Settings | Each toggle changes the UI immediately and survives reload; system dark mode switches theme when enabled |
+| Lookup | Single word → dictionary + Wikipedia; phrase → Wikipedia + Explain; provider failure → graceful message |
+| TTS | Highlight stays within ~100 ms of audio (Section 84); page turns when the spoken word leaves the view |
+| A11y | Keyboard-only run through all features; screen reader announces page changes; contrast checks |
+| Performance | 300-page PDF: first page < 1 s, page turn < 100 ms, scrubber previews ≥ 10 fps |
+
+---
+
+## 11. Project-document updates
+
+- **Section 42 (Reader Mode):** replace the bullet list with F1–F16.
+- **Section 35 (API):** add the endpoints of Section 4 above.
+- **Section 34 (Database):** add `annotations`, `bookmarks`, `reading_positions`, `reports`.
+- **Section 20 (Functional requirements):** add FR-21 … FR-26 (annotations, bookmarks, TOC and scrubber, display settings, look-up, reading ruler).
+- **Section 86 (Test cases):** add the tests of Section 10.
+
+---
+
+## 12. Flutter mapping (mobile client)
+
+| Web concept | Flutter equivalent |
+|---|---|
+| CSS columns pagination | Pre-compute pages with `TextPainter` (or use the `flutter_widget_from_html` + paged layout) and store the start offset of each page |
+| `Selection` + toolbar | `SelectableRegion` with `contextMenuBuilder`; map to offsets with `TextSelection` |
+| Overlay marks | `CustomPainter` using `TextPainter.getBoxesForSelection(TextSelection(...))` |
+| Scrubber previews | `RepaintBoundary.toImage()` for cached page thumbnails |
+| Image viewer | `InteractiveViewer` + `Hero` |
+| Settings store | `Provider` / Riverpod + `shared_preferences` |
+| Offline queue | `sqflite` / Hive |
+| Page curl | the `page_flip` or `turn_page_transition` packages |
+
+The data model, API and offset-based anchoring are identical, so annotations sync between web and mobile.
+
+---
+
+## 13. Open questions for you
+
+1. Which framework is the web client built with (React, Vue, Next.js, plain JS)? I can then turn the snippets into real components.
+2. Is the reader currently rendering extracted text as HTML (paragraphs) or showing the original PDF pages with PDF.js? **Offset anchoring needs the text/HTML flow.** For PDFs shown as page images you need PDF.js's text layer, which changes F1 and F13.
+3. Do you want the P3/P4 items (page curl, grid, community highlights) in the final-year submission, or only M1–M4?
+4. Is your Flutter app being built in parallel, or is the web app the only client for the demo?
+
+*Notes on the analysis:* the recording has no sound; timestamps are approximate (frames sampled every 4 s). Details marked [A] were not visible in the video and are proposals, and colour values are approximations.

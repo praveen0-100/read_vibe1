@@ -8,13 +8,15 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { READING_FONTS } from '../../lib/prefs';
-import { flipPages, snapshotPage } from '../../lib/pageFlip';
+import { flushSync } from 'react-dom';
+import { createCurl, easeInOut, easeOut, snapshotPage } from '../../lib/pageCurl';
 import { wordAtPoint, wordRect } from '../../lib/spokenWord';
 import { Menu } from '../ui';
 import ChapterText from './ChapterText';
 import { DocSearch, categoryColor } from './ReaderTools';
 import ListenSheet from './ListenSheet';
 import PageGrid from './PageGrid';
+import { touchSelectState } from '../../hooks/useTouchSelection';
 
 const PAD = 22; // horizontal page margin (px)
 const GAP = PAD * 2; // column gap, wide enough that neighbouring pages never peek in
@@ -184,7 +186,8 @@ export default function MobileReader({
   const [instant, setInstant] = useState(true);
   const [tick, setTick] = useState(0);
   const leafHost = useRef(null);
-  const flipRun = useRef(null);
+  const curlRun = useRef(null); // the page turn in progress: { ctl, dir, from, target, settle(commit) }
+  const consumed = useRef(false); // a drag already turned (or tried to turn) the page: the touch-end swipe check must not repeat it
   const [chrome, setChrome] = useState(true); // toolbars are visible on entering the reader, like other PDF/document readers
   const [sheet, setSheet] = useState(null); // 'display' | 'contents' | 'listen'
   const [scrub, setScrub] = useState(null);
@@ -287,33 +290,55 @@ export default function MobileReader({
   }, [page, pages]); // eslint-disable-line
 
   // ─── Turning pages ────────────────────────────────────────────────────────
+  /**
+   * Starts turning one page. The reader underneath always shows the DESTINATION page (state is set at once), so the curl only
+   * has to draw the page that is leaving (forward) or arriving (backward, over a snapshot of the page it covers).
+   */
+  const beginCurl = useCallback((dir, from, cornerY, sync) => {
+    const flow = flowEl();
+    const host = leafHost.current;
+    if (!flow || !host) return null;
+    curlRun.current?.settle(true);
+    const target = from + dir;
+    const face = snapshotPage(flow, dir > 0 ? from : target, step);
+    const under = dir < 0 ? snapshotPage(flow, from, step) : null;
+    const ctl = createCurl({ host, face, under, cornerY });
+    ctl.setS(dir > 0 ? 0 : 1);
+    const run = { ctl, dir, from, target, done: false };
+    run.settle = (commit, flush = false) => {
+      if (run.done) return;
+      run.done = true;
+      if (curlRun.current === run) curlRun.current = null;
+      const apply = () => { setInstant(true); setPage(commit ? target : from); };
+      if (flush) flushSync(apply); else apply();
+      ctl.destroy();
+    };
+    curlRun.current = run;
+    setInstant(true);
+    if (sync) flushSync(() => setPage(target)); else setPage(target);
+    return run;
+  }, [step]); // eslint-disable-line
+
   const goPage = useCallback((p) => {
     const target = clamp(p, 0, pages - 1);
     if (target === page) return;
-    flipRun.current?.finish(); // a new turn settles the previous one first
+    curlRun.current?.settle(true); // a new turn settles the previous one first
     setInstant(false);
     setTick((t) => t + 1);
-
-    const flow = flowEl();
-    if (anim === 'flip' && Math.abs(target - page) === 1 && leafHost.current && flow) {
-      if (target > page) {
-        // the page underneath is already the new one; the old page lifts off and turns away
-        const face = snapshotPage(flow, page, step);
-        setInstant(true);
-        setPage(target);
-        flipRun.current = flipPages({ host: leafHost.current, face, direction: 1, onDone: () => { flipRun.current = null; } });
-      } else {
-        // the earlier page swings back over the current one, then becomes the current page
-        const face = snapshotPage(flow, target, step);
-        flipRun.current = flipPages({ host: leafHost.current, face, direction: -1, onDone: () => { flipRun.current = null; setInstant(true); setPage(target); } });
+    if (anim === 'flip' && Math.abs(target - page) === 1 && leafHost.current && flowEl()) {
+      const dir = target > page ? 1 : -1;
+      const run = beginCurl(dir, page, undefined, false);
+      if (run) {
+        // forward: the page leaves from s = 0 to 1; backward: the earlier page arrives from s = 1 to 0
+        run.ctl.settle(dir > 0 ? 1 : 0, 560, easeInOut, 0, () => run.settle(true));
+        return;
       }
-      return;
     }
     setPage(target);
-  }, [pages, page, anim, step]); // eslint-disable-line
+  }, [pages, page, anim, beginCurl]); // eslint-disable-line
 
-  useEffect(() => () => flipRun.current?.finish(), []);
-  useEffect(() => { flipRun.current?.finish(); }, [chapter]);
+  useEffect(() => () => curlRun.current?.settle(true), []);
+  useEffect(() => { curlRun.current?.settle(true); }, [chapter]);
 
   const turn = useCallback((dir) => {
     if (dir > 0) {
@@ -334,13 +359,77 @@ export default function MobileReader({
     return () => window.removeEventListener('keydown', onKey);
   }, [turn, sheet]);
 
+
+  // ─── Dragging the page ────────────────────────────────────────────────────
+  // In page-curl mode a horizontal drag lifts the corner and the page follows the finger; let go past a third of the way (or flick)
+  // and it finishes turning, otherwise it falls back. At a chapter edge there is no page to curl, so the plain swipe handler runs.
+  const live = useRef({});
+  live.current = { page, pages, anim, beginCurl };
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return undefined;
+    let g = null;
+    const onStart = (e) => {
+      g = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, run: null, dir: 0, dead: false, v: 0, lx: e.touches[0].clientX, lt: performance.now(), lift: 0 } : null;
+    };
+    const onMove = (e) => {
+      if (!g || g.dead) return;
+      const L = live.current;
+      if (L.anim !== 'flip' || e.touches.length !== 1 || touchSelectState.recently()) { if (g.run) g.run.settle(false, true); g = null; return; }
+      const t = e.touches[0];
+      const dx = t.clientX - g.x;
+      const dy = t.clientY - g.y;
+      if (!g.run) {
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+        const dir = dx < 0 ? 1 : -1;
+        if (Math.abs(dx) < Math.abs(dy) * 1.2 || (dir > 0 && L.page >= L.pages - 1) || (dir < 0 && L.page <= 0) || !leafHost.current) { g.dead = true; return; }
+        const box = leafHost.current.getBoundingClientRect();
+        g.run = L.beginCurl(dir, L.page, g.y - box.top < box.height * 0.3 ? 0 : box.height, true);
+        if (!g.run) { g.dead = true; return; }
+        g.dir = dir;
+        setChrome(false);
+      }
+      if (e.cancelable) e.preventDefault();
+      const { ctl } = g.run;
+      const reach = 0.7 * ctl.W;
+      g.lift = Math.max(-ctl.H * 0.3, Math.min(ctl.H * 0.3, dy)) * 0.6;
+      ctl.setS(g.dir > 0 ? -dx / reach : 1 - dx / reach, g.lift);
+      const now = performance.now();
+      if (now - g.lt > 16) { g.v = (t.clientX - g.lx) / (now - g.lt); g.lx = t.clientX; g.lt = now; }
+    };
+    const onEnd = (e) => {
+      const cur = g;
+      g = null;
+      if (!cur?.run) return;
+      consumed.current = true;
+      if (e.cancelable) e.preventDefault();
+      const { run, dir } = cur;
+      const s = run.ctl.s;
+      const amount = dir > 0 ? s : 1 - s;                       // how far the turn has gone
+      const flick = Math.abs(cur.v) > 0.45 && Math.sign(cur.v) === (dir > 0 ? -1 : 1);
+      const flickBack = Math.abs(cur.v) > 0.45 && !flick;
+      const commit = e.type !== 'touchcancel' && !flickBack && (flick || amount > 0.3) && amount > 0.03;
+      const to = commit === (dir > 0) ? 1 : 0;
+      run.ctl.settle(to, 120 + 380 * Math.abs(to - s), commit ? easeOut : easeInOut, cur.lift, () => run.settle(commit, !commit));
+    };
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd, { passive: false });
+    el.addEventListener('touchcancel', onEnd, { passive: false });
+    return () => {
+      el.removeEventListener('touchstart', onStart); el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd); el.removeEventListener('touchcancel', onEnd);
+    };
+  }, []);
+
   // swipe + tap zones
   const touch = useRef(null);
   const onTouchStart = (e) => { const t = e.touches[0]; touch.current = { x: t.clientX, y: t.clientY, at: Date.now() }; };
   const onTouchEnd = (e) => {
     const s = touch.current;
     touch.current = null;
-    if (!s || window.getSelection()?.toString()) return;
+    if (consumed.current) { consumed.current = false; return; } // the page was already turned by dragging it
+    if (!s || window.getSelection()?.toString() || touchSelectState.recently()) return;
     const t = e.changedTouches[0];
     const dx = t.clientX - s.x;
     const dy = t.clientY - s.y;
@@ -352,7 +441,7 @@ export default function MobileReader({
   };
   const onClick = (e) => {
     if (e.target.closest('[data-hl], a, button, .selection-toolbar, .popover')) return;
-    if (window.getSelection()?.toString()) return;
+    if (window.getSelection()?.toString() || touchSelectState.recently()) return; // a selection gesture / its dismissing tap must not turn the page
     if (chrome || sheet) { setChrome(false); setSheet(null); return; }
     const x = e.clientX / window.innerWidth;
     if (x < TAP_ZONE) turn(-1);

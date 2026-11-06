@@ -32,6 +32,7 @@ import LookUpSheet from '../components/reader/LookUpSheet';
 import AboutBook from '../components/reader/AboutBook';
 import { useBookView } from '../hooks/useFullscreen';
 import ShareSheet from '../components/reader/ShareSheet';
+import useTouchSelection, { TouchSelectionLayer, isTouchDevice, touchSelectState } from '../hooks/useTouchSelection';
 import ReportSheet from '../components/reader/ReportSheet';
 import { DocSearch, HighlightPopover, ReaderSettings, SelectionToolbar, WordMenu, categoryColor } from '../components/reader/ReaderTools';
 import { ZEN_PRESETS, ZenBackdrop } from '../components/reader/Scenes';
@@ -526,7 +527,19 @@ function Reader({ docId }) {
   const [hlPop, setHlPop] = useState(null);
   const [noteDraft, setNoteDraft] = useState(null);
 
+  // Touch screens: the browser's own selection menu (Define / Copy / Web search / Google results) lands on top of ours, so the text is
+  // made non-selectable there and selected by this hook instead (hold a word, drag, adjust the handles).
+  const touchMode = useMemo(() => isTouchDevice(), []);
+  const showTouchToolbar = useCallback((info) => {
+    if (!info) { setSelection(null); return; }
+    const host = surfaceRef.current.getBoundingClientRect();
+    const below = info.rect.top < 120;
+    setSelection({ text: info.text, pos: { x: Math.min(Math.max(info.rect.left + info.rect.width / 2 - host.left, 150), host.width - 150), y: (below ? info.rect.bottom + 44 : info.rect.top - 40) - host.top, below } });
+  }, []);
+  const ts = useTouchSelection({ rootRef: articleRef, enabled: touchMode, onSelect: showTouchToolbar, watch: `${paged}|${!!doc}|${chapterIndex}|${mode}` });
+
   const readSelection = useCallback(() => {
+    if (touchSelectState.active) return; // ReadVibe's own touch selection is in charge
     const sel = window.getSelection();
     const text = sel?.toString().replace(/\s+/g, ' ').trim();
     if (!sel || !text || text.length < 2 || !articleRef.current?.contains(sel.anchorNode)) { setSelection(null); return; }
@@ -546,7 +559,7 @@ function Reader({ docId }) {
       setTimeout(readSelection, 10);
     };
     const onKeyUp = (e) => e.shiftKey && onUp();
-    const onChange = () => { if (!window.getSelection()?.toString()) setSelection(null); };
+    const onChange = () => { if (!touchSelectState.active && !window.getSelection()?.toString()) setSelection(null); };
     document.addEventListener('mouseup', onUp);
     document.addEventListener('touchend', onUp);
     document.addEventListener('keyup', onKeyUp);
@@ -600,6 +613,7 @@ function Reader({ docId }) {
     // Painting the mark replaces the text node and clears the browser selection, so continue in the annotation popover
     // (same Annotate panel) anchored under the new mark, where more styles can be stacked.
     window.getSelection()?.removeAllRanges();
+    ts.dismiss();
     setSelection(null);
     setTimeout(() => {
       const el = document.querySelector(`mark[data-hl="${saved.id}"]`);
@@ -624,7 +638,7 @@ function Reader({ docId }) {
   const onSelectionAction = (action, arg) => {
     const text = selection?.text;
     if (!text) return;
-    const clear = () => { window.getSelection()?.removeAllRanges(); setSelection(null); };
+    const clear = () => { window.getSelection()?.removeAllRanges(); ts.dismiss(); setSelection(null); };
     switch (action) {
       case 'highlight': addHighlight(text, arg); break;
       case 'annotate': annotateSelection(text, arg); return; // keeps the selection so styles can be stacked
@@ -811,6 +825,7 @@ function Reader({ docId }) {
         {sheets}
         {overviewOpen && <OverviewSheet doc={doc} chapterIndex={chapterIndex} chapterTitle={chapter?.title} sourceLang={sourceLang} initialLang={overviewLang} onClose={() => setOverviewOpen(false)} />}
         <SelectionToolbar pos={selection?.pos} onAction={onSelectionAction} />
+        <TouchSelectionLayer sel={ts} />
         <WordMenu menu={wordMenu} onAction={onWordAction} />
         {hlPop && (
           <HighlightPopover startStyles={!!hlPop.styles} highlight={hlPop.highlight} pos={hlPop.pos} onClose={() => setHlPop(null)} onAction={(a, t) => { if (a === 'lookup') setLookup(t); else if (a === 'copy') copyPassage(t); else if (a === 'share') sharePassage(t); else if (a === 'report') setReport(t); }}
@@ -920,6 +935,8 @@ function Reader({ docId }) {
           {currentBookmark && <span key={currentBookmark.id} className="bm-ribbon" role="img" aria-label="Bookmarked" />}
           {overviewOpen && <OverviewSheet doc={doc} chapterIndex={chapterIndex} chapterTitle={chapter?.title} sourceLang={sourceLang} initialLang={overviewLang} onClose={() => setOverviewOpen(false)} />}
           <SelectionToolbar pos={selection?.pos} onAction={onSelectionAction} />
+          <TouchSelectionLayer sel={ts} />
+        <TouchSelectionLayer sel={ts} />
           <WordMenu menu={wordMenu} onAction={onWordAction} />
           {hlPop && (
             <HighlightPopover startStyles={!!hlPop.styles} highlight={hlPop.highlight} pos={hlPop.pos} onClose={() => setHlPop(null)} onAction={(a, t) => { if (a === 'lookup') setLookup(t); else if (a === 'copy') copyPassage(t); else if (a === 'share') sharePassage(t); else if (a === 'report') setReport(t); }}

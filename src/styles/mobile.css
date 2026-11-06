@@ -337,17 +337,14 @@
 .player-lyrics .lyric-line { color: var(--text); }
 @media (prefers-reduced-motion: reduce) { .lyric-line, .lyric-word { transition: none; } }
 
-/* ─── Real page flip: a hinged leaf with lighting that follows its angle (lib/pageFlip.js) ───────────── */
-.mr-leafhost { position: absolute; left: 0; right: 0; top: calc(44px + env(safe-area-inset-top)); bottom: calc(40px + env(safe-area-inset-bottom)); z-index: 7; pointer-events: none; perspective: 2200px; perspective-origin: 50% 50%; }
-.mr-leaf { position: absolute; inset: 0; transform-origin: 0 50%; transform-style: preserve-3d; will-change: transform; }
-.mr-leaf-front, .mr-leaf-back { position: absolute; inset: 0; overflow: hidden; background: var(--paper-bg); backface-visibility: hidden; -webkit-backface-visibility: hidden; }
-.mr-leaf-back { transform: rotateY(180deg); background: linear-gradient(to right, color-mix(in srgb, var(--paper-bg) 88%, #000), var(--paper-bg) 55%); }
+/* ─── Page curl: the held corner lifts, the page folds along a line and lies back as the reverse of the paper (see lib/pageCurl.js) ─── */
+.mr-leafhost { position: absolute; left: 0; right: 0; top: calc(44px + env(safe-area-inset-top)); bottom: calc(40px + env(safe-area-inset-bottom)); z-index: 7; pointer-events: none; }
+.mr-curl { position: absolute; inset: 0; overflow: hidden; contain: strict; }
 .mr-face { position: absolute; inset: 0; overflow: hidden; background: var(--paper-bg); }
-.mr-leaf-shade { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
-.mr-leaf-shade.front { background: linear-gradient(to right, rgba(0, 0, 0, 0) 30%, rgba(0, 0, 0, .55) 100%); } /* darker toward the free edge */
-.mr-leaf-shade.back { background: linear-gradient(to right, rgba(0, 0, 0, .5), rgba(0, 0, 0, 0) 70%); }
-.mr-cast { position: absolute; top: 0; bottom: 0; left: 0; width: 0; opacity: 0; pointer-events: none; filter: blur(2px); background: linear-gradient(to right, rgba(0, 0, 0, .42), rgba(0, 0, 0, .16) 45%, rgba(0, 0, 0, 0)); }
-.mr-leafhost.flipping::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 14px; background: linear-gradient(to right, rgba(0, 0, 0, .22), transparent); }
+.mr-curl-stay, .mr-curl-flap, .mr-curl-ushade, .mr-curl-crease { position: absolute; inset: 0; pointer-events: none; }
+.mr-curl-stay { background: var(--paper-bg); will-change: clip-path; }
+.mr-curl-flap { transform-origin: 0 0; background-color: color-mix(in srgb, var(--paper-bg) 93%, #000); will-change: transform, clip-path; }
+.mr-curl-flap::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(0, 0, 0, .018) 0 1px, transparent 1px 3px); }
 
 /* book gutter: the page curves into the spine */
 .mobile-reader .mr-page::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 26px; z-index: 2; pointer-events: none; background: linear-gradient(to right, rgba(0, 0, 0, .13), rgba(0, 0, 0, .04) 45%, transparent); }

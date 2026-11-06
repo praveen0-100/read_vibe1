@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from ..deps import DB, CurrentUser
 from ..serializers import document_out
-from ..services import extraction, ingest
+from ..services import covers, extraction, ingest
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
 
@@ -59,6 +59,31 @@ def _fetch(urls: list[str]) -> str:
     raise HTTPException(status_code=502, detail=last)
 
 
+MAX_COVER = 3 * 1024 * 1024
+COVER_HOSTS = ("www.gutenberg.org", "gutenberg.org", "archive.org")
+
+
+def _fetch_cover(urls: list[str]) -> bytes | None:
+    """The title's own cover image. URLs are built by the server from the id (never supplied by the client), the final host is
+    re-checked after redirects, and the bytes are verified to be an image before anything is stored. Best effort: no cover is fine."""
+    try:
+        with httpx.Client(follow_redirects=True, timeout=8, headers={"User-Agent": "ReadVibe/1.0 (open-book import)"}) as client:
+            for url in urls:
+                try:
+                    res = client.get(url)
+                except httpx.HTTPError:
+                    continue
+                host = res.url.host
+                if res.status_code != 200 or not (host in COVER_HOSTS or host.endswith(".archive.org")):
+                    continue
+                data = res.content
+                if 0 < len(data) <= MAX_COVER and covers.sniff(data):
+                    return data
+    except Exception:  # noqa: BLE001 - covers are decoration; never fail an import over one
+        return None
+    return None
+
+
 def _strip_gutenberg(text: str) -> str:
     start = START_MARK.search(text)
     if start:
@@ -80,17 +105,26 @@ def import_book(body: CatalogImport, user: CurrentUser, db: DB):
             f"https://www.gutenberg.org/ebooks/{n}.txt.utf-8",
         ]))
         tags = body.tags or ["Project Gutenberg"]
+        cover_urls = [f"https://www.gutenberg.org/cache/epub/{n}/pg{n}.cover.medium.jpg"]
     else:
         if not ARCHIVE_ID.match(body.id):
             raise HTTPException(status_code=400, detail="Invalid Internet Archive identifier")
         text = _fetch([f"https://archive.org/download/{body.id}/{body.id}_djvu.txt"]).strip()
         tags = body.tags or ["Internet Archive"]
+        cover_urls = [f"https://archive.org/services/img/{body.id}"]
     if len(text) < 200:
         raise HTTPException(status_code=422, detail="This title has no readable text available")
     try:
         doc = ingest.create_from_text(db, user.id, body.title, body.author, text, "BOOK", tags[:6])
     except extraction.ExtractionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    data = _fetch_cover(cover_urls)
+    if data:
+        try:
+            doc.cover_path = covers.save_cover(user.id, doc.id, data)
+            db.commit()
+        except (ValueError, OSError):
+            db.rollback()
     return document_out(doc)
 
 

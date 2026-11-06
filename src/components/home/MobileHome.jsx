@@ -1,22 +1,26 @@
-// Phone Today: greeting, swipeable "pick up" cards, an insight banner, topic chips and a trending list.
+// Phone Today. Top to bottom: what to pick up (reading · listening · this week), quick actions, today's briefing, then shelves —
+// your books, your audiobooks, topics, recently added — and finally what is new in Discover (books, audiobooks, podcasts).
+// Each kind of item has its own tile shape and shows its own cover (see HomeTiles).
 import React from 'react';
-import { Brain, Search, Clock, Flame, Headphones, Hash, Play, Sparkles, Upload } from 'lucide-react';
+import { Brain, Compass, Flame, Headphones, Play, Search, Sparkles, Upload } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+import { useQuery } from '../../hooks/useAsync';
+import { fetchFresh } from '../../lib/catalog';
 import { greeting, initials } from '../../lib/format';
-import { Cover } from '../ui';
+import AlbumArt from '../audio/AlbumArt';
 import BriefingCard from '../agent/BriefingCard';
+import { AudioTile, BookCover, BookTile, DiscoverTile, TileSkeletons } from './HomeTiles';
 
 const TOPIC_TINTS = ['coral', 'violet', 'blue', 'green', 'amber', 'rose'];
 
-function Art({ doc }) {
-  return <div className={`am-art cover-${doc.color || 'coral'}`}><Cover doc={doc} size="sm" /></div>;
-}
-
-function Section({ title, onMore, children }) {
+function Section({ title, hint, onMore, children, className = '' }) {
   return (
-    <section className="am-shelf">
-      <h2>{title}{onMore && <button onClick={onMore} aria-label={`See all: ${title}`}>See all</button>}</h2>
+    <section className={`am-shelf ${className}`}>
+      <header className="am-shelf-head">
+        <h2>{title}{hint && <small>{hint}</small>}</h2>
+        {onMore && <button onClick={onMore} aria-label={`See all: ${title}`}>See all</button>}
+      </header>
       {children}
     </section>
   );
@@ -27,10 +31,15 @@ export default function MobileHome({ docs, books, stats, current }) {
   const navigate = useNavigate();
   const ready = docs.filter((d) => d.status === 'ready');
   const played = ready.filter((d) => d.last_opened_at);
-  const added = [...ready].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))).slice(0, 10);
-  const resume = (books || []).find((b) => b.status === 'ready' && b.progress > 0 && b.progress < 100);
-  const topics = [...new Set(ready.flatMap((d) => d.tags || []))].slice(0, 9);
+  const added = [...ready].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))).slice(0, 5);
+  const audio = (books || []).filter((b) => b.status === 'ready');
+  const resume = audio.find((b) => b.progress > 0 && b.progress < 100);
+  const topics = [...new Set(ready.flatMap((d) => d.tags || []))].slice(0, 10);
   const first = (user?.name || '').split(' ')[0];
+  // what is new in the free catalogues; quietly absent when offline
+  const fresh = useQuery(() => fetchFresh(), []);
+  const discover = fresh.data;
+  const open = (path) => () => navigate(path);
 
   return (
     <div className="page-shell home-page am-home">
@@ -45,71 +54,85 @@ export default function MobileHome({ docs, books, stats, current }) {
         </button>
       </header>
 
+      {/* 1 · pick up where you left off */}
+      {(current || resume || stats) && (
+        <div className="am-hero-wrap">
+          {current && (
+            <button className="am-hero" onClick={open(`/read/${current.id}`)}>
+              <span className="am-hero-cover"><BookCover doc={current} /></span>
+              <span className="am-hero-text">
+                <small>Continue reading</small>
+                <strong>{current.title}</strong>
+                <em>{current.author}</em>
+                <span className="am-hero-bar" aria-hidden="true"><i style={{ width: `${Math.min(100, Math.round(current.progress || 0))}%` }} /></span>
+                <span className="am-hero-meta">{Math.round(current.progress || 0)}% · {current.minutes_left}m left</span>
+                <span className="am-chip-btn"><Play size={13} fill="currentColor" /> Continue</span>
+              </span>
+            </button>
+          )}
+          {(resume || stats) && (
+            <div className="am-duo">
+              {resume && (
+                <button className="am-mini am-mini-audio" onClick={open(`/audio?book=${resume.id}`)}>
+                  <span className="am-mini-art"><AlbumArt title={resume.title} color={resume.color || 'blue'} cover={resume.cover ?? (resume.document_has_cover ? resume.document_id : null)} size="tile" bare /></span>
+                  <small><Headphones size={12} /> Resume listening</small>
+                  <strong>{resume.title}</strong>
+                  <span className="am-hero-meta">{Math.round(resume.progress)}% done</span>
+                </button>
+              )}
+              {stats && (
+                <button className="am-mini am-mini-week" onClick={open('/read')}>
+                  <Flame size={26} aria-hidden="true" />
+                  <small>This week</small>
+                  <strong>{stats.week_minutes} min</strong>
+                  <span className="am-hero-meta">{stats.streak ? `${stats.streak}-day streak` : 'Start a streak today'}</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 2 · quick actions */}
+      <nav className="am-actions" aria-label="Quick actions">
+        <button onClick={() => openAI()}><Sparkles size={20} /><span>Ask AI</span></button>
+        <button onClick={() => navigate('/research')}><Brain size={20} /><span>Research</span></button>
+        <button onClick={() => setUploadOpen(true)}><Upload size={20} /><span>Upload</span></button>
+        <button onClick={() => navigate('/discover')}><Compass size={20} /><span>Discover</span></button>
+      </nav>
+
+      {/* 3 · today's briefing */}
       <BriefingCard compact />
 
-      <div className="am-row am-pickrow">
-        {current && (
-          <button className="am-pick am-pick-tall" onClick={() => navigate(`/read/${current.id}`)}>
-            <Art doc={current} />
-            <strong>{current.title}</strong>
-            <span className="am-meta"><Clock size={14} /> {current.minutes_left}m left</span>
-            <span className="am-chip-btn"><Play size={13} fill="currentColor" /> Continue</span>
-          </button>
-        )}
-        {resume && (
-          <button className="am-pick am-pick-tall am-pick-blue" onClick={() => navigate(`/audio?book=${resume.id}`)}>
-            <span className="am-pick-icon"><Headphones size={40} /></span>
-            <strong>{resume.title}</strong>
-            <span className="am-meta"><Headphones size={14} /> {Math.round(resume.progress)}% done</span>
-            <span className="am-chip-btn"><Play size={13} fill="currentColor" /> Resume</span>
-          </button>
-        )}
-        {stats && (
-          <button className="am-pick am-pick-tall am-pick-red" onClick={() => navigate('/read')}>
-            <span className="am-pick-icon"><Flame size={40} /></span>
-            <strong>{stats.week_minutes} min this week</strong>
-            <span className="am-meta">{stats.streak ? `${stats.streak}-day streak` : 'Start a streak today'}</span>
-          </button>
-        )}
-      </div>
-
-      <button className="am-banner" onClick={() => openAI()}>
-        <span><strong>Read smarter with AI</strong><small>Summaries, chat, mind maps &amp; more</small></span>
-        <Sparkles size={34} aria-hidden="true" />
-      </button>
-
-      <Section title="Browse by topics">
-        <div className="am-topics">
-          {topics.map((t, i) => (
-            <button key={t} className={`am-topic tint-${TOPIC_TINTS[i % TOPIC_TINTS.length]}`} onClick={() => navigate(`/library?tag=${encodeURIComponent(t)}`)}>
-              <Hash size={16} /> {t}
-            </button>
-          ))}
-          <button className="am-topic tint-coral" onClick={() => setUploadOpen(true)}><Upload size={16} /> Upload a document</button>
-          <button className="am-topic tint-green" onClick={() => navigate('/research')}><Brain size={16} /> Start research</button>
-        </div>
-      </Section>
-
+      {/* 4 · your shelves */}
       {played.length > 0 && (
-        <Section title="Recently read" onMore={() => navigate('/library')}>
-          <div className="am-row">
-            {played.slice(0, 10).map((d) => (
-              <button key={d.id} className="am-tile" onClick={() => navigate(`/read/${d.id}`)}>
-                <Art doc={d} />
-                <strong>{d.title}</strong>
-                <small>{d.author} · {Math.round(d.progress)}%</small>
-              </button>
+        <Section title="Recently read" onMore={open('/library')}>
+          <div className="am-row">{played.slice(0, 10).map((d) => <BookTile key={d.id} doc={d} onOpen={open(`/read/${d.id}`)} />)}</div>
+        </Section>
+      )}
+
+      {audio.length > 0 && (
+        <Section title="Audiobooks" onMore={open('/audio')}>
+          <div className="am-row">{audio.slice(0, 12).map((b) => <AudioTile key={b.id} book={b} onOpen={open(`/audio?book=${b.id}`)} />)}</div>
+        </Section>
+      )}
+
+      {topics.length > 0 && (
+        <Section title="Browse by topic">
+          <div className="am-row am-topic-row">
+            {topics.map((t, i) => (
+              <button key={t} className={`am-topic tint-${TOPIC_TINTS[i % TOPIC_TINTS.length]}`} onClick={open(`/library?tag=${encodeURIComponent(t)}`)}>{t}</button>
             ))}
           </div>
         </Section>
       )}
 
       {added.length > 0 && (
-        <Section title="Recently added" onMore={() => navigate('/library')}>
+        <Section title="Recently added" onMore={open('/library')}>
           <div className="am-list">
-            {added.slice(0, 6).map((d) => (
-              <button key={d.id} className="am-item" onClick={() => navigate(`/read/${d.id}`)}>
-                <Art doc={d} />
+            {added.map((d) => (
+              <button key={d.id} className="am-item" onClick={open(`/read/${d.id}`)}>
+                <span className="am-item-cover"><BookCover doc={d} /></span>
                 <span className="am-item-text">
                   <strong>{d.title}</strong>
                   <small>{d.author}</small>
@@ -121,17 +144,23 @@ export default function MobileHome({ docs, books, stats, current }) {
         </Section>
       )}
 
-      {(books || []).some((b) => b.status === 'ready') && (
-        <Section title="Audiobooks" onMore={() => navigate('/audio')}>
-          <div className="am-row">
-            {books.filter((b) => b.status === 'ready').map((b) => (
-              <button key={b.id} className="am-tile" onClick={() => navigate(`/audio?book=${b.id}`)}>
-                <div className={`am-art cover-${b.color || 'blue'}`}><span className="am-play"><Play size={22} fill="currentColor" /></span></div>
-                <strong>{b.title}</strong>
-                <small>{b.tone || 'Audiobook'}</small>
-              </button>
-            ))}
-          </div>
+      {/* 5 · new in Discover */}
+      {(fresh.loading && !discover) && (
+        <Section title="New in Discover"><div className="am-row"><TileSkeletons kind="ebook" n={4} /></div></Section>
+      )}
+      {discover?.ebooks?.length > 0 && (
+        <Section title="New free books" hint="Project Gutenberg" onMore={open('/discover')}>
+          <div className="am-row">{discover.ebooks.slice(0, 12).map((it) => <DiscoverTile key={it.id} item={it} kind="ebook" onOpen={open('/discover')} />)}</div>
+        </Section>
+      )}
+      {discover?.audiobooks?.length > 0 && (
+        <Section title="New audiobooks" hint="LibriVox" onMore={open('/discover')}>
+          <div className="am-row">{discover.audiobooks.slice(0, 12).map((it) => <DiscoverTile key={it.id} item={it} kind="audio" onOpen={open('/discover')} />)}</div>
+        </Section>
+      )}
+      {discover?.podcasts?.length > 0 && (
+        <Section title="Popular podcasts" onMore={open('/discover')}>
+          <div className="am-row">{discover.podcasts.slice(0, 12).map((it) => <DiscoverTile key={it.id} item={it} kind="podcast" onOpen={open('/discover')} />)}</div>
         </Section>
       )}
     </div>
