@@ -58,7 +58,9 @@ export default function PlaybackHost() {
     if (pb.bookId && !ids.has(pb.bookId)) playbackActions.stop();
   }, [books.data]); // eslint-disable-line
 
-  if (!bookId) {
+  // closed with the ✕: nothing is mounted (so nothing plays and nothing floats) until the listener plays something again or opens the Audio Studio
+  const hidden = pb.dismissed && !onAudio;
+  if (!bookId || hidden) {
     return <NewPlaylistModal open={newPl.open} seedBookId={newPl.seed} onClose={() => setNewPl({ open: false, seed: null })} onCreated={() => notify('Playlist created')} />;
   }
   const visible = onAudio && tab === 'player' && !!slot;
@@ -66,7 +68,7 @@ export default function PlaybackHost() {
     <>
       <div className="global-mini" ref={miniRef}>
         <Player key={`${bookId}:${pb.nonce}`} bookId={bookId} slot={slot} visible={visible} autoplay={pb.autoplay} startChapter={pb.chapter} library={list}
-          onNavigate={(id, o) => playbackActions.play(id, o)} onOpen={() => navigate('/audio?tab=player')}
+          onNavigate={(id, o) => playbackActions.play(id, o)} onOpen={() => navigate('/audio?tab=player')} onClose={playbackActions.dismiss} showMini={!pb.dismissed}
           onNewPlaylist={(seed) => setNewPl({ open: true, seed })} onPlayingChange={playbackActions.setPlaying} />
       </div>
       <NewPlaylistModal open={newPl.open} seedBookId={newPl.seed} onClose={() => setNewPl({ open: false, seed: null })}

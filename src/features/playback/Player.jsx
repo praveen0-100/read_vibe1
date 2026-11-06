@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import {
   BookOpen, Bookmark, Check, ChevronDown, Clock, Download, FastForward, Headphones, ListMusic, ListPlus, Loader2, Pause, Play, Plus,
-  Quote, Repeat, Repeat1, Rewind, Shuffle, SkipBack, SkipForward, Smile, Trash2, Users, Volume2, Zap,
+  Quote, Repeat, Repeat1, Rewind, Shuffle, SkipBack, SkipForward, Smile, Trash2, Users, Volume2, X, Zap,
 } from 'lucide-react';
 import { api } from '../../api/client';
 import { useApp } from '../../context/AppContext';
@@ -33,7 +33,7 @@ export function useVoices() {
 }
 
 // ─── Player ───────────────────────────────────────────────────────────────────
-export default function Player({ bookId, slot = null, visible = true, autoplay = false, startChapter = null, library = [], onNavigate, onOpen, onNewPlaylist, onPlayingChange }) {
+export default function Player({ bookId, slot = null, visible = true, autoplay = false, startChapter = null, library = [], onNavigate, onOpen, onClose, onNewPlaylist, onPlayingChange, showMini = true }) {
   const { prefs, setPrefs, notify } = useApp();
   const { queue, history, shuffle, repeat } = useQueue();
   const { lists } = usePlaylists();
@@ -227,13 +227,14 @@ export default function Player({ bookId, slot = null, visible = true, autoplay =
 
   return (
     <>
-      {!visible && (
+      {!visible && showMini && (
         <div className="mini-now" role="region" aria-label="Now playing">
           <AlbumArt title={b.title} color={b.color} cover={b.document_has_cover ? b.document_id : null} size="xs" playing={st.playing} bare />
           <div className="mn-info"><strong>{b.title}</strong><small>{st.chapterTitle} · {b.tone} narration</small></div>
           <button className="mn-play" onClick={() => narrator.toggle()} aria-label={st.playing ? 'Pause' : 'Play'}>{st.playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}</button>
           <button onClick={nextTrack} aria-label="Next" disabled={atEnd && !canNext}><SkipForward size={17} /></button>
           <button onClick={onOpen} aria-label="Open player"><ChevronDown size={17} style={{ transform: 'rotate(180deg)' }} /></button>
+          {onClose && <button className="mn-close" onClick={onClose} aria-label="Close player" title="Close player"><X size={16} /></button>}
           <div className="mn-bar"><i style={{ width: `${(elapsed / Math.max(1, total)) * 100}%` }} /></div>
         </div>
       )}

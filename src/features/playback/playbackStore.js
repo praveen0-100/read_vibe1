@@ -3,7 +3,7 @@
 // instantiating their own players. Only the loaded book id survives a reload; a restored player never auto-plays.
 import { createStore } from '../../lib/localStore';
 
-const store = createStore('readvibe.playback.v1', { bookId: null, nonce: 0, autoplay: false, chapter: null, playing: false });
+const store = createStore('readvibe.playback.v1', { bookId: null, nonce: 0, autoplay: false, chapter: null, playing: false, dismissed: false });
 // A page load never resumes sound by itself.
 store.set((s) => ({ ...s, autoplay: false, chapter: null, playing: false }));
 
@@ -21,13 +21,15 @@ export const playbackActions = {
   /** Load an audiobook (optionally from a chapter) and play it. */
   play(bookId, { autoplay = true, chapter = null } = {}) {
     if (!bookId) return;
-    store.set((s) => ({ ...s, bookId, nonce: s.nonce + 1, autoplay, chapter }));
+    store.set((s) => ({ ...s, bookId, nonce: s.nonce + 1, autoplay, chapter, dismissed: false })); // an explicit play brings the player back
   },
+  /** The ✕ on the mini player: stop and hide it everywhere except the Audio Studio. Playing again (anywhere) shows it again. */
+  dismiss() { store.set((s) => ({ ...s, dismissed: true, playing: false, autoplay: false })); },
   /** Load without playing (deep links, restore). */
   open(bookId) { this.play(bookId, { autoplay: false }); },
   /** Remember the album that is loaded (no reload). */
   remember(bookId) { if (bookId && store.get().bookId !== bookId) store.set((s) => ({ ...s, bookId })); },
-  setPlaying(playing) { if (store.get().playing !== playing) store.set((s) => ({ ...s, playing })); },
+  setPlaying(playing) { if (store.get().playing !== playing) store.set((s) => ({ ...s, playing, ...(playing ? { dismissed: false } : {}) })); },
   stop() { store.set((s) => ({ ...s, bookId: null, playing: false, autoplay: false, chapter: null })); },
   /** The loaded book was deleted. */
   dropIf(bookId) { if (store.get().bookId === bookId) this.stop(); },

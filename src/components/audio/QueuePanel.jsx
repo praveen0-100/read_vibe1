@@ -1,13 +1,11 @@
 // Up-next queue: reorder by drag or menu, shuffle, repeat, history, and quick-add from the library.
 import React, { useState } from 'react';
-import { ArrowDown, ArrowUp, ChevronDown, GripVertical, History, ListPlus, ListX, Loader2, Play, Plus, Repeat, Repeat1, Shuffle, Trash2, Upload, WandSparkles } from 'lucide-react';
-import { api } from '../../api/client';
-import { useApp } from '../../context/AppContext';
-import { useQuery } from '../../hooks/useAsync';
+import { ArrowDown, ArrowUp, ChevronDown, GripVertical, History, ListPlus, ListX, Play, Plus, Repeat, Repeat1, Shuffle, Trash2 } from 'lucide-react';
 import { formatDuration } from '../../lib/format';
 import { keyOf, queueActions, slim, useQueue } from '../../lib/queue';
 import { Menu } from '../ui';
 import AlbumArt from './AlbumArt';
+import AddBooksSheet from './AddBooksSheet';
 
 const REPEAT_LABEL = { off: 'Repeat off', all: 'Repeat all', one: 'Repeat one' };
 
@@ -30,10 +28,7 @@ function SectionList({ sections, onPick }) {
 
 export default function QueuePanel({ current, playing, library = [], onPlay, compact = false }) {
   const { queue, history, shuffle, repeat } = useQueue();
-  const { notify, trackJob, setUploadOpen, dataVersion, refreshData } = useApp();
-  // every readable book in the library, not just the ones that already have audio — "Add a book" must work for any of them
-  const docs = useQuery(() => api.documents.list({ sort: 'recent' }), [dataVersion]);
-  const [making, setMaking] = useState(() => new Set());
+  const [adding, setAdding] = useState(false); // the "Add books" sheet
   const [drag, setDrag] = useState(null);
   const [over, setOver] = useState(null);
   const [open, setOpen] = useState(() => new Set());
@@ -46,34 +41,6 @@ export default function QueuePanel({ current, playing, library = [], onPlay, com
   const queued = new Set([...queue.map((q) => q.id), current?.id]);
   const suggestions = library.filter((b) => b.status === 'ready' && !queued.has(b.id));
   const RepeatIcon = repeat === 'one' ? Repeat1 : Repeat;
-
-  // books that have no audiobook yet: make one, and queue it automatically the moment it is ready
-  const withAudio = new Set(library.map((b) => b.document_id));
-  const needAudio = (docs.data || []).filter((d) => d.status === 'ready' && !withAudio.has(d.id));
-  const makeAudio = async (doc) => {
-    setMaking((s) => new Set(s).add(doc.id));
-    try {
-      const res = await api.audio.create({ document_id: doc.id, tone: 'Regular' });
-      notify(`Making an audiobook of “${doc.title}” — it will join your queue when it’s ready`, 'info');
-      trackJob(res.job_id, async (job) => {
-        setMaking((s) => { const n = new Set(s); n.delete(doc.id); return n; });
-        if (job.status !== 'completed') { notify(job.status === 'failed' ? `Couldn’t make the audiobook: ${job.error || 'it failed'}` : 'Audiobook cancelled', 'error'); return; }
-        try { queueActions.add(await api.audio.get(res.audiobook.id)); notify(`“${doc.title}” is ready and added to your queue`); } catch (e) { notify(e.message, 'error'); }
-        refreshData();
-      });
-    } catch (e) {
-      setMaking((s) => { const n = new Set(s); n.delete(doc.id); return n; });
-      notify(e.message, 'error');
-    }
-  };
-  const addItems = [
-    ...suggestions.map((b) => ({ label: b.title, icon: Plus, onClick: () => { queueActions.add(b); notify(`Added “${b.title}” to the queue`); } })),
-    ...(suggestions.length > 1 ? [{ label: `Add all ${suggestions.length} audiobooks`, icon: ListPlus, onClick: () => { queueActions.add(suggestions); notify(`Added ${suggestions.length} audiobooks`); } }] : []),
-    ...(suggestions.length && needAudio.length ? ['-'] : []),
-    ...needAudio.map((d) => ({ label: making.has(d.id) ? `Making audio… ${d.title}` : `Make audiobook · ${d.title}`, icon: making.has(d.id) ? Loader2 : WandSparkles, disabled: making.has(d.id), onClick: () => makeAudio(d) })),
-    '-',
-    { label: 'Upload a new book…', icon: Upload, onClick: () => setUploadOpen(true) },
-  ];
 
   const drop = (to) => {
     if (drag != null && drag !== to) queueActions.move(drag, to);
@@ -114,7 +81,7 @@ export default function QueuePanel({ current, playing, library = [], onPlay, com
 
       <div className="q-section">
         <div className="eyebrow q-eyebrow">NEXT IN QUEUE
-          <Menu label="Add a book to the queue" align="right" trigger={<span className="q-toggle"><Plus size={13} /> Add a book</span>} items={addItems} />
+          <button className="q-toggle" onClick={() => setAdding(true)} aria-haspopup="dialog"><Plus size={13} /> Add books</button>
           {queue.length > 0 && <button className="text-button" onClick={toggleAll}>{allOpen ? 'Collapse all' : 'Expand all'}</button>}
         </div>
         {queue.length === 0 ? (
@@ -190,6 +157,7 @@ export default function QueuePanel({ current, playing, library = [], onPlay, com
           </div>
         </div>
       )}
+      {adding && <AddBooksSheet library={library} onClose={() => setAdding(false)} />}
     </div>
   );
 }
