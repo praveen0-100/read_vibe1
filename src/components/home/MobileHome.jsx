@@ -1,5 +1,5 @@
-// Phone Today. Top to bottom: what to pick up (reading · listening · this week), quick actions, today's briefing, then shelves —
-// your books, your audiobooks, topics, recently added — and finally what is new in Discover (books, audiobooks, podcasts).
+// Phone Today. Top to bottom: what to pick up (reading · listening · this week), quick actions, then shelves — your books,
+// today's briefing, your audiobooks, topics, recently added — and finally what is new in Discover (books, audiobooks, podcasts).
 // Each kind of item has its own tile shape and shows its own cover (see HomeTiles).
 import React from 'react';
 import { Brain, Compass, Flame, Headphones, Play, Search, Sparkles, Upload } from 'lucide-react';
@@ -101,15 +101,14 @@ export default function MobileHome({ docs, books, stats, current }) {
         <button onClick={() => navigate('/discover')}><Compass size={20} /><span>Discover</span></button>
       </nav>
 
-      {/* 3 · today's briefing */}
-      <BriefingCard compact />
-
       {/* 4 · your shelves */}
       {played.length > 0 && (
         <Section title="Recently read" onMore={open('/library')}>
           <div className="am-row">{played.slice(0, 10).map((d) => <BookTile key={d.id} doc={d} onOpen={open(`/read/${d.id}`)} />)}</div>
         </Section>
       )}
+
+      <div className="am-brief"><BriefingCard compact /></div>
 
       {audio.length > 0 && (
         <Section title="Audiobooks" onMore={open('/audio')}>
