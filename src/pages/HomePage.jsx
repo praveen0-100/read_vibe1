@@ -9,31 +9,35 @@ import { api } from '../api/client';
 import { useApp } from '../context/AppContext';
 import GoalsCard from '../components/home/GoalsCard';
 import { useQuery } from '../hooks/useAsync';
-import { formatMinutes, greeting, timeAgo } from '../lib/format';
+import { greeting, timeAgo } from '../lib/format';
 import { useIsMobile } from '../hooks/useMediaQuery';
 import MobileHome from '../components/home/MobileHome';
 import BriefingCard from '../components/agent/BriefingCard';
-import { Cover, EmptyState, ErrorState, ProgressBar, SectionHead, Skeleton } from '../components/ui';
+import { EmptyState, ErrorState, ProgressBar, Skeleton } from '../components/ui';
+import HomeShelves from '../components/home/HomeShelves';
+import { BookCover, posterHue } from '../components/home/HomeTiles';
+import { useCoverUrl } from '../lib/covers';
 
-function ContinueCard({ doc }) {
+/** Large "continue" panel: the book's own cover, blurred and grained into the backdrop, with the next action beside it. */
+function DeskHero({ doc, audio }) {
   const navigate = useNavigate();
+  const url = useCoverUrl(doc.has_cover ? doc.id : null);
   const open = () => navigate(`/read/${doc.id}`);
   return (
-    <article className="continue-card" onClick={open} role="link" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && open()} aria-label={`Continue reading ${doc.title}`}>
-      <div className="card-kicker"><span className="pulse" aria-hidden="true" /> CONTINUE READING <span className="kicker-progress">{Math.round(doc.progress)}%</span></div>
-      <div className="continue-content">
-        <Cover doc={doc} size="lg" />
-        <div className="continue-copy">
-          <h2>{doc.title}</h2>
-          <p>{doc.author}</p>
-          {doc.current_chapter_title && <p className="continue-chapter">{doc.current_chapter_title}</p>}
-          <div className="progress-row"><ProgressBar value={doc.progress} /><span>{doc.minutes_left} min left</span></div>
+    <article className="dh-continue" style={doc.has_cover ? undefined : { '--c1': `hsl(${posterHue(doc.title)} 52% 40%)`, '--c2': `hsl(${(posterHue(doc.title) + 38) % 360} 58% 18%)` }} onClick={open} role="link" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && open()} aria-label={`Continue reading ${doc.title}`}>
+      {url && <span className="dh-backdrop" style={{ backgroundImage: `url(${url})` }} aria-hidden="true" />}
+      <span className="dh-grain" aria-hidden="true" />
+      <span className="dh-cover"><BookCover doc={doc} /></span>
+      <div className="dh-copy">
+        <div className="card-kicker"><span className="pulse" aria-hidden="true" /> CONTINUE READING</div>
+        <h2>{doc.title}</h2>
+        <p className="dh-author">{doc.author}{doc.current_chapter_title ? ` · ${doc.current_chapter_title}` : ''}</p>
+        <div className="progress-row"><ProgressBar value={doc.progress} /><span>{Math.round(doc.progress)}% · {doc.minutes_left} min left</span></div>
+        <div className="dh-buttons">
           <button className="resume-btn" onClick={(e) => { e.stopPropagation(); open(); }}>Resume reading <ArrowRight size={15} /></button>
+          {audio && <button className="dh-ghost" onClick={(e) => { e.stopPropagation(); navigate(`/audio?book=${audio.id}`); }}><Headphones size={15} /> Resume “{audio.title}”</button>}
         </div>
-      </div>
-      <div className="continue-footer">
-        <span><Clock3 size={13} /> Opened {timeAgo(doc.last_opened_at)}</span>
-        <span className="mode-pill">{doc.last_mode} mode</span>
+        <small className="dh-opened"><Clock3 size={12} /> Opened {timeAgo(doc.last_opened_at)} · {doc.last_mode} mode</small>
       </div>
     </article>
   );
@@ -76,7 +80,6 @@ export default function HomePage() {
   const isMobile = useIsMobile();
   const list = docs.data || [];
   const current = list.find((d) => d.status === 'ready' && d.last_opened_at && d.progress < 99) || list.find((d) => d.status === 'ready');
-  const recent = list.filter((d) => d.id !== current?.id).slice(0, 3);
   const lastBook = (books.data || []).find((b) => b.status === 'ready' && b.progress > 0 && b.progress < 100);
   const date = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 
@@ -95,7 +98,7 @@ export default function HomePage() {
   if (isMobile && list.length > 0) return <MobileHome docs={list} books={books.data} stats={stats.data} current={current} />;
 
   return (
-    <div className="page-shell home-page">
+    <div className="page-shell home-page dh">
       <header className="topbar">
         <div>
           <div className="eyebrow">{date}</div>
@@ -117,8 +120,6 @@ export default function HomePage() {
 
       {docs.error && <ErrorState error={docs.error} onRetry={docs.reload} />}
 
-      {list.length > 0 && <BriefingCard />}
-
       {docs.loading && !docs.data ? (
         <section className="hero-grid"><Skeleton h={260} r={14} /><Skeleton h={260} r={14} /></section>
       ) : list.length === 0 && !docs.error ? (
@@ -126,70 +127,38 @@ export default function HomePage() {
           description="Upload a PDF, EPUB, DOCX or text file — ReadVibe splits it into chapters and unlocks AI tools, audio and immersive modes."
           action="Upload a document" onAction={() => setUploadOpen(true)} />
       ) : (
-        <section className="hero-grid">
-          {current ? <ContinueCard doc={current} /> : <Skeleton h={260} r={14} />}
-          {stats.data ? <StatsCard stats={stats.data} /> : <Skeleton h={260} r={14} />}
-        </section>
-      )}
+        <>
+          <section className="dh-hero">
+            {current ? <DeskHero doc={current} audio={lastBook} /> : <Skeleton h={300} r={20} />}
+            {stats.data ? <StatsCard stats={stats.data} /> : <Skeleton h={300} r={20} />}
+          </section>
 
-      <GoalsCard />
-
-      <section className="section-block">
-        <SectionHead eyebrow="MAKE IT YOURS" title="What would you like to do?" />
-        <div className="action-grid">
-          {actions.map(({ label, detail, icon: Icon, tone, run }) => (
-            <button key={label} className="action-card" onClick={run}>
-              <span className={`action-icon ${tone}`}><Icon size={19} /></span>
-              <span className="action-text"><strong>{label}</strong><small>{detail}</small></span>
-              <ArrowRight size={15} className="action-arrow" />
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {(recs.data?.length > 0 || lastBook) && (
-        <section className="section-block">
-          <SectionHead eyebrow="A NOTE FROM READVIBE" title="Suggested for you" />
-          <div className="suggestions">
-            {lastBook && (
-              <button className="suggestion-row" onClick={() => navigate(`/audio?book=${lastBook.id}`)}>
-                <span className="suggestion-icon"><Headphones size={16} /></span>
-                <span>Resume listening to “{lastBook.title}” · {Math.round(lastBook.progress)}% done</span>
-                <ArrowRight size={14} />
-              </button>
-            )}
-            {(recs.data || []).slice(0, 4).map((r) => {
-              const Icon = REC_ICONS[r.action] || WandSparkles;
-              return (
-                <button key={`${r.action}-${r.document_id}`} className="suggestion-row" onClick={() => runRec(r)}>
-                  <span className="suggestion-icon"><Icon size={16} /></span>
-                  <span>{r.label}</span>
-                  <ArrowRight size={14} />
-                </button>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {recent.length > 0 && (
-        <section className="section-block">
-          <SectionHead eyebrow="FROM YOUR LIBRARY" title="Pick up where you left off" actionLabel="View library" onAction={() => navigate('/library')} />
-          <div className="document-row">
-            {recent.map((doc) => (
-              <button key={doc.id} className="doc-card" onClick={() => navigate(`/read/${doc.id}`)} disabled={doc.status !== 'ready'}>
-                <Cover doc={doc} />
-                <span className="doc-info">
-                  <span className="doc-type">{doc.type} · {doc.tags?.[0] || doc.format}</span>
-                  <h3>{doc.title}</h3>
-                  <p>{doc.author}</p>
-                  <ProgressBar value={doc.progress} thin />
-                  <small>{doc.status === 'processing' ? 'Processing…' : `${Math.round(doc.progress)}% · ${formatMinutes(doc.minutes_left)} left`}</small>
-                </span>
+          <nav className="dh-actions" aria-label="Quick actions">
+            {actions.map(({ label, detail, icon: Icon, tone, run }) => (
+              <button key={label} className="action-card" onClick={run}>
+                <span className={`action-icon ${tone}`}><Icon size={19} /></span>
+                <span className="action-text"><strong>{label}</strong><small>{detail}</small></span>
               </button>
             ))}
-          </div>
-        </section>
+          </nav>
+
+          {(recs.data?.length > 0) && (
+            <div className="dh-suggest" aria-label="Suggested for you">
+              <span className="eyebrow">SUGGESTED FOR YOU</span>
+              {recs.data.slice(0, 4).map((r) => {
+                const Icon = REC_ICONS[r.action] || WandSparkles;
+                return <button key={`${r.action}-${r.document_id}`} onClick={() => runRec(r)}><Icon size={14} /> {r.label}</button>;
+              })}
+            </div>
+          )}
+
+          <HomeShelves docs={list} books={books.data} />
+
+          <section className="dh-widgets">
+            <BriefingCard />
+            <GoalsCard />
+          </section>
+        </>
       )}
     </div>
   );
