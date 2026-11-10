@@ -1,0 +1,117 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   finish.css — loaded last. Three jobs:
+   1. Zen: the page text was dark-on-dark (a later paper theme out-ranked Zen's light text); it is now always light on a deep glass.
+   2. The Zen / Vibe level meter: a phone's OS-level "reduce animations" switch froze it. The meter is a status light, not decoration,
+      so it keeps moving unless the user turned on ReadVibe's OWN "Reduce motion" setting.
+   3. Fit every screen: a phone in either orientation, a foldable, a tablet, a laptop, a TV.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* ═══ 1 · Zen reading surface: high contrast ═══════════════════════════════════ */
+html body .reader-page.mode-zen .reading-surface,
+html body .mode-zen .reading-surface {
+  --paper-bg: #0d0a1c; --paper-text: #fbfaff; --paper-muted: #d9d3ee; --paper-accent: #ffd9a8; --paper-line: rgba(235, 228, 255, .32);
+  --text: #fbfaff; --text-2: #e6e1f5; --muted: #d9d3ee; --muted-2: #bdb6d6;
+  background: rgba(10, 8, 24, .88);
+  color: #fbfaff;
+  border-color: rgba(235, 228, 255, .34);
+  -webkit-backdrop-filter: blur(16px) saturate(1.1); backdrop-filter: blur(16px) saturate(1.1);
+}
+html body .mode-zen .reading-surface :is(h1, h2, h3, h4, h5, h6, p, li, td, th, figcaption, strong, em, b, i, label, small, .reading-inner, .article-copy, .article-copy p, .in-chapter-heading, .chapter-heading) {
+  color: #fbfaff;
+}
+html body .mode-zen .reading-surface .article-copy { color: #fbfaff; text-shadow: 0 1px 2px rgba(0, 0, 0, .55); font-weight: 450; }
+html body .mode-zen .reading-surface .article-copy blockquote { color: #ffe3c2; border-left-color: #ffd9a8; }
+html body .mode-zen .reading-surface .article-copy.with-dropcap > p:first-child::first-letter { color: #ffd9a8; }
+html body .mode-zen .reading-surface :is(a, .link) { color: #cfe0ff; }
+html body .mode-zen .reading-surface .article-copy p.reading-now { background: rgba(255, 217, 168, .18); box-shadow: -10px 0 0 rgba(255, 217, 168, .18), 10px 0 0 rgba(255, 217, 168, .18); }
+html body .mode-zen .reading-surface mark.hl { color: #0d0a1c; }
+html body .mode-zen .reading-surface :is(.muted, .meta, .reading-meta, .reading-eyebrow) { color: #d9d3ee; }
+/* chapter list / rails next to the page */
+html body .mode-zen .chapter-nav { --text: #fbfaff; --muted: #e0dbf1; --muted-2: #c3bcdb; background: rgba(10, 8, 24, .82); }
+html body .mode-zen .chapter-nav nav button { color: #f1eefb; }
+html body .mode-zen .reader-footer, html body .mode-zen .reader-footer * { color: #f1eefb; }
+/* the Zen control panel itself */
+html body .mp.zen-controls { --text: #fbfaff; --text-2: #e6e1f5; --muted: #d9d3ee; color: #fbfaff; background: linear-gradient(180deg, rgba(30, 24, 56, .92), rgba(10, 8, 24, .94)); }
+html body .mp.zen-controls :is(.mp-sec-head, .mp-status, .mp-field span, .timer-ring small) { color: #e6e1f5; }
+html body .mp.zen-controls select { color: #fbfaff; background-color: rgba(255, 255, 255, .1); border-color: rgba(235, 228, 255, .34); }
+html body .mp.zen-controls select option { color: #1b1530; background: #fff; }
+/* the scene behind: a light "paper" scene must not wash the glass out */
+html body .zen-paper::after { opacity: .35; }
+
+/* ═══ 2 · Level meter keeps moving on phones ═══════════════════════════════════ */
+html:not([data-motion='reduced']) .lvl.on i {
+  opacity: .95;
+  animation: lvl-bounce 1.15s ease-in-out infinite !important;
+  animation-delay: var(--d) !important;
+  animation-duration: 1.15s !important;
+  animation-iteration-count: infinite !important;
+  will-change: transform;
+}
+html:not([data-motion='reduced']) .mp-status.live i { animation: mp-lamp 1.8s ease-in-out infinite !important; animation-duration: 1.8s !important; animation-iteration-count: infinite !important; }
+html:not([data-motion='reduced']) .mp .timer-ring.running::before { animation-iteration-count: infinite !important; }
+/* the meter is a little taller and brighter so it reads on a small, bright screen */
+.lvl { height: 38px; }
+.lvl i { min-width: 2px; }
+.lvl.on i { background: linear-gradient(180deg, #fff, var(--mx) 40%, color-mix(in srgb, var(--mx) 30%, transparent)); }
+/* when the panel is folded to one line on a phone, a mini meter still shows the music is playing */
+.mp.collapsible:not(.open) .mp-status.live i { width: 9px; height: 9px; }
+
+/* ═══ 3 · Fit every screen ═════════════════════════════════════════════════════ */
+html, body { max-width: 100%; overflow-x: clip; }
+body { min-width: 0; }
+#root, .app, .main-col, .main, .page-shell, .reader-page, .reader-layout, .reading-surface, .reading-inner { min-width: 0; max-width: 100%; }
+.reader-layout > *, .main-col > *, .page-shell > * { min-width: 0; }
+.reading-inner, .article-copy, .article-copy * { overflow-wrap: break-word; word-break: normal; }
+.article-copy img, .article-copy table, .article-copy pre, .article-copy figure { max-width: 100%; }
+.article-copy table, .article-copy pre { display: block; overflow-x: auto; }
+select, input, textarea, button { max-width: 100%; }
+/* text fields never trigger the iOS zoom-on-focus that shoves the layout sideways */
+@media (pointer: coarse) { input, select, textarea { font-size: max(16px, 1em); } }
+
+/* tiny phones (≤ 360) and Galaxy Fold cover screens (≈ 280) */
+@media (max-width: 360px) {
+  .reader-page { padding: 10px 10px 56px; }
+  .reading-surface { padding-left: 14px; padding-right: 14px; border-radius: 12px; }
+  .mp-head { padding: 8px 10px; }
+  .mp-sec { padding: 11px 10px 12px; }
+  .mp-deck { gap: 10px; padding: 10px; }
+  .mp-play { width: 40px; height: 40px; }
+  .lvl { gap: 1px; }
+  .timer-ring { transform: scale(.92); }
+  .mode-switch { width: 100%; }
+}
+@media (max-width: 300px) {
+  .mp-btnrow { flex-wrap: wrap; }
+  .mp-field { flex-wrap: wrap; }
+  .mr-display { width: calc(100vw - 12px); }
+}
+
+/* phones: reading column fills the width, comfortable measure, safe areas respected */
+@media (max-width: 680px) {
+  .reader-page { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
+  .reading-surface { padding: clamp(14px, 4.5vw, 24px); }
+  .reading-inner { max-width: 100%; }
+  .mp-timer { justify-items: center; }
+  .mp-timer-side { width: 100%; }
+  .mp-btnrow > .mp-btn { flex: 1; justify-content: center; }
+  .mp-field { width: 100%; }
+  .mp-field select { flex: 1; min-width: 0; }
+  .lvl { height: 42px; }
+}
+
+/* tablets & foldables: two readable columns instead of a stretched phone layout */
+@media (min-width: 681px) and (max-width: 1100px) {
+  .reading-inner { max-width: min(var(--read-width, 42rem), 100%); }
+  .mp-timer { grid-template-columns: auto minmax(0, 1fr); }
+}
+
+/* phones on their side: short viewport — keep the panels and the sheets inside it */
+@media (max-height: 520px) {
+  .mp-body { max-height: calc(100dvh - 120px); overflow-y: auto; overscroll-behavior: contain; }
+  .modal, .mr-sheet { max-height: calc(100dvh - 16px); overflow-y: auto; }
+  .reading-surface { padding-top: 14px; padding-bottom: 14px; }
+}
+
+/* big screens: keep line length readable and let the type breathe instead of stretching edge to edge */
+@media (min-width: 1600px) { .reading-inner { max-width: min(var(--read-width, 42rem), 46rem); } }
+@media (min-width: 2200px) { html { -webkit-text-size-adjust: 100%; } }

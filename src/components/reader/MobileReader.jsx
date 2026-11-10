@@ -404,9 +404,14 @@ export default function MobileReader({
       const dx = t.clientX - g.x;
       const dy = t.clientY - g.y;
       if (!g.run) {
-        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+        const ax = Math.abs(dx);
+        const ay = Math.abs(dy);
+        if (ax < 8 && ay < 8) return;
+        // a thumb rarely starts perfectly level: keep watching until the gesture is clearly vertical (give up) or clearly sideways (curl)
+        if (ay > 16 && ay > ax * 1.6) { g.dead = true; return; }
+        if (ax < 8 || ax < ay * 0.75) return;
         const dir = dx < 0 ? 1 : -1;
-        if (Math.abs(dx) < Math.abs(dy) * 1.2 || (dir > 0 && L.page >= L.pages - 1) || (dir < 0 && L.page <= 0) || !leafHost.current) { g.dead = true; return; }
+        if ((dir > 0 && L.page >= L.pages - 1) || (dir < 0 && L.page <= 0) || !leafHost.current) { g.dead = true; return; }
         const box = leafHost.current.getBoundingClientRect();
         g.run = L.beginCurl(dir, L.page, g.y - box.top < box.height * 0.3 ? 0 : box.height, true);
         if (!g.run) { g.dead = true; return; }
@@ -426,8 +431,7 @@ export default function MobileReader({
       const cur = g;
       g = null;
       if (!cur?.run) return;
-      consumed.current = true;
-      if (cur.mouse) suppressClick.current = true;
+      if (cur.mouse) suppressClick.current = true; else consumed.current = true;
       if (e.cancelable) e.preventDefault();
       const { run, dir } = cur;
       const s = run.ctl.s;
@@ -448,7 +452,10 @@ export default function MobileReader({
       if (live.current.anim !== 'flip' || e.touches.length !== 1 || touchSelectState.recently()) { if (g.run) g.run.settle(false, true); g = null; return; }
       move(e.touches[0], e);
     };
-    const onEnd = (e) => { if (g && !g.mouse) end(e, e.type === 'touchcancel'); };
+    const onEnd = (e) => {
+      if (g && !g.mouse) end(e, e.type === 'touchcancel');
+      if (e.type === 'touchcancel') consumed.current = false; // React's touchend never fires for a cancel: don't let the flag swallow the next swipe
+    };
 
     // mouse: grab the page by its outer thirds and pull it, like a corner of real paper
     const onMouseDown = (e) => {
@@ -482,7 +489,7 @@ export default function MobileReader({
 
   // swipe + tap zones
   const touch = useRef(null);
-  const onTouchStart = (e) => { const t = e.touches[0]; touch.current = { x: t.clientX, y: t.clientY, at: Date.now() }; };
+  const onTouchStart = (e) => { const t = e.touches[0]; consumed.current = false; touch.current = { x: t.clientX, y: t.clientY, at: Date.now() }; };
   const onTouchEnd = (e) => {
     const s = touch.current;
     touch.current = null;

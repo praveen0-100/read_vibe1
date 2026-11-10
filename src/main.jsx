@@ -26,7 +26,8 @@ import './styles/reader-modes.css';
 import './styles/agent.css';
 import './styles/fit.css'; // settles conflicts between the older sheets
 import './styles/studio.css'; // moods, ambient light and the finished look
-import './styles/scenes.css'; // last: the Zen and Vibe backdrops
+import './styles/scenes.css'; // the Zen and Vibe backdrops
+import './styles/finish.css'; // last: Zen contrast, the level meter on phones, fit for every screen size
 import { installUiScale } from './lib/uiScale';
 import { warmUp } from './api/client';
 

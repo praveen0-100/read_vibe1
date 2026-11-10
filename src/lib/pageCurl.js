@@ -98,7 +98,8 @@ export function createCurl({ host, face, under, cornerY }) {
   const flap = make('div', 'mr-curl-flap');
   const back = make('div', 'mr-curl-back');       // the reverse of the paper: the page's own print showing faintly through, mirrored by the flap's matrix
   const edge = make('i', 'mr-curl-edge');         // the thin bright edge of the paper along the fold
-  back.append(face.cloneNode(true));
+  // the faint print-through needs a third copy of the whole chapter's layout: worth it on a desktop, a stutter on a phone
+  if (!window.matchMedia?.('(pointer: coarse)').matches) back.append(face.cloneNode(true));
   flap.append(back, edge);
   stay.append(face, crease);
   if (under) root.append(under);
