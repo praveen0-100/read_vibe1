@@ -39,6 +39,13 @@ export default function PlaybackHost() {
   // On the Audio Studio with nothing chosen yet, show the first ready album (same as before the player went global).
   const fallback = onAudio ? list.find((b) => b.status === 'ready')?.id : null;
   const bookId = pb.bookId || fallback;
+  // leaving an album by hand (picking another from the queue or a shelf) still puts it in "recently played"
+  const prevBook = React.useRef(null);
+  useEffect(() => {
+    const prev = prevBook.current;
+    prevBook.current = bookId;
+    if (prev && bookId && prev !== bookId) { const left = list.find((b) => b.id === prev); if (left?.status === 'ready') queueActions.recordPlayed(left); }
+  }, [bookId]); // eslint-disable-line
   const queueVersion = useQueue().queue.length; // re-check when something is added while that album is loaded
   // an album shown on the Audio Studio becomes "the current album", so its mini player follows you to other pages
   useEffect(() => { if (fallback && !pb.bookId) playbackActions.remember(fallback); }, [fallback, pb.bookId]);
@@ -67,7 +74,7 @@ export default function PlaybackHost() {
   return (
     <>
       <div className="global-mini" ref={miniRef}>
-        <Player key={`${bookId}:${pb.nonce}`} bookId={bookId} slot={slot} visible={visible} autoplay={pb.autoplay} startChapter={pb.chapter} library={list}
+        <Player key={`${bookId}:${pb.nonce}`} bookId={bookId} slot={slot} visible={visible} autoplay={pb.autoplay} startChapter={pb.chapter} single={pb.single} library={list}
           onNavigate={(id, o) => playbackActions.play(id, o)} onOpen={() => navigate('/audio?tab=player')} onClose={playbackActions.dismiss} showMini={!pb.dismissed}
           onNewPlaylist={(seed) => setNewPl({ open: true, seed })} onPlayingChange={playbackActions.setPlaying} />
       </div>

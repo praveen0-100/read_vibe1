@@ -2,7 +2,8 @@
 
 export const DEFAULT_PREFS = {
   theme: 'dark', // dark | light | system
-  accent: 'coral', // coral | violet | teal | gold
+  accent: 'coral', // coral | violet | teal | gold (used by the Classic mood)
+  mood: 'auto', // auto | classic | calm | focus | cozy | energize | ocean | bloom | night — see lib/mood.js
   reading: {
     font: 'sourcesans', // sourcesans | serif | literata | sans | lexend | hyperlegible | dyslexic
     fontSize: 17,
@@ -18,7 +19,10 @@ export const DEFAULT_PREFS = {
     brightnessOn: false, // in-app dimming, independent of the device brightness
     brightness: 100, // 30–100
     nightLight: false, // warm filter for evening reading
-    pageTurn: 'flip', // flip | slide | fade | none (paged mobile reader)
+    pageTurn: 'flip', // flip | slide | fade | none (paged reader)
+    turnSpeed: 'normal', // fast | normal | slow — how long a tapped page turn takes
+    pageSound: false, // a soft paper swish when a page turns
+    pagedDesktop: false, // read page by page (with the curl) on wide screens too, not only on phones
     styleV: 2, // bumps when the default page style changes, so a one-time migration can run
     bookStyle: 'encyclopedia', // encyclopedia | classic — typography and page furniture of the paged reader
   },

@@ -3,9 +3,9 @@
 // instantiating their own players. Only the loaded book id survives a reload; a restored player never auto-plays.
 import { createStore } from '../../lib/localStore';
 
-const store = createStore('readvibe.playback.v1', { bookId: null, nonce: 0, autoplay: false, chapter: null, playing: false, dismissed: false });
+const store = createStore('readvibe.playback.v1', { bookId: null, nonce: 0, autoplay: false, chapter: null, single: false, playing: false, dismissed: false });
 // A page load never resumes sound by itself.
-store.set((s) => ({ ...s, autoplay: false, chapter: null, playing: false }));
+store.set((s) => ({ ...s, autoplay: false, chapter: null, single: false, playing: false }));
 
 export const usePlayback = store.use;
 export const getPlayback = store.get;
@@ -19,9 +19,10 @@ export const subscribeSlot = (f) => { slotSubs.add(f); return () => slotSubs.del
 
 export const playbackActions = {
   /** Load an audiobook (optionally from a chapter) and play it. */
-  play(bookId, { autoplay = true, chapter = null } = {}) {
+  play(bookId, { autoplay = true, chapter = null, single = false } = {}) {
     if (!bookId) return;
-    store.set((s) => ({ ...s, bookId, nonce: s.nonce + 1, autoplay, chapter, dismissed: false })); // an explicit play brings the player back
+    // `single`: a queued single chapter — it stops after that chapter so the queue moves on instead of reading the rest of the book
+    store.set((s) => ({ ...s, bookId, nonce: s.nonce + 1, autoplay, chapter, single: single && chapter != null, dismissed: false })); // an explicit play brings the player back
   },
   /** The ✕ on the mini player: stop and hide it everywhere except the Audio Studio. Playing again (anywhere) shows it again. */
   dismiss() { store.set((s) => ({ ...s, dismissed: true, playing: false, autoplay: false })); },

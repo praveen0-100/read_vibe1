@@ -24,7 +24,9 @@ import './styles/decks.css';
 import './styles/decks-ui.css';
 import './styles/reader-modes.css';
 import './styles/agent.css';
-import './styles/fit.css'; // last: settles conflicts between the older sheets
+import './styles/fit.css'; // settles conflicts between the older sheets
+import './styles/studio.css'; // moods, ambient light and the finished look
+import './styles/scenes.css'; // last: the Zen and Vibe backdrops
 import { installUiScale } from './lib/uiScale';
 import { warmUp } from './api/client';
 

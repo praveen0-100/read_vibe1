@@ -179,7 +179,7 @@ function DocCard({ doc, view, onChange, onRemove, onEdit, savedOffline, albums =
         <button className="doc-row-main" onClick={open} disabled={!ready}>
           <Cover doc={doc} size="sm" />
           <span className="doc-row-info">
-            <span className="doc-type-row"><span className="doc-badge">{doc.format}</span><span className="doc-tag-pill">{doc.type}</span>{(doc.tags || []).slice(0, 2).map((t) => <span key={t} className="doc-tag-pill muted">#{t}</span>)}</span>
+            <span className="doc-type-row"><span className="doc-badge">{doc.format}</span><span className="doc-tag-pill">{doc.type}</span></span>
             <strong>{doc.title}</strong>
             <small>{doc.author} · {doc.chapter_count} chapters</small>
           </span>
@@ -196,7 +196,7 @@ function DocCard({ doc, view, onChange, onRemove, onEdit, savedOffline, albums =
       <button className="doc-card-main" onClick={open} disabled={!ready} aria-label={`Open ${doc.title}`}>
         <Cover doc={doc} />
         <span className="doc-info">
-          <span className="doc-type-row"><span className="doc-badge">{doc.format}</span><span className="doc-tag-pill">{doc.tags?.[0] || doc.type}</span></span>
+          <span className="doc-type-row"><span className="doc-badge">{doc.format}</span><span className="doc-tag-pill">{doc.type}</span></span>
           <h3>{doc.title}</h3>
           <p>{doc.author}</p>
           <ProgressBar value={doc.progress} thin />
@@ -224,7 +224,6 @@ export default function LibraryPage() {
   useEffect(() => { offline.list().then((l) => setOfflineIds(new Set(l.map((x) => x.id)))).catch(() => {}); }, [dataVersion]);
 
   const docs = useQuery(() => api.documents.list({ q, sort, tag: tag || undefined }), [q, sort, tag, dataVersion]);
-  const tags = useQuery(() => api.documents.tags(), [dataVersion]);
   const rec = useQuery(() => api.documents.recommendations(), [dataVersion]);
   const [category, setCategory] = useState(null);
   const books = useQuery(() => api.audio.list(), [dataVersion]);
@@ -303,13 +302,9 @@ export default function LibraryPage() {
         <CollectionsBar collections={cols.list} active={activeCol} onPick={setActiveCol} onChanged={cols.reload} />
       )}
 
-      {tags.data?.length > 0 && tab !== 'audiobooks' && (
-        <div className="tag-filter" role="group" aria-label="Filter by tag">
-          {tags.data.slice(0, 12).map((t) => (
-            <button key={t.tag} className={`chip ${tag === t.tag ? 'active' : ''}`} onClick={() => setTag(tag === t.tag ? null : t.tag)} aria-pressed={tag === t.tag}>
-              #{t.tag} <span>{t.count}</span>
-            </button>
-          ))}
+      {tag && tab !== 'audiobooks' && (
+        <div className="tag-filter" role="group" aria-label="Active filter">
+          <button className="chip active" onClick={() => setTag(null)} aria-label={`Clear filter ${tag}`}>#{tag} <span>✕</span></button>
         </div>
       )}
 

@@ -1,5 +1,6 @@
 """AI content intelligence endpoints."""
 import logging
+import time
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -9,7 +10,7 @@ from sqlalchemy import func, select
 from ..deps import DB, CurrentUser, get_owned_document
 from ..models import Highlight
 from ..schemas import ChatIn, CompareIn, DefineIn, DiagramIn, ExplainIn, MindMapIn, OverviewIn, QuizIn, SummarizeIn, TranslateIn, VisualIn
-from ..services import ai, languages, llm, nlp, overview, translate
+from ..services import ai, languages, llm, lookup as lookup_svc, nlp, overview, translate
 
 log = logging.getLogger("readvibe.ai")
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -17,7 +18,20 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 
 @router.get("/status")
 def ai_status(_: CurrentUser):
-    return {"provider": llm.provider_name(), "llm": llm.available(), "providers": llm.health()}
+    return {"provider": llm.configured_name(), "llm": llm.available(), "groq": llm.groq_enabled(), "providers": llm.health()}
+
+
+@router.post("/test")
+def ai_test(_: CurrentUser):
+    """One tiny round trip to the primary model, so Settings can show whether the AI is really reachable."""
+    if not llm.available():
+        return {"ok": False, "provider": "local", "detail": "No AI model is configured — the built-in engine is answering."}
+    started = time.time()
+    try:
+        reply = llm.complete_text("Reply with the single word: ready", [{"role": "user", "content": "ping"}], max_tokens=20, fast=True)
+    except llm.LLMUnavailable as exc:
+        return {"ok": False, "provider": llm.provider_name(), "detail": str(exc)}
+    return {"ok": True, "provider": llm.provider_name(), "reply": reply[:40], "ms": round((time.time() - started) * 1000)}
 
 
 @router.post("/summarize")
@@ -52,12 +66,14 @@ def define(body: DefineIn, user: CurrentUser, db: DB):
                         dictionary.append({"part_of_speech": meaning.get("partOfSpeech"), "definition": d.get("definition"), "example": d.get("example")})
         except (httpx.HTTPError, ValueError, IndexError, KeyError) as exc:
             log.info("dictionary lookup failed: %s", exc)
+    in_doc = ai.define_in_document(term, doc)
     return {
         "term": term,
         "phonetic": phonetic,
         "audio": audio,
         "dictionary": dictionary,
-        "in_document": ai.define_in_document(term, doc),
+        "in_document": in_doc,
+        "ai": lookup_svc.ai_meaning(term, "en", " ".join(in_doc[:2]), doc.title if doc else ""),
     }
 
 

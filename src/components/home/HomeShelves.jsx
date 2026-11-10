@@ -1,5 +1,5 @@
 // The shelves shared by the phone and desktop Home, in one order: picked for you (from what you read) → your books → audiobooks →
-// more of what you like (from the free catalogue) → topics → recently added → new in Discover. Every tile shows its own cover.
+// more of what you like (from the free catalogue) → recently added → new in Discover. Every tile shows its own cover.
 import React from 'react';
 import { Play } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -8,8 +8,6 @@ import { useApp } from '../../context/AppContext';
 import { useQuery } from '../../hooks/useAsync';
 import { fetchFresh, searchGutenberg } from '../../lib/catalog';
 import { AudioTile, BookCover, BookTile, DiscoverTile, TileSkeletons } from './HomeTiles';
-
-const TOPIC_TINTS = ['coral', 'violet', 'blue', 'green', 'amber', 'rose'];
 
 export function Section({ title, hint, onMore, children, className = '' }) {
   return (
@@ -32,7 +30,6 @@ export default function HomeShelves({ docs, books, middle = null }) {
   const played = ready.filter((d) => d.last_opened_at);
   const added = [...ready].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))).slice(0, 5);
   const audio = (books || []).filter((b) => b.status === 'ready');
-  const topics = [...new Set(ready.flatMap((d) => d.tags || []))].slice(0, 10);
 
   const rec = useQuery(() => api.documents.recommendations(), [dataVersion]);
   const byId = new Map(ready.map((d) => [d.id, d]));
@@ -76,16 +73,6 @@ export default function HomeShelves({ docs, books, middle = null }) {
       {moreItems.length > 0 && (
         <Section title={`More ${interest.label} to explore`} hint="Free · Project Gutenberg" onMore={open('/discover')}>
           <div className="am-row">{moreItems.map((it) => <DiscoverTile key={it.id} item={it} kind="ebook" onOpen={open('/discover')} />)}</div>
-        </Section>
-      )}
-
-      {topics.length > 0 && (
-        <Section title="Browse by topic">
-          <div className="am-row am-topic-row">
-            {topics.map((t, i) => (
-              <button key={t} className={`am-topic tint-${TOPIC_TINTS[i % TOPIC_TINTS.length]}`} onClick={open(`/library?tag=${encodeURIComponent(t)}`)}>{t}</button>
-            ))}
-          </div>
         </Section>
       )}
 

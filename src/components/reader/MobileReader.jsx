@@ -11,6 +11,8 @@ import { READING_FONTS } from '../../lib/prefs';
 import { flushSync } from 'react-dom';
 import { createCurl, easeInOut, easeOut, snapshotPage } from '../../lib/pageCurl';
 import { wordAtPoint, wordRect } from '../../lib/spokenWord';
+import { playPageTurn } from '../../lib/pageSound';
+import { useIsMobile } from '../../hooks/useMediaQuery';
 import { Menu } from '../ui';
 import ChapterText from './ChapterText';
 import { DocSearch, categoryColor } from './ReaderTools';
@@ -21,6 +23,8 @@ import { touchSelectState } from '../../hooks/useTouchSelection';
 const PAD = 22; // horizontal page margin (px)
 const GAP = PAD * 2; // column gap, wide enough that neighbouring pages never peek in
 const TAP_ZONE = 0.28;
+const TURN_SPEED = { fast: 0.62, normal: 1, slow: 1.45 }; // multiplies how long a tapped page turn takes
+const MOUSE_EDGE = 0.34; // a mouse drag only grabs the page from its outer thirds, so selecting text in the middle still works
 
 const PAPERS = [
   ['white', 'White'],
@@ -41,6 +45,7 @@ const STYLE_PRESETS = {
 function DisplaySheet({ onClose }) {
   const { prefs, setPrefs } = useApp();
   const r = prefs.reading;
+  const phone = useIsMobile();
   const [tab, setTab] = useState('text');
   const set = (patch) => setPrefs({ reading: patch });
   const pct = (v, base) => `${Math.round((v / base) * 100)}%`;
@@ -90,12 +95,30 @@ function DisplaySheet({ onClose }) {
           <div className="mr-row">
             <span>Page turn</span>
             <select value={r.pageTurn || 'flip'} onChange={(e) => set({ pageTurn: e.target.value })} aria-label="Page turn animation">
-              <option value="flip">Page flip</option>
+              <option value="flip">Page curl</option>
               <option value="slide">Slide</option>
               <option value="fade">Fade</option>
               <option value="none">None</option>
             </select>
           </div>
+          <div className="mr-row">
+            <span>Turn speed</span>
+            <select value={r.turnSpeed || 'normal'} onChange={(e) => set({ turnSpeed: e.target.value })} aria-label="Page turn speed" disabled={(r.pageTurn || 'flip') === 'none'}>
+              <option value="fast">Quick</option>
+              <option value="normal">Natural</option>
+              <option value="slow">Leisurely</option>
+            </select>
+          </div>
+          <div className="mr-row">
+            <span>Paper sound</span>
+            <button role="switch" aria-checked={!!r.pageSound} className={`mr-switch ${r.pageSound ? 'on' : ''}`} onClick={() => { set({ pageSound: !r.pageSound }); if (!r.pageSound) playPageTurn(0.6); }} aria-label="Page turn sound"><i /></button>
+          </div>
+          {!phone && (
+            <div className="mr-row">
+              <span>Layout</span>
+              <button className="mr-pill" onClick={() => { set({ pagedDesktop: false }); onClose(); }}>Back to scrolling</button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="mr-sheet-body">
@@ -330,12 +353,14 @@ export default function MobileReader({
       const run = beginCurl(dir, page, undefined, false);
       if (run) {
         // forward: the page leaves from s = 0 to 1; backward: the earlier page arrives from s = 1 to 0
-        run.ctl.settle(dir > 0 ? 1 : 0, 560, easeInOut, 0, () => run.settle(true));
+        const ms = Math.round(680 * (TURN_SPEED[r.turnSpeed] || 1));
+        if (r.pageSound) playPageTurn(0.55, ms);
+        run.ctl.settle(dir > 0 ? 1 : 0, ms, easeInOut, 0, () => run.settle(true));
         return;
       }
     }
     setPage(target);
-  }, [pages, page, anim, beginCurl]); // eslint-disable-line
+  }, [pages, page, anim, beginCurl, r.turnSpeed, r.pageSound]); // eslint-disable-line
 
   useEffect(() => () => curlRun.current?.settle(true), []);
   useEffect(() => { curlRun.current?.settle(true); }, [chapter]);
@@ -364,19 +389,18 @@ export default function MobileReader({
   // In page-curl mode a horizontal drag lifts the corner and the page follows the finger; let go past a third of the way (or flick)
   // and it finishes turning, otherwise it falls back. At a chapter edge there is no page to curl, so the plain swipe handler runs.
   const live = useRef({});
-  live.current = { page, pages, anim, beginCurl };
+  live.current = { page, pages, anim, beginCurl, pageSound: r.pageSound };
+  const suppressClick = useRef(false); // a mouse drag ends with a click on the page: that click must not turn it again
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return undefined;
     let g = null;
-    const onStart = (e) => {
-      g = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, run: null, dir: 0, dead: false, v: 0, lx: e.touches[0].clientX, lt: performance.now(), lift: 0 } : null;
+    const begin = (t, mouse) => {
+      g = { x: t.clientX, y: t.clientY, run: null, dir: 0, dead: false, v: 0, lx: t.clientX, lt: performance.now(), lift: 0, mouse };
     };
-    const onMove = (e) => {
+    const move = (t, e) => {
       if (!g || g.dead) return;
       const L = live.current;
-      if (L.anim !== 'flip' || e.touches.length !== 1 || touchSelectState.recently()) { if (g.run) g.run.settle(false, true); g = null; return; }
-      const t = e.touches[0];
       const dx = t.clientX - g.x;
       const dy = t.clientY - g.y;
       if (!g.run) {
@@ -387,6 +411,7 @@ export default function MobileReader({
         g.run = L.beginCurl(dir, L.page, g.y - box.top < box.height * 0.3 ? 0 : box.height, true);
         if (!g.run) { g.dead = true; return; }
         g.dir = dir;
+        if (g.mouse) window.getSelection()?.removeAllRanges();
         setChrome(false);
       }
       if (e.cancelable) e.preventDefault();
@@ -397,28 +422,61 @@ export default function MobileReader({
       const now = performance.now();
       if (now - g.lt > 16) { g.v = (t.clientX - g.lx) / (now - g.lt); g.lx = t.clientX; g.lt = now; }
     };
-    const onEnd = (e) => {
+    const end = (e, cancelled) => {
       const cur = g;
       g = null;
       if (!cur?.run) return;
       consumed.current = true;
+      if (cur.mouse) suppressClick.current = true;
       if (e.cancelable) e.preventDefault();
       const { run, dir } = cur;
       const s = run.ctl.s;
       const amount = dir > 0 ? s : 1 - s;                       // how far the turn has gone
       const flick = Math.abs(cur.v) > 0.45 && Math.sign(cur.v) === (dir > 0 ? -1 : 1);
       const flickBack = Math.abs(cur.v) > 0.45 && !flick;
-      const commit = e.type !== 'touchcancel' && !flickBack && (flick || amount > 0.3) && amount > 0.03;
+      const commit = !cancelled && !flickBack && (flick || amount > 0.3) && amount > 0.03;
       const to = commit === (dir > 0) ? 1 : 0;
-      run.ctl.settle(to, 120 + 380 * Math.abs(to - s), commit ? easeOut : easeInOut, cur.lift, () => run.settle(commit, !commit));
+      const ms = 120 + 380 * Math.abs(to - s);
+      if (commit && live.current.pageSound) playPageTurn(Math.min(1, 0.4 + Math.abs(cur.v)), ms + 120);
+      run.ctl.settle(to, ms, commit ? easeOut : easeInOut, cur.lift, () => run.settle(commit, !commit));
     };
+
+    // touch
+    const onStart = (e) => { if (e.touches.length === 1) begin(e.touches[0], false); else g = null; };
+    const onMove = (e) => {
+      if (!g || g.dead || g.mouse) return;
+      if (live.current.anim !== 'flip' || e.touches.length !== 1 || touchSelectState.recently()) { if (g.run) g.run.settle(false, true); g = null; return; }
+      move(e.touches[0], e);
+    };
+    const onEnd = (e) => { if (g && !g.mouse) end(e, e.type === 'touchcancel'); };
+
+    // mouse: grab the page by its outer thirds and pull it, like a corner of real paper
+    const onMouseDown = (e) => {
+      suppressClick.current = false;
+      if (e.button !== 0 || live.current.anim !== 'flip' || e.target.closest('a, button, input, select, textarea, [data-hl], .popover, .selection-toolbar')) return;
+      const box = el.getBoundingClientRect();
+      const fx = (e.clientX - box.left) / box.width;
+      if (fx > MOUSE_EDGE && fx < 1 - MOUSE_EDGE) return;
+      begin(e, true);
+    };
+    const onMouseMove = (e) => { if (g?.mouse) move(e, e); };
+    const onMouseUp = (e) => { if (g?.mouse) end(e, false); };
+    const onKeepSelection = () => { /* a drag that curled the page must not leave a text selection behind */ if (g?.run) window.getSelection()?.removeAllRanges(); };
+
     el.addEventListener('touchstart', onStart, { passive: true });
     el.addEventListener('touchmove', onMove, { passive: false });
     el.addEventListener('touchend', onEnd, { passive: false });
     el.addEventListener('touchcancel', onEnd, { passive: false });
+    el.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('selectionchange', onKeepSelection);
     return () => {
       el.removeEventListener('touchstart', onStart); el.removeEventListener('touchmove', onMove);
       el.removeEventListener('touchend', onEnd); el.removeEventListener('touchcancel', onEnd);
+      el.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('selectionchange', onKeepSelection);
     };
   }, []);
 
@@ -440,10 +498,12 @@ export default function MobileReader({
     }
   };
   const onClick = (e) => {
+    if (suppressClick.current) { suppressClick.current = false; return; }
     if (e.target.closest('[data-hl], a, button, .selection-toolbar, .popover')) return;
     if (window.getSelection()?.toString() || touchSelectState.recently()) return; // a selection gesture / its dismissing tap must not turn the page
     if (chrome || sheet) { setChrome(false); setSheet(null); return; }
-    const x = e.clientX / window.innerWidth;
+    const box = viewportRef.current.getBoundingClientRect();
+    const x = (e.clientX - box.left) / Math.max(1, box.width);
     if (x < TAP_ZONE) turn(-1);
     else if (x > 1 - TAP_ZONE) turn(1);
     else {

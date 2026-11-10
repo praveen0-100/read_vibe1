@@ -3,8 +3,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { BookA, ExternalLink, Globe, Loader2, Sparkles, Volume2, X } from 'lucide-react';
 import { api } from '../../api/client';
 import { speak } from '../../lib/speech';
+import AIMeaning from '../ai/AIMeaning';
 
-export default function LookUpSheet({ term, lang = 'en', onClose, onExplain }) {
+export default function LookUpSheet({ term, lang = 'en', context = '', onClose, onExplain }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const ref = useRef(null);
@@ -13,9 +14,9 @@ export default function LookUpSheet({ term, lang = 'en', onClose, onExplain }) {
   useEffect(() => {
     let live = true;
     setData(null); setError(null);
-    api.lookup(term, lang).then((r) => live && setData(r)).catch((e) => live && setError(e.message || 'Look up is unavailable right now'));
+    api.lookup(term, lang, context).then((r) => live && setData(r)).catch((e) => live && setError(e.message || 'Look up is unavailable right now'));
     return () => { live = false; };
-  }, [term, lang]);
+  }, [term, lang, context]);
   useEffect(() => { ref.current?.focus(); }, []);
 
   const pronounce = () => {
@@ -36,6 +37,7 @@ export default function LookUpSheet({ term, lang = 'en', onClose, onExplain }) {
           {error && <p className="field-error">{error}</p>}
           {data && (
             <>
+              <AIMeaning ai={data.ai} />
               <section>
                 <h4><BookA size={14} /> Dictionary</h4>
                 {data.dictionary ? (
@@ -57,7 +59,7 @@ export default function LookUpSheet({ term, lang = 'en', onClose, onExplain }) {
                   </>
                 ) : <p className="muted">{data.errors?.includes('wikipedia') ? 'Wikipedia could not be reached.' : 'No Wikipedia article for this.'}</p>}
               </section>
-              {(phrase || (!data.dictionary && !data.wikipedia)) && onExplain && (
+              {(phrase || (!data.dictionary && !data.wikipedia && !data.ai)) && onExplain && (
                 <button className="secondary-button" onClick={() => onExplain(term)}><Sparkles size={14} /> Explain with AI</button>
               )}
             </>

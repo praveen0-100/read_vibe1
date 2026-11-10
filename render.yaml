@@ -29,6 +29,8 @@ services:
         value: '["https://readvibecodex.vercel.app"]'
       - key: READVIBE_GOOGLE_CLIENT_ID
         sync: false          # set in the dashboard to enable Google sign-in
+      - key: READVIBE_GROQ_API_KEY
+        sync: false          # Groq: the primary model for every AI feature (https://console.groq.com/keys); set it in the Render dashboard only
       - key: READVIBE_LLM_BASE_URL
         sync: false          # optional: your own OpenAI-compatible LLM (Groq, OpenRouter…); free public endpoints are used otherwise
       - key: READVIBE_LLM_API_KEY

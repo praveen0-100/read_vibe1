@@ -2,6 +2,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api, invalidateCache, onUnauthorized, tokenStore } from '../api/client';
 import { loadLocalPrefs, mergePrefs, resolveTheme, saveLocalPrefs, upgradePrefs } from '../lib/prefs';
+import { resolveMood } from '../lib/mood';
 
 const AppCtx = createContext(null);
 const USER_KEY = 'rv.user';
@@ -205,18 +206,20 @@ export function AppProvider({ children }) {
     const apply = () => {
       root.dataset.theme = resolveTheme(prefs.theme);
       root.dataset.accent = prefs.accent;
+      root.dataset.mood = resolveMood(prefs.mood);
       root.dataset.motion = prefs.accessibility.reducedMotion ? 'reduced' : 'full';
       root.dataset.contrast = prefs.accessibility.highContrast ? 'high' : 'normal';
       root.dataset.targets = prefs.accessibility.largeTargets ? 'large' : 'normal';
       root.style.fontSize = `${(15 * prefs.accessibility.uiScale) / 100}px`;
-      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', root.dataset.theme === 'light' ? '#f5f3ef' : '#11100e');
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', getComputedStyle(root).getPropertyValue('--bg').trim() || (root.dataset.theme === 'light' ? '#f5f3ef' : '#11100e'));
     };
     apply();
-    if (prefs.theme !== 'system') return undefined;
+    const hourly = prefs.mood === 'auto' ? setInterval(apply, 10 * 60 * 1000) : null; // "auto" moves on with the clock
+    if (prefs.theme !== 'system') return () => clearInterval(hourly);
     const mq = window.matchMedia('(prefers-color-scheme: light)');
     mq.addEventListener('change', apply);
-    return () => mq.removeEventListener('change', apply);
-  }, [prefs.theme, prefs.accent, prefs.accessibility]);
+    return () => { clearInterval(hourly); mq.removeEventListener('change', apply); };
+  }, [prefs.theme, prefs.accent, prefs.mood, prefs.accessibility]);
 
   // one stable object between changes: consumers only re-render when something they read really changed
   const value = useMemo(() => ({

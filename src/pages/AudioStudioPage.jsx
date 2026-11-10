@@ -198,10 +198,10 @@ export default function AudioStudioPage() {
   useEffect(() => { if (urlBook) playbackActions.open(urlBook); }, [urlBook]);
 
   const setTab = (t) => setParams({ tab: t });
-  const playAlbum = (id, { autoplay = true, chapter = null, key = null } = {}) => {
+  const playAlbum = (id, { autoplay = true, chapter = null, key = null, single = false } = {}) => {
     if (!id) return;
-    queueActions.remove(key || id);
-    playbackActions.play(id, { autoplay, chapter });
+    if (key) queueActions.remove(key); else queueActions.removeBook(id);
+    playbackActions.play(id, { autoplay, chapter, single });
     setParams({ tab: 'player' });
   };
   const openNewPlaylist = (seed) => setNewPl({ open: true, seed });
@@ -245,7 +245,7 @@ export default function AudioStudioPage() {
       )}
       {tab === 'queue' && (
         <div className="audio-player">
-          <QueuePanel current={current && slim(current)} playing={playing} library={list} onPlay={(id, o) => playAlbum(id, { chapter: o?.chapter ?? null, key: o?.key })} />
+          <QueuePanel current={current && slim(current)} playing={playing} library={list} onPlay={(id, o) => playAlbum(id, { chapter: o?.chapter ?? null, key: o?.key, single: !!o?.single })} />
         </div>
       )}
       {tab === 'generate' && <Generate initialDoc={params.get('doc')} onReady={(id) => { books.reload(); playAlbum(id, { autoplay: false }); }} />}

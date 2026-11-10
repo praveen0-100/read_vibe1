@@ -1,6 +1,8 @@
 // Up-next queue: reorder by drag or menu, shuffle, repeat, history, and quick-add from the library.
 import React, { useState } from 'react';
-import { ArrowDown, ArrowUp, ChevronDown, GripVertical, History, ListPlus, ListX, Play, Plus, Repeat, Repeat1, Shuffle, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, GripVertical, History, ListEnd, ListMusic, ListPlus, ListStart, ListX, Play, Plus, Repeat, Repeat1, Shuffle, Trash2 } from 'lucide-react';
+import { useApp } from '../../context/AppContext';
+import { playlistActions } from '../../lib/playlists';
 import { formatDuration } from '../../lib/format';
 import { keyOf, queueActions, slim, useQueue } from '../../lib/queue';
 import { Menu } from '../ui';
@@ -27,6 +29,7 @@ function SectionList({ sections, onPick }) {
 }
 
 export default function QueuePanel({ current, playing, library = [], onPlay, compact = false }) {
+  const { notify } = useApp();
   const { queue, history, shuffle, repeat } = useQueue();
   const [adding, setAdding] = useState(false); // the "Add books" sheet
   const [drag, setDrag] = useState(null);
@@ -42,6 +45,11 @@ export default function QueuePanel({ current, playing, library = [], onPlay, com
   const suggestions = library.filter((b) => b.status === 'ready' && !queued.has(b.id));
   const RepeatIcon = repeat === 'one' ? Repeat1 : Repeat;
 
+  const saveAsPlaylist = () => {
+    const ids = [...new Set([current?.id, ...queue.map((q) => q.id)].filter(Boolean))];
+    playlistActions.create(`Queue · ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`, ids);
+    notify(`Saved ${ids.length} ${ids.length === 1 ? 'album' : 'albums'} as a playlist`);
+  };
   const drop = (to) => {
     if (drag != null && drag !== to) queueActions.move(drag, to);
     setDrag(null); setOver(null);
@@ -55,6 +63,7 @@ export default function QueuePanel({ current, playing, library = [], onPlay, com
         <button className={`q-toggle ${shuffle ? 'on' : ''}`} onClick={queueActions.toggleShuffle} aria-pressed={shuffle} title="Play the queue in random order"><Shuffle size={13} /> Shuffle</button>
         <button className={`q-toggle ${repeat !== 'off' ? 'on' : ''}`} onClick={queueActions.cycleRepeat} title="Cycle repeat mode"><RepeatIcon size={13} /> {REPEAT_LABEL[repeat]}</button>
         {queue.length > 1 && <button className="q-toggle" onClick={queueActions.shuffleUpcoming} title="Reorder the queue randomly"><Shuffle size={13} /> Mix up</button>}
+        {(queue.length > 0 || current) && <button className="q-toggle" onClick={saveAsPlaylist} title="Save what is playing and what is queued as a playlist"><ListMusic size={13} /> Save as playlist</button>}
         {queue.length > 0 && <button className="q-toggle" onClick={queueActions.clear}><ListX size={13} /> Clear</button>}
       </div>
 
@@ -102,13 +111,19 @@ export default function QueuePanel({ current, playing, library = [], onPlay, com
                       aria-expanded={expanded} aria-label={`${expanded ? 'Collapse' : 'Expand'} sections of ${q.title}`} title={expanded ? 'Hide sections' : 'Show sections'}>
                       <ChevronDown size={16} />
                     </button>
-                    <button className="q-main" onClick={() => onPlay(q.id, { fromQueue: true, key: qk, chapter: q.chapter ?? null })} aria-label={`Play ${q.title} now`}>
+                    <button className="q-main" onClick={() => onPlay(q.id, { fromQueue: true, key: qk, chapter: q.chapter ?? null, single: q.chapter != null })} aria-label={`Play ${q.title} now`}>
                       <span className="q-art"><AlbumArt title={q.title} color={q.color} cover={q.cover} size="sm" bare /></span>
                       <span><strong>{q.chapter != null ? q.subtitle : q.title}</strong><small>{q.chapter != null ? `${q.title} · chapter ${q.chapter + 1}` : `${q.tone} · ${q.chapters || '—'} sections`}</small></span>
                     </button>
                     <span className="q-dur">{formatDuration(q.duration_seconds)}</span>
+                    <span className="q-move">
+                      <button onClick={() => queueActions.move(i, i - 1)} disabled={i === 0} aria-label={`Move ${q.title} up`}><ArrowUp size={14} /></button>
+                      <button onClick={() => queueActions.move(i, i + 1)} disabled={i === queue.length - 1} aria-label={`Move ${q.title} down`}><ArrowDown size={14} /></button>
+                    </span>
                     <Menu label={`Options for ${q.title}`} align="right" trigger={<span className="icon-ghost sm">⋯</span>} items={[
-                      { label: 'Play now', icon: Play, onClick: () => onPlay(q.id, { fromQueue: true, key: qk, chapter: q.chapter ?? null }) },
+                      { label: 'Play now', icon: Play, onClick: () => onPlay(q.id, { fromQueue: true, key: qk, chapter: q.chapter ?? null, single: q.chapter != null }) },
+                      { label: 'Play next', icon: ListStart, disabled: i === 0, onClick: () => queueActions.playNext(i) },
+                      { label: 'Move to end', icon: ListEnd, disabled: i === queue.length - 1, onClick: () => queueActions.move(i, queue.length - 1) },
                       { label: 'Move up', icon: ArrowUp, disabled: i === 0, onClick: () => queueActions.move(i, i - 1) },
                       { label: 'Move down', icon: ArrowDown, disabled: i === queue.length - 1, onClick: () => queueActions.move(i, i + 1) },
                       '-',
@@ -151,6 +166,7 @@ export default function QueuePanel({ current, playing, library = [], onPlay, com
                   <span className="q-art"><AlbumArt title={h.title} color={h.color} cover={h.cover} size="sm" bare /></span>
                   <span><strong>{h.title}</strong><small>{h.tone} narration</small></span>
                 </button>
+                <button className="icon-ghost sm" onClick={() => queueActions.add(h, { next: true })} aria-label={`Play ${h.title} next`} title="Play next"><ListStart size={14} /></button>
                 <button className="icon-ghost sm" onClick={() => queueActions.add(h)} aria-label={`Add ${h.title} to queue`} title="Add to queue"><Plus size={14} /></button>
               </div>
             ))}

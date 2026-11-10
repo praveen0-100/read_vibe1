@@ -138,3 +138,39 @@ describe('current album', () => {
     expect(ids()).toEqual(['b', 'c#1']);
   });
 });
+
+describe('queue precision', () => {
+  it('remove(key) takes out exactly one entry; removeBook(id) takes out every entry of the book', () => {
+    q.queueActions.addChapter(book('a'), 0);
+    q.queueActions.addChapter(book('a'), 2);
+    q.queueActions.add(book('b'));
+    q.queueActions.remove('a#0');
+    expect(ids()).toEqual(['a#2', 'b']);
+    q.queueActions.remove('a'); // there is no whole-book entry for "a": nothing happens
+    expect(ids()).toEqual(['a#2', 'b']);
+    q.queueActions.removeBook('a');
+    expect(ids()).toEqual(['b']);
+  });
+
+  it('playNext moves an entry to the front; the first entry and bad indexes are no-ops', () => {
+    q.queueActions.add([book('a'), book('b'), book('c')]);
+    q.queueActions.playNext(2);
+    expect(ids()).toEqual(['c', 'a', 'b']);
+    q.queueActions.playNext(0);
+    q.queueActions.playNext(9);
+    expect(ids()).toEqual(['c', 'a', 'b']);
+  });
+
+  it('recordPlayed puts a manually left album first in the history, once', () => {
+    q.queueActions.recordPlayed(book('a'));
+    q.queueActions.recordPlayed(book('b'));
+    q.queueActions.recordPlayed(book('b'));
+    q.queueActions.recordPlayed(book('a'));
+    expect(q.getQueue().history.map((h) => h.id)).toEqual(['a', 'b']);
+  });
+
+  it('a queued chapter entry carries its chapter so playback can stop after it', () => {
+    q.queueActions.addChapter(book('a'), 1);
+    expect(q.queueActions.advanceItem(book('x'), { auto: true })).toMatchObject({ id: 'a', chapter: 1 });
+  });
+});

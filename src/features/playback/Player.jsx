@@ -33,7 +33,7 @@ export function useVoices() {
 }
 
 // ─── Player ───────────────────────────────────────────────────────────────────
-export default function Player({ bookId, slot = null, visible = true, autoplay = false, startChapter = null, library = [], onNavigate, onOpen, onClose, onNewPlaylist, onPlayingChange, showMini = true }) {
+export default function Player({ bookId, slot = null, visible = true, autoplay = false, startChapter = null, single = false, library = [], onNavigate, onOpen, onClose, onNewPlaylist, onPlayingChange, showMini = true }) {
   const { prefs, setPrefs, notify } = useApp();
   const { queue, history, shuffle, repeat } = useQueue();
   const { lists } = usePlaylists();
@@ -66,16 +66,24 @@ export default function Player({ bookId, slot = null, visible = true, autoplay =
     if (!book.data) return false;
     const item = queueActions.advanceItem(book.data, { auto });
     if (!item) return false;
-    onNavigate(item.id, { autoplay: true, chapter: item.chapter ?? null });
+    onNavigate(item.id, { autoplay: true, chapter: item.chapter ?? null, single: item.chapter != null });
     return true;
   };
+  const singleRef = useRef(single);
+  singleRef.current = single;
   useEffect(() => narrator.on((s) => {
     setSt(s);
     setCharIndex(s.charIndex ?? null);
     if (s.error === 'no-voice') notify('Couldn’t reach the natural voice for this language, and this device has no voice for it. Try again in a moment, or install the language’s voice in your system settings.', 'warning');
     else if (s.neuralFailed) notify('Natural voices are unavailable right now — using your device voice.', 'info');
     else if (s.error) notify('Playback failed — check your connection and press play again.', 'warning');
-    if (s.chapterEnded != null && sleep === -1) { narrator.pause(); notify('Sleep timer: stopped at the end of the chapter', 'info'); setSleep(0); }
+    if (s.chapterEnded != null && sleep === -1) { narrator.pause(); notify('Sleep timer: stopped at the end of the chapter', 'info'); setSleep(0); return; }
+    // a queued single chapter is done: hand over to the next queue entry instead of reading on through the rest of the book
+    if (s.chapterEnded != null && singleRef.current) {
+      narrator.pause();
+      if (!goNext.current(true)) notify('Chapter finished — nothing else is queued');
+      return;
+    }
     if (s.finished) {
       if (sleep === -1) { setSleep(0); notify('Sleep timer: stopped at the end of the audiobook', 'info'); return; }
       if (!goNext.current(true)) notify('Audiobook finished 🎧');
@@ -343,7 +351,7 @@ export default function Player({ bookId, slot = null, visible = true, autoplay =
             </div>
           ))}
         </div>
-        <QueuePanel current={me} playing={st.playing} library={library} compact onPlay={(id, o) => { queueActions.remove(o?.key || id); onNavigate(id, { autoplay: true, chapter: o?.chapter ?? null }); }} />
+        <QueuePanel current={me} playing={st.playing} library={library} compact onPlay={(id, o) => { if (o?.key) queueActions.remove(o.key); else queueActions.removeBook(id); onNavigate(id, { autoplay: true, chapter: o?.chapter ?? null, single: !!o?.single }); }} />
       </div>
     </div>
     </>, slot)}

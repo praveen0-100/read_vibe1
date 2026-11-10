@@ -68,8 +68,19 @@ export const queueActions = {
     return first?.id ?? null;
   },
   removeAt(i) { store.set((s) => ({ ...s, queue: s.queue.filter((_, k) => k !== i) })); },
-  /** Remove by entry key (a chapter entry) or, for a book id, every entry of that book. */
-  remove(idOrKey) { store.set((s) => ({ ...s, queue: s.queue.filter((q) => keyOf(q) !== idOrKey && q.id !== idOrKey) })); },
+  /** Remove exactly one entry by its key (a chapter entry is "id#chapter"; a whole book's key is its id). */
+  remove(key) { store.set((s) => (s.queue.some((q) => keyOf(q) === key) ? { ...s, queue: s.queue.filter((q) => keyOf(q) !== key) } : s)); },
+  /** Remove every entry of one book (the whole book and any of its queued chapters), e.g. once it is playing from the start. */
+  removeBook(id) { store.set((s) => (s.queue.some((q) => q.id === id) ? { ...s, queue: s.queue.filter((q) => q.id !== id) } : s)); },
+  /** Put an album at the head of the listening history (it was left by hand, not by finishing). */
+  recordPlayed(book) {
+    if (!book?.id) return;
+    store.set((s) => (s.history[0]?.id === book.id ? s : { ...s, history: [slim(book), ...s.history.filter((h) => h.id !== book.id)].slice(0, HISTORY_LIMIT) }));
+  },
+  /** Drop one history row. */
+  forget(id) { store.set((s) => ({ ...s, history: s.history.filter((h) => h.id !== id) })); },
+  /** Move an entry to the front so it plays next. */
+  playNext(i) { store.set((s) => (i <= 0 || i >= s.queue.length ? s : { ...s, queue: [s.queue[i], ...s.queue.filter((_, k) => k !== i)] })); },
   /** Drop the whole-book entry for `id` (the album that is now loaded in the player); single-chapter entries of it stay. */
   removeWhole(id) { store.set((s) => (s.queue.some((q) => q.id === id && q.chapter == null) ? { ...s, queue: s.queue.filter((q) => !(q.id === id && q.chapter == null)) } : s)); },
   move(from, to) {

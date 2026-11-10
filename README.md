@@ -34,6 +34,7 @@ Copy `backend/.env.example` to `backend/.env`. All settings use the `READVIBE_` 
 |---|---|
 | `READVIBE_JWT_SECRET` | **Required in production** (the API refuses to start with the default). |
 | `READVIBE_GOOGLE_CLIENT_ID` | Enables **Sign in with Google** (see below). |
+| `READVIBE_GROQ_API_KEY` | **Groq** — the primary model for every AI feature (summaries, explain, define / meaning, chat, mind maps, quizzes, slides, overview, translation, the Vibe agent). Optional `READVIBE_GROQ_MODEL` (default `llama-3.3-70b-versatile`) and `READVIBE_GROQ_FAST_MODEL` (default `llama-3.1-8b-instant`). Settings → AI engine tests it. |
 | `READVIBE_LLM_BASE_URL` / `_API_KEY` / `_MODEL` | Optional. Your own OpenAI-compatible LLM, tried first. AI features otherwise use free key-less public endpoints, then the built-in local engine. |
 | `READVIBE_LLM_ENABLED` | `false` turns off every network LLM (local engine only). |
 | `READVIBE_DATABASE_URL` | SQLite by default; any SQLAlchemy URL (e.g. PostgreSQL). |

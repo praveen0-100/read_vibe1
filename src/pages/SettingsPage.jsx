@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Accessibility, AudioLines, BookOpen, Check, Database, Download, HardDrive, Keyboard, LogOut, Monitor, Moon, Palette,
-  Play, Server, ShieldCheck, Sparkles, Sun, Trash2, User, Volume2,
+  Play, Server, ShieldCheck, Sparkles, Sun, Trash2, User, Volume2, Zap,
 } from 'lucide-react';
 import { api } from '../api/client';
 import SecuritySettings from '../components/settings/SecuritySettings';
@@ -14,12 +14,15 @@ import { offline } from '../lib/offline';
 import { READING_FONTS } from '../lib/prefs';
 import { loadVoices, pickVoice, speak, speechSupported } from '../lib/speech';
 import CompanionSettings from '../components/agent/CompanionSettings';
+import AIEngine from '../components/settings/AIEngine';
+import { MoodGrid } from '../components/layout/MoodPicker';
 import { Field, Segmented, Slider, Switch } from '../components/ui';
 
 const SECTIONS = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'reading', label: 'Reading', icon: BookOpen },
   { id: 'accessibility', label: 'Accessibility', icon: Accessibility },
+  { id: 'ai', label: 'AI engine', icon: Zap },
   { id: 'companion', label: 'Companion', icon: Sparkles },
   { id: 'audio', label: 'Audio', icon: Volume2 },
   { id: 'vibe', label: 'Music & Vibe', icon: AudioLines },
@@ -57,7 +60,10 @@ function Appearance() {
         <Segmented value={prefs.theme} onChange={(v) => setPrefs({ theme: v })} label="Theme"
           options={[{ value: 'light', label: 'Light', icon: Sun }, { value: 'dark', label: 'Dark', icon: Moon }, { value: 'system', label: 'System', icon: Monitor }]} />
       </Section>
-      <Section title="Accent colour" description="Used for buttons, progress and AI actions.">
+      <Section title="Mood" description="Pick how the app feels: colours, glow and surfaces all follow. Auto shifts with the time of day.">
+        <MoodGrid />
+      </Section>
+      <Section title="Accent colour" description="Used for buttons, progress and AI actions when the mood is Classic.">
         <div className="accent-picker">
           {['coral', 'violet', 'teal', 'gold'].map((a) => (
             <button key={a} className={`accent-swatch accent-${a} ${prefs.accent === a ? 'chosen' : ''}`} onClick={() => setPrefs({ accent: a })} aria-label={a} aria-pressed={prefs.accent === a}>
@@ -98,6 +104,12 @@ function Reading() {
         <div className={`reading-preview swatch-${r.paper}`} style={{ fontFamily: READING_FONTS[r.font].css, fontSize: r.fontSize, lineHeight: r.lineHeight, textAlign: r.align }}>
           The challenge of reading well is to give one thing your whole attention. Good typography makes that easier.
         </div>
+      </Section>
+      <Section title="Page turning" description="A real curl you can grab by the corner — on phones always, on wide screens when switched on.">
+        <Segmented size="sm" value={r.pageTurn || 'flip'} onChange={(v) => set({ pageTurn: v })} label="Page turn style" options={[{ value: 'flip', label: 'Page curl' }, { value: 'slide', label: 'Slide' }, { value: 'fade', label: 'Fade' }, { value: 'none', label: 'None' }]} />
+        <Segmented size="sm" value={r.turnSpeed || 'normal'} onChange={(v) => set({ turnSpeed: v })} label="Page turn speed" options={[{ value: 'fast', label: 'Quick' }, { value: 'normal', label: 'Natural' }, { value: 'slow', label: 'Leisurely' }]} />
+        <Switch label="Paper sound" description="A soft swish as each page turns" checked={!!r.pageSound} onChange={(v) => set({ pageSound: v })} />
+        <Switch label="Page by page on wide screens" description="Read like a book on desktop and tablet, with drag-to-curl, arrow keys and edge clicks" checked={!!r.pagedDesktop} onChange={(v) => set({ pagedDesktop: v })} />
       </Section>
       <Section title="Reading aids">
         <Switch label="Focus line" description="Dim surrounding paragraphs" checked={r.focusLine} onChange={(v) => set({ focusLine: v })} />
@@ -357,7 +369,7 @@ const SHORTCUTS = [
 export default function SettingsPage() {
   const [params, setParams] = useSearchParams();
   const tab = params.get('tab') || 'appearance';
-  const views = { appearance: <Appearance />, reading: <Reading />, accessibility: <AccessibilitySettings />, companion: <CompanionSettings />, audio: <AudioSettings />, vibe: <VibeSettings />, storage: <Storage />, account: <Account /> };
+  const views = { appearance: <Appearance />, ai: <AIEngine />, reading: <Reading />, accessibility: <AccessibilitySettings />, companion: <CompanionSettings />, audio: <AudioSettings />, vibe: <VibeSettings />, storage: <Storage />, account: <Account /> };
   return (
     <div className="page-shell settings-page">
       <header className="topbar"><div><div className="eyebrow">PREFERENCES</div><h1>Settings</h1></div></header>

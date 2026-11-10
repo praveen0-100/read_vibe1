@@ -35,7 +35,7 @@ import ShareSheet from '../components/reader/ShareSheet';
 import useTouchSelection, { TouchSelectionLayer, isTouchDevice, touchSelectState } from '../hooks/useTouchSelection';
 import ReportSheet from '../components/reader/ReportSheet';
 import { DocSearch, HighlightPopover, ReaderSettings, SelectionToolbar, WordMenu, categoryColor } from '../components/reader/ReaderTools';
-import { ZEN_PRESETS, ZenBackdrop } from '../components/reader/Scenes';
+import { VIBE_PRESETS, VibeVisualizer, ZEN_PRESETS, ZenBackdrop } from '../components/reader/Scenes';
 import VibePanel from '../components/reader/VibePanel';
 import ModeSwitch from '../components/reader/ModeSwitch';
 import BookHub from '../components/reader/BookHub';
@@ -79,7 +79,7 @@ export default function ReaderPage() {
 function Reader({ docId }) {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const { prefs, notify, openAI, confirm, refreshData } = useApp();
+  const { prefs, setPrefs, notify, openAI, confirm, refreshData } = useApp();
   const getScroller = useMainScroller();
 
   // ─── Document & content ────────────────────────────────────────────────────
@@ -108,7 +108,7 @@ function Reader({ docId }) {
   const [mode, setModeState] = useState('Reader');
   // On phones the Reader mode is a paged, book-style view; Zen/Vibe keep the scrolling layout.
   const isMobile = useIsMobile();
-  const paged = isMobile && mode === 'Reader';
+  const paged = (isMobile || prefs.reading.pagedDesktop) && mode === 'Reader';
   const pagedRef = useRef(paged);
   pagedRef.current = paged;
   const pendingScroll = useRef(null); // ratio to restore
@@ -769,6 +769,7 @@ function Reader({ docId }) {
     '--vibe-contrast': prefs.vibe.contrast / 100,
   };
   const zenPreset = ZEN_PRESETS.find((p) => p.id === prefs.zen.preset) || ZEN_PRESETS[0];
+  const vibePreset = VIBE_PRESETS.find((p) => p.id === prefs.vibe.preset) || VIBE_PRESETS[0];
   const chapterHighlights = highlights.filter((h) => h.chapter_index === chapterIndex);
   const meta = doc.chapters?.[chapterIndex];
   const canOriginal = !!doc.has_original_view && !offlineMode;
@@ -842,6 +843,7 @@ function Reader({ docId }) {
     <div className={`reader-page mode-${mode.toLowerCase()} paper-${r.paper} ${r.focusLine ? 'focus-line' : ''} ${bv.bookView ? 'bookview' : ''} ${bvChrome ? 'bv-chrome' : ''}`}
       onPointerMove={r.ruler ? (e) => setRuler(e.clientY) : undefined}>
       {mode === 'Zen' && <ZenBackdrop palette={zenPreset.palette} />}
+      {mode === 'Vibe' && <VibeVisualizer playing={!!music.playing} getLevels={(n) => player.levels(n)} hue={vibePreset.hue} intensity={prefs.vibe.intensity} />}
       {r.ruler && ruler != null && <div className="reading-ruler" style={{ top: ruler - 22 }} aria-hidden="true" />}
 
       {translateBanner}
@@ -873,6 +875,7 @@ function Reader({ docId }) {
           </div>
           <span className="tool-sep" aria-hidden="true" />
           <div className="tool-group">
+          <button onClick={() => setPrefs({ reading: { pagedDesktop: true } })} aria-label="Read page by page with page turns" title="Page-turn book view" className="page-turn-toggle"><BookOpen size={17} /></button>
           <button onClick={bv.toggle} aria-label={bv.bookView ? 'Exit full screen (F)' : 'Full screen book view (F)'} title={bv.bookView ? 'Exit full screen (F)' : 'Full screen book view (F)'} aria-pressed={bv.bookView}>{bv.bookView ? <Minimize size={17} /> : <Maximize size={17} />}</button>
           <button className="toc-toggle" onClick={() => setTocOpen((o) => !o)} aria-label="Contents" aria-expanded={tocOpen}><List size={17} /></button>
           <button onClick={() => setSearchOpen((s) => !s)} aria-label="Search in document (Ctrl+F)" className={searchOpen ? 'active' : ''}><Search size={17} /></button>

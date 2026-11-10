@@ -8,6 +8,7 @@ import { api } from '../../api/client';
 import { useApp } from '../../context/AppContext';
 import { speak } from '../../lib/speech';
 import { ErrorState, RichText, Segmented } from '../ui';
+import AIMeaning from './AIMeaning';
 
 const STAGES = {
   summary: ['Reading the document…', 'Finding the main ideas…', 'Writing your summary…'],
@@ -64,9 +65,9 @@ export function ResultActions({ onSave, onRegenerate, copyText, extra }) {
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
 const DEPTHS = [
-  { id: 'brief', label: 'Brief', sub: 'The essentials in a minute' },
-  { id: 'standard', label: 'Standard', sub: 'Main concepts with context' },
-  { id: 'deep', label: 'Deep dive', sub: 'Full detail for study' },
+  { id: 'brief', label: 'Brief', sub: 'The gist in under a minute' },
+  { id: 'standard', label: 'Standard', sub: 'Explained, with the why' },
+  { id: 'deep', label: 'Deep dive', sub: 'Study guide with outline' },
 ];
 
 export function SummaryView({ ctx, saveNote, askChat }) {
@@ -92,15 +93,28 @@ export function SummaryView({ ctx, saveNote, askChat }) {
       {s && !state.loading && (
         <div className="summary-output">
           <EngineBadge engine={s.engine} />
-          <section><div className="summary-label">MAIN IDEA</div><p className="main-idea">{s.main_idea}</p></section>
+          <section><div className="summary-label">{depth === 'brief' ? 'THE GIST' : 'MAIN IDEA'}</div><p className="main-idea">{s.main_idea}</p></section>
+          {s.outline?.length > 0 && (
+            <section>
+              <div className="summary-label">OUTLINE</div>
+              <ol className="sum-outline">{s.outline.map((o, i) => <li key={i}><strong>{o.heading}</strong><span>{o.summary}</span></li>)}</ol>
+            </section>
+          )}
           <section>
             <div className="summary-label">KEY POINTS</div>
             <ul className="key-points">{s.key_points.map((p, i) => <li key={i}><Check size={13} />{p}</li>)}</ul>
           </section>
           {s.concepts?.length > 0 && (
             <section>
-              <div className="summary-label">IMPORTANT CONCEPTS</div>
-              <div className="concept-pills">{s.concepts.map((c) => <button key={c} className="concept-pill" onClick={() => askChat(`Explain “${c}” as the text uses it.`)}>{c}</button>)}</div>
+              <div className="summary-label">{depth === 'brief' ? 'KEY TERMS' : 'IMPORTANT CONCEPTS'}</div>
+              {depth === 'brief' ? (
+                <div className="concept-pills">{s.concepts.map((c) => <button key={c} className="concept-pill" onClick={() => askChat(`Explain “${c}” as the text uses it.`)}>{c}</button>)}</div>
+              ) : (
+                <dl className="sum-concepts">{s.concepts.map((c) => {
+                  const [term, ...rest] = c.split(/\s[—–-]\s/);
+                  return <div key={c}><dt><button className="concept-link" onClick={() => askChat(`Explain “${term}” as the text uses it.`)}>{term}</button></dt>{rest.length > 0 && <dd>{rest.join(' — ')}</dd>}</div>;
+                })}</dl>
+              )}
             </section>
           )}
           {s.examples?.length > 0 && (
@@ -190,6 +204,7 @@ export function DefineView({ ctx, saveNote }) {
             {r.phonetic && <span className="muted">{r.phonetic}</span>}
             <button className="icon-ghost sm" onClick={playAudio} aria-label="Pronounce"><Volume2 size={15} /></button>
           </div>
+          <AIMeaning ai={r.ai} />
           {r.dictionary.length > 0 ? (
             <ol className="def-list">{r.dictionary.map((d, i) => (
               <li key={i}><em>{d.part_of_speech}</em> {d.definition}{d.example && <small>“{d.example}”</small>}</li>
@@ -200,7 +215,7 @@ export function DefineView({ ctx, saveNote }) {
           )}
           <ResultActions onSave={() => saveNote({
             title: `Vocabulary: ${r.term}`, category: 'Definition', note_type: 'note',
-            content: [r.dictionary[0] && `${r.dictionary[0].part_of_speech}: ${r.dictionary[0].definition}`, r.in_document[0] && `In the text: ${r.in_document[0]}`].filter(Boolean).join('\n\n'),
+            content: [r.ai?.meaning && `Meaning: ${r.ai.meaning}`, r.dictionary[0] && `${r.dictionary[0].part_of_speech}: ${r.dictionary[0].definition}`, r.in_document[0] && `In the text: ${r.in_document[0]}`].filter(Boolean).join('\n\n'),
           })} />
         </div>
       )}

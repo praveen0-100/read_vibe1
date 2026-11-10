@@ -22,7 +22,7 @@ from . import __version__
 from .config import get_settings
 from .database import DB_CONFIG_ERROR, SessionLocal, engine, init_db
 from .routers import activity, agent, ai, audio, auth, catalog, collections, decks, documents, exports, goals, lookup, mfa, notes, ops, playback, research, shares, study, transcribe, tts
-from .services import llm, metrics
+from .services import jobs, llm, metrics
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("readvibe")
@@ -54,7 +54,7 @@ async def lifespan(_: FastAPI):
         # Seeding hashes passwords and builds documents; do it off the startup path so the port opens (and a
         # sleeping free-tier instance answers its first request) sooner. /auth/demo seeds on demand as a fallback.
         threading.Thread(target=_seed_in_background, daemon=True, name="seed-demo").start()
-    log.info("ReadVibe API %s ready · AI provider: %s", __version__, llm.provider_name())
+    log.info("ReadVibe API %s ready · AI provider: %s", __version__, llm.configured_name())
     yield
 
 
@@ -181,7 +181,7 @@ def health():
         "database": db_ok,
         "database_engine": engine.dialect.name,
         "database_config_error": DB_CONFIG_ERROR,
-        "ai_provider": llm.provider_name(),
+        "ai_provider": llm.configured_name(),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 

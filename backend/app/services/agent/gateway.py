@@ -41,7 +41,7 @@ class AgentUnavailable(Exception):
 
 @dataclass(frozen=True)
 class Model:
-    provider: str  # anthropic | custom | llm7 | pollinations
+    provider: str  # groq | anthropic | custom | llm7 | pollinations
     wire: str  # anthropic | openai
     url: str
     model: str
@@ -83,6 +83,13 @@ def _anthropic_models() -> list[Model]:
     return [Model("anthropic", "anthropic", ANTHROPIC_URL, i, s.anthropic_api_key, True, 90.0) for i in ids]
 
 
+def _groq_model() -> Model | None:
+    s = get_settings()
+    if not (s.llm_enabled and s.groq_api_key):
+        return None
+    return Model("groq", "openai", f"{s.groq_base_url.rstrip('/')}/chat/completions", s.groq_model, s.groq_api_key, True, max(s.llm_timeout_seconds, 60.0))
+
+
 def _custom_model() -> Model | None:
     s = get_settings()
     if not (s.llm_enabled and s.llm_base_url):
@@ -103,7 +110,9 @@ def chain() -> list[Model]:
     """The models Vibe may use, in order. The first one is the primary; the rest are backups."""
     if get_settings().agent_enabled is False:
         return []
-    out = _anthropic_models()
+    # Groq, when configured, is the primary for the agent too (tool use included); Anthropic and the rest are only backups.
+    out = [groq] if (groq := _groq_model()) else []
+    out.extend(_anthropic_models())
     if custom := _custom_model():
         out.append(custom)
     out.extend(_free_models())

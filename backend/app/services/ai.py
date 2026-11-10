@@ -54,7 +54,15 @@ def _cache_key(doc: Document, *parts) -> tuple:
     return (doc.id, doc.updated_at.isoformat() if doc.updated_at else "", llm.available(), *parts)
 
 
-def _trim(text: str, max_words: int = _MAX_CONTEXT_WORDS) -> str:
+GROQ_CONTEXT_WORDS = 2400  # ~3.3k tokens: what fits a free-tier Groq minute together with a useful reply
+
+
+def _budget() -> int:
+    return GROQ_CONTEXT_WORDS if llm.groq_enabled() else _MAX_CONTEXT_WORDS
+
+
+def _trim(text: str, max_words: int | None = None) -> str:
+    max_words = min(max_words or _MAX_CONTEXT_WORDS, _budget())
     ws = text.split()
     return text if len(ws) <= max_words else " ".join(ws[:max_words]) + " …"
 
@@ -93,41 +101,154 @@ _SUMMARY_SCHEMA = {
         "takeaways": {"type": "string"},
         "suggested_questions": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["main_idea", "key_points", "concepts", "examples", "takeaways", "suggested_questions"],
+    "required": ["main_idea", "key_points"],  # the rest is filled in by _normalize_summary when a model leaves it out
     "additionalProperties": False,
 }
 
 
+# What each depth IS. They are three different documents, not one document with different counts: a glance, an explanation, a study guide.
+_DEPTH_SPEC = {
+    "brief": {
+        "label": "BRIEF — a glance",
+        "style": (
+            "Write a TL;DR for someone with 60 seconds. `main_idea`: ONE sentence of at most 28 words that states the whole point. "
+            "`key_points`: exactly 3 items, each a single crisp sentence of at most 16 words — facts and claims only, no background. "
+            "`concepts`: exactly 3 bare terms (1-3 words each), no definitions. `examples`: an empty list. "
+            "`takeaways`: one short sentence the reader should remember. `suggested_questions`: 2 questions. "
+            "Cut everything that is not essential; do not explain, do not give context."
+        ),
+        "tokens": 1500,
+        "temperature": 0.5,
+    },
+    "standard": {
+        "label": "STANDARD — an explanation",
+        "style": (
+            "Explain the material to an interested reader who has not read it. `main_idea`: a short paragraph of 3-4 sentences covering what the text "
+            "argues and why. `key_points`: 5-7 items, each 1-2 sentences that state the point AND the reason or consequence behind it. "
+            "`concepts`: 5-8 terms, each formatted exactly as 'Term — one-line meaning'. `examples`: 2-3 concrete examples or moments from the text, "
+            "each in one or two sentences. `takeaways`: 2-3 sentences. `suggested_questions`: 3 questions. Keep the order in which the text develops."
+        ),
+        "tokens": 3500,
+        "temperature": 0.6,
+    },
+    "deep": {
+        "label": "DEEP DIVE — a study guide",
+        "style": (
+            "Write a thorough study guide for someone who must master this material and be examined on it. `main_idea`: a full paragraph of 5-7 sentences "
+            "giving the thesis, the context, the structure of the argument and where it leads. `outline`: 5-9 sections in reading order, each with a "
+            "`heading` and a `summary` of 2-3 sentences describing what happens or is argued there. `key_points`: 9-12 items, each 2-3 sentences with the "
+            "claim, the supporting evidence or detail from the text, and its implication. `concepts`: 8-12 terms, each formatted exactly as "
+            "'Term — definition, and the role it plays in the text' (1-2 sentences). `examples`: 3-5 passages, cases or details from the text with "
+            "enough context to be understood alone; quote short phrases where useful. `takeaways`: a paragraph of 3-4 sentences on what to remember, "
+            "what is open to debate and how the ideas connect. `suggested_questions`: 5 exam-style questions that need reasoning, not recall."
+        ),
+        "tokens": 7500,
+        "temperature": 0.7,
+    },
+}
+
+_OUTLINE_SCHEMA = {
+    "type": "array",
+    "items": {"type": "object", "properties": {"heading": {"type": "string"}, "summary": {"type": "string"}}, "required": ["heading", "summary"]},
+}
+
+
+def _as_text(x) -> str:
+    """Models sometimes hand back {"point": "...", "detail": "..."} where a string was asked for: flatten it to readable text."""
+    if isinstance(x, str):
+        return x.strip()
+    if isinstance(x, dict):
+        vals = [str(v).strip() for v in x.values() if isinstance(v, (str, int, float)) and str(v).strip()]
+        return " — ".join(vals[:2]) if len(vals) == 2 and len(vals[0]) < 60 else " ".join(vals)
+    if isinstance(x, (list, tuple)):
+        return " ".join(_as_text(i) for i in x)
+    return str(x or "").strip()
+
+
+_SUMMARY_LIMITS = {  # depth -> (key_points, concepts, examples, questions, outline)
+    "brief": (3, 3, 0, 2, 0),
+    "standard": (8, 8, 3, 4, 0),
+    "deep": (12, 12, 5, 6, 9),
+}
+
+
+def _normalize_summary(data: dict, depth: str) -> dict:
+    """Whatever the model sent, return the shape the app renders: lists of plain strings, within the limits of the chosen depth."""
+    kp, co, ex, qu, ol = _SUMMARY_LIMITS[depth]
+    clean = lambda items, n: [t for t in (_as_text(i) for i in (items or [])) if t][:n]  # noqa: E731
+    data["main_idea"] = _as_text(data.get("main_idea"))
+    data["takeaways"] = _as_text(data.get("takeaways"))
+    data["key_points"] = clean(data.get("key_points"), kp)
+    data["concepts"] = clean(data.get("concepts"), co)
+    data["examples"] = clean(data.get("examples"), ex)
+    data["suggested_questions"] = clean(data.get("suggested_questions"), qu)
+    outline = []
+    for o in (data.get("outline") or [])[:ol]:
+        if isinstance(o, dict):
+            heading = _as_text(o.get("heading") or o.get("title") or o.get("section"))
+            summary = _as_text(o.get("summary") or o.get("description") or o.get("text"))
+        else:
+            heading, summary = "", _as_text(o)
+        if heading or summary:
+            outline.append({"heading": heading or f"Part {len(outline) + 1}", "summary": summary})
+    if ol:
+        data["outline"] = outline
+    else:
+        data.pop("outline", None)
+    if not data["main_idea"] or not data["key_points"]:
+        raise ValueError("summary came back empty")
+    if depth != "brief" and not data["concepts"]:
+        raise ValueError("summary left out the concepts")
+    if depth == "deep" and not data.get("outline"):
+        raise ValueError("deep summary left out the outline")
+    return data
+
+
+def _spread(chapters: list[tuple[int, str, str]], max_words: int) -> str:
+    """Several chapters, one budget: a fair share from the start of each, so a long book is summarised from all of it, not just chapter one."""
+    total = sum(len(c[2].split()) for c in chapters)
+    if total <= max_words:
+        return "\n\n".join(f"## {c[1]}\n{c[2]}" for c in chapters)
+    share = max(60, max_words // max(1, len(chapters)))
+    return "\n\n".join(f"## {c[1]}\n{' '.join(c[2].split()[:share])}" for c in chapters)
+
+
 def summarize(doc: Document, chapter_index: int | None, depth: str) -> dict:
-    key = _cache_key(doc, "summary", chapter_index, depth)
-    if (hit := _cache.get(key)) is not None:
-        return hit
     title, text, chapters = _scope(doc, chapter_index)
+    # AI summaries are never served from the cache: pressing Regenerate must write a fresh one. Only the deterministic local fallback is cached.
+    key = _cache_key(doc, "summary", chapter_index, depth)
+    if not llm.available() and (hit := _cache.get(key)) is not None:
+        return hit
     corpus = [c.content for c in doc.chapters]
     result = None
     if llm.available():
-        guide = {
-            "brief": "3 key points, 3 concepts, at most 1 example. Keep every item to one sentence.",
-            "standard": "5-7 key points, 5-8 concepts, 2-3 examples.",
-            "deep": "9-12 detailed key points, 8-12 concepts, 3-4 examples, suitable for exam study.",
-        }[depth]
+        spec = _DEPTH_SPEC[depth]
+        schema = {**_SUMMARY_SCHEMA, "properties": dict(_SUMMARY_SCHEMA["properties"])}
+        if depth == "deep":
+            schema["properties"]["outline"] = _OUTLINE_SCHEMA
         try:
             data = llm.complete_json(
-                llm.READER_SYSTEM,
-                f"Summarise “{title}” from the document “{doc.title}” by {doc.author}. Depth: {depth}. {guide}\n"
-                "Examples must come from the text. Suggested questions should help the reader think further.\n\n"
-                f"<document>\n{_trim(text)}\n</document>",
-                _SUMMARY_SCHEMA,
+                f"{llm.READER_SYSTEM} You are writing the {spec['label']} version of a summary; the reader chose this depth on purpose, "
+                "so obey the length and shape rules exactly and never pad a short version or squeeze a long one.",
+                f"Summarise “{title}” from the document “{doc.title}” by {doc.author}.\n\nDEPTH RULES:\n{spec['style']}\n\n"
+                "Everything must come from the text. Do not repeat the same sentence across fields. Write fresh wording.\n\n"
+                f"<document>\n{_trim(_spread(chapters, _budget()) if len(chapters) > 1 else text)}\n</document>",
+                schema,
+                max_tokens=spec["tokens"],
+                temperature=spec["temperature"],
             )
+            data = _normalize_summary(data, depth)
             data["depth"] = depth
             data["reading_time_saved_min"] = max(1, round(len(text.split()) / 230) - 1)
             result = _with_engine(data, llm.provider_name())
-        except llm.LLMUnavailable as exc:
+        except (llm.LLMUnavailable, ValueError) as exc:
             log.info("summary fallback: %s", exc)
     if result is None:
         result = _with_engine(nlp.summarize(text, title, depth, corpus), "local")
+        result["scope"] = {"title": title, "chapter_index": chapter_index, "chapters": len(chapters)}
+        _cache.set(key, result)
+        return result
     result["scope"] = {"title": title, "chapter_index": chapter_index, "chapters": len(chapters)}
-    _cache.set(key, result)
     return result
 
 
@@ -252,10 +373,54 @@ def mind_map(doc: Document, chapter_index: int | None) -> dict:
     key = _cache_key(doc, "mindmap", chapter_index)
     if (hit := _cache.get(key)) is not None:
         return hit
-    title, _, chapters = _scope(doc, chapter_index)
-    result = _with_engine(nlp.mind_map(title, chapters), "local")
+    title, scope_text, chapters = _scope(doc, chapter_index)
+    result = None
+    if llm.available():
+        try:
+            data = llm.complete_json(
+                llm.READER_SYSTEM,
+                f"Build a mind map of “{title}” for a reader.\n\n<text>\n{_trim(scope_text, 4500)}\n</text>\n\n"
+                "Give 4-7 main branches (the big ideas, in the order the text develops them), each with a one-sentence `detail` taken from the "
+                "text and 2-4 sub-points (short labels of at most 5 words, each with its own one-sentence `detail`). Use only what the text says.",
+                _MINDMAP_SCHEMA,
+                max_tokens=3500,
+            )
+            only = chapter_index if chapter_index is not None else None
+            root = {"id": "root", "label": title, "children": []}
+            for i, b in enumerate(data["branches"][:8]):
+                node = {"id": f"k{i}", "label": str(b.get("label", ""))[:80], "detail": b.get("detail") or None, "chapter_index": only, "children": []}
+                for j, c in enumerate((b.get("children") or [])[:5]):
+                    node["children"].append({"id": f"k{i}-{j}", "label": str(c.get("label", ""))[:80], "detail": c.get("detail") or None, "chapter_index": only, "children": []})
+                if node["label"]:
+                    root["children"].append(node)
+            if len(root["children"]) >= 2:
+                result = _with_engine({"root": root}, llm.provider_name())
+        except (llm.LLMUnavailable, KeyError, TypeError, AttributeError) as exc:
+            log.info("mind map fallback: %s", exc)
+    if result is None:
+        result = _with_engine(nlp.mind_map(title, chapters), "local")
     _cache.set(key, result)
     return result
+
+
+_MINDMAP_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "branches": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "label": {"type": "string"},
+                    "detail": {"type": "string"},
+                    "children": {"type": "array", "items": {"type": "object", "properties": {"label": {"type": "string"}, "detail": {"type": "string"}}, "required": ["label"]}},
+                },
+                "required": ["label", "children"],
+            },
+        },
+    },
+    "required": ["branches"],
+}
 
 
 _DIAGRAM_SCHEMA = {

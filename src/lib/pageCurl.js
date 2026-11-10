@@ -96,6 +96,10 @@ export function createCurl({ host, face, under, cornerY }) {
   const stay = make('div', 'mr-curl-stay');
   const crease = make('i', 'mr-curl-crease');
   const flap = make('div', 'mr-curl-flap');
+  const back = make('div', 'mr-curl-back');       // the reverse of the paper: the page's own print showing faintly through, mirrored by the flap's matrix
+  const edge = make('i', 'mr-curl-edge');         // the thin bright edge of the paper along the fold
+  back.append(face.cloneNode(true));
+  flap.append(back, edge);
   stay.append(face, crease);
   if (under) root.append(under);
   root.append(ushade, stay, flap);
@@ -115,7 +119,7 @@ export function createCurl({ host, face, under, cornerY }) {
     const { n, m } = g;
     const toFold = [-n[0], -n[1]];             // direction from the fold into the part that is folded over
     crease.style.display = 'block';
-    crease.style.background = gradientFrom(m, n, W, H, [[0, 'rgba(0,0,0,.2)'], [30, 'rgba(0,0,0,0)']]);
+    crease.style.background = gradientFrom(m, n, W, H, [[0, 'rgba(0,0,0,.3)'], [10, 'rgba(0,0,0,.14)'], [44, 'rgba(0,0,0,0)']]);
     if (g.stay.length < 3) stay.style.visibility = 'hidden';
     else { stay.style.visibility = 'visible'; stay.style.clipPath = polygon(g.stay); }
     if (g.fold.length < 3) { flap.style.display = 'none'; ushade.style.display = 'none'; return; }
@@ -123,11 +127,14 @@ export function createCurl({ host, face, under, cornerY }) {
     flap.style.clipPath = polygon(g.fold);
     flap.style.transform = `matrix(${g.reflect.map((v) => v.toFixed(5)).join(',')})`;
     // the folded paper is curved near the crease: a dark band, then a bright roll, then flat
-    flap.style.backgroundImage = gradientFrom(m, toFold, W, H, [[0, 'rgba(0,0,0,.34)'], [9, 'rgba(0,0,0,.14)'], [42, 'rgba(255,255,255,.2)'], [120, 'rgba(0,0,0,0)']]);
+    // (gradients live in the flap's own unmirrored space; the matrix turns them around with the paper)
+    flap.style.backgroundImage = gradientFrom(m, toFold, W, H, [[0, 'rgba(0,0,0,.42)'], [5, 'rgba(255,255,255,.34)'], [18, 'rgba(255,255,255,.22)'], [44, 'rgba(0,0,0,.12)'], [78, 'rgba(255,255,255,.07)'], [140, 'rgba(0,0,0,0)']]);
+    // the bright paper edge exactly on the fold
+    edge.style.background = gradientFrom(m, toFold, W, H, [[0, 'rgba(255,255,255,.65)'], [1.6, 'rgba(255,255,255,0)']]);
     // the shadow the curl throws on the page it uncovers
     ushade.style.display = 'block';
     ushade.style.clipPath = polygon(g.fold);
-    ushade.style.background = gradientFrom(m, toFold, W, H, [[0, 'rgba(0,0,0,.4)'], [24, 'rgba(0,0,0,.17)'], [90, 'rgba(0,0,0,0)']]);
+    ushade.style.background = gradientFrom(m, toFold, W, H, [[0, 'rgba(0,0,0,.5)'], [14, 'rgba(0,0,0,.3)'], [60, 'rgba(0,0,0,.12)'], [150, 'rgba(0,0,0,0)']]);
   };
 
   /** Pose the page at progress `s`; `lift` is extra vertical offset from the finger (px). */

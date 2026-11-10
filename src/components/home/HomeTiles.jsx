@@ -51,7 +51,7 @@ export function BookCover({ doc, className = '' }) {
   const url = useCoverUrl(doc?.has_cover ? doc.id : null);
   return (
     <span className={`hp-book ${className}`}>
-      <Pic src={url} fallback={<Poster title={doc.title} author={doc.author} tag={doc.tags?.[0]} />} />
+      <Pic src={url} fallback={<Poster title={doc.title} author={doc.author} tag={doc.type} />} />
     </span>
   );
 }

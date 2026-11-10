@@ -2,6 +2,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -43,6 +44,15 @@ class Settings(BaseSettings):
 
     # AI features use free, key-less public LLM endpoints by default (see services/llm.py) and fall back to the built-in
     # local NLP engine. Point these at any OpenAI-compatible service (Groq, OpenRouter, Ollama, …) to use it first.
+    # Groq (https://console.groq.com) is the primary model for every AI feature when a key is set: summaries, explain, define / meaning,
+    # chat, mind maps, quizzes, decks, overviews, translation and the Vibe agent. Put the key in backend/.env as READVIBE_GROQ_API_KEY
+    # never in the repository. The free endpoints below stay as automatic fall-backs.
+    groq_api_key: str | None = Field(default=None, validation_alias=AliasChoices("READVIBE_GROQ_API_KEY"))
+    groq_model: str = Field(default="openai/gpt-oss-120b", validation_alias=AliasChoices("READVIBE_GROQ_MODEL"))
+    groq_fast_model: str = Field(default="openai/gpt-oss-20b", validation_alias=AliasChoices("READVIBE_GROQ_FAST_MODEL"))  # short jobs: meanings, definitions
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    # Groq's free tier allows this many tokens per minute per model (prompt + output); the app sizes prompts and replies to fit. Raise it on a paid tier.
+    groq_tpm_limit: int = Field(default=8000, validation_alias=AliasChoices("READVIBE_GROQ_TPM_LIMIT"))
     llm_enabled: bool = True
     llm_base_url: str | None = None
     llm_api_key: str | None = None

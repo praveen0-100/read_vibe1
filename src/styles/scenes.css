@@ -1,0 +1,126 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Zen & Vibe backdrops, redrawn.
+   Zen  — a slow aurora over rolling hills, a breathing orb of light and drifting mist (six palettes).
+   Vibe — a mesh of colour that follows the chosen hue, over a perspective grid floor under the equalizer.
+   Same markup as before (components/reader/Scenes.jsx); this sheet loads last and replaces the old picture.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Zen palettes ───────────────────────────────────────────────────────── */
+.zen-backdrop, .zen-dusk { --z1: #1a1530; --z2: #3a2a55; --z3: #7a4a6a; --zorb: #ffc9a8; --za: #8b6dff; --zb: #ff8fb0; --h1: #251c3f; --h2: #150f29; --zmist: rgba(255, 200, 220, .18); }
+.zen-forest { --z1: #0c2a24; --z2: #17493c; --z3: #4c8a63; --zorb: #f2f0b4; --za: #3ee0a8; --zb: #b8f06a; --h1: #123a2e; --h2: #09201a; --zmist: rgba(200, 255, 220, .17); }
+.zen-night  { --z1: #070b22; --z2: #14194a; --z3: #2c2f73; --zorb: #f3efdc; --za: #6a7dff; --zb: #b06aff; --h1: #10153a; --h2: #080b22; --zmist: rgba(170, 180, 255, .13); }
+.zen-ocean  { --z1: #062a3f; --z2: #0f5b7d; --z3: #3fa6bd; --zorb: #fff0c4; --za: #38d6e8; --zb: #6a9bff; --h1: #0c4863; --h2: #062a3f; --zmist: rgba(210, 245, 255, .2); }
+.zen-ember  { --z1: #1d0e0a; --z2: #4a2014; --z3: #9a4a22; --zorb: #ffb866; --za: #ff7a3a; --zb: #ffc15a; --h1: #351812; --h2: #1a0c08; --zmist: rgba(255, 190, 120, .15); }
+.zen-paper  { --z1: #f7f3ec; --z2: #efe6d8; --z3: #e4d6c2; --zorb: #fff6dc; --za: #ffd9a8; --zb: #d7e3ff; --h1: #e6d9c6; --h2: #d8c8b0; --zmist: rgba(255, 255, 255, .4); }
+
+.zen-backdrop {
+  background: linear-gradient(180deg, var(--z1) 0%, var(--z2) 52%, var(--z3) 100%);
+  filter: none;
+}
+/* the aurora: two big soft colour fields that drift against each other */
+.zen-backdrop::before {
+  content: ''; position: absolute; inset: -20%; z-index: 0;
+  background:
+    radial-gradient(40% 32% at 24% 28%, color-mix(in srgb, var(--za) 52%, transparent), transparent 72%),
+    radial-gradient(36% 30% at 76% 20%, color-mix(in srgb, var(--zb) 42%, transparent), transparent 72%),
+    radial-gradient(46% 34% at 54% 56%, color-mix(in srgb, var(--za) 24%, transparent), transparent 74%);
+  filter: blur(30px); animation: zen-aurora 26s ease-in-out infinite alternate;
+}
+@keyframes zen-aurora {
+  0%   { transform: translate3d(-4%, -2%, 0) rotate(-3deg) scale(1); }
+  50%  { transform: translate3d(3%, 3%, 0) rotate(2deg) scale(1.08); }
+  100% { transform: translate3d(5%, -3%, 0) rotate(4deg) scale(1.03); }
+}
+
+/* the orb: a moon or low sun that slowly breathes */
+.zen-backdrop .zen-sun {
+  top: 12%; right: 20%; width: 190px; height: 190px; opacity: 1; z-index: 1;
+  background: radial-gradient(circle at 38% 34%, #fff 0%, var(--zorb) 38%, color-mix(in srgb, var(--zorb) 40%, transparent) 62%, transparent 72%);
+  box-shadow: 0 0 120px 40px color-mix(in srgb, var(--zorb) 28%, transparent); animation: zen-breathe 9s ease-in-out infinite;
+}
+@keyframes zen-breathe { 0%, 100% { transform: scale(1); opacity: .92; } 50% { transform: scale(1.07); opacity: 1; } }
+
+/* hills: smooth rolling silhouettes instead of jagged peaks */
+.zen-backdrop .zen-mountain { clip-path: none; border-radius: 55% 45% 0 0 / 100% 100% 0 0; filter: none; transform: none; width: 90%; z-index: 2; }
+.zen-backdrop .zen-mountain-back  { right: -14%; left: auto; bottom: 14%; height: 40%; background: linear-gradient(180deg, color-mix(in srgb, var(--h1) 86%, var(--z3)), var(--h1)); opacity: .9; }
+.zen-backdrop .zen-mountain-front { left: -16%; right: auto; bottom: -4%; height: 38%; background: linear-gradient(180deg, var(--h1), var(--h2)); opacity: 1; border-radius: 45% 55% 0 0 / 100% 100% 0 0; }
+.zen-backdrop .zen-tree { display: none; }
+.zen-backdrop .zen-water { z-index: 3; height: 20%; background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--h2) 92%, transparent) 60%); }
+.zen-backdrop .zen-waterline, .zen-backdrop .zen-waves { display: none; }
+.zen-backdrop .zen-mist { z-index: 4; bottom: 16%; height: 28%; background: radial-gradient(60% 60% at 50% 60%, var(--zmist), transparent 72%); filter: blur(22px); }
+.zen-rain { z-index: 6; }
+
+/* a handful of stars where the sky is dark */
+.zen-night .zen-tree, .zen-dusk .zen-tree { display: block; inset: 0; width: auto; height: 62%; bottom: auto; right: 0; transform: none; filter: none; z-index: 1;
+  background:
+    radial-gradient(1.4px 1.4px at 12% 18%, #fff, transparent 60%), radial-gradient(1px 1px at 28% 42%, #fff, transparent 60%),
+    radial-gradient(1.6px 1.6px at 41% 12%, #fff, transparent 60%), radial-gradient(1px 1px at 57% 34%, #fff, transparent 60%),
+    radial-gradient(1.3px 1.3px at 69% 8%, #fff, transparent 60%),  radial-gradient(1px 1px at 83% 38%, #fff, transparent 60%),
+    radial-gradient(1.5px 1.5px at 92% 22%, #fff, transparent 60%), radial-gradient(1px 1px at 6% 52%, #fff, transparent 60%);
+  opacity: .8; animation: zen-twinkle 5s ease-in-out infinite alternate; }
+.zen-night .zen-tree::before, .zen-night .zen-tree::after, .zen-night .zen-tree span, .zen-night .zen-tree i, .zen-night .zen-tree b,
+.zen-dusk .zen-tree::before, .zen-dusk .zen-tree::after, .zen-dusk .zen-tree span, .zen-dusk .zen-tree i, .zen-dusk .zen-tree b { display: none; }
+@keyframes zen-twinkle { from { opacity: .45; } to { opacity: .95; } }
+
+/* palette tweaks that the shared rules above would otherwise flatten */
+.zen-ocean .zen-mountain-back { display: block; opacity: .55; }
+.zen-ocean .zen-water { height: 30%; background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--h2) 80%, transparent)); display: block; }
+.zen-paper > * { display: block; }
+.zen-paper .zen-sun, .zen-paper .zen-tree, .zen-paper .zen-water { display: none; }
+.zen-paper .zen-mountain-back  { background: linear-gradient(180deg, #eadfce, #dccdb6); opacity: .8; }
+.zen-paper .zen-mountain-front { background: linear-gradient(180deg, #dccdb6, #cdbb9f); }
+.zen-paper::before { opacity: .55; }
+
+.zen-backdrop::after { background: radial-gradient(ellipse at 50% 42%, transparent 58%, rgba(4, 4, 14, .42) 100%), var(--grain); background-size: auto, 180px; }
+.zen-paper::after { background: radial-gradient(ellipse at 50% 42%, transparent 60%, rgba(120, 90, 50, .14) 100%), var(--grain); background-size: auto, 180px; }
+
+/* ─── Vibe ───────────────────────────────────────────────────────────────── */
+.vibe-equalizer { background: #05070d; }
+.vibe-equalizer::before {
+  inset: -10%;
+  background:
+    radial-gradient(38% 34% at 18% 22%, color-mix(in srgb, var(--hue-a) 34%, transparent), transparent 70%),
+    radial-gradient(34% 32% at 86% 30%, color-mix(in srgb, var(--hue-c) 24%, transparent), transparent 70%),
+    radial-gradient(52% 38% at 50% 78%, color-mix(in srgb, var(--hue-glow) 34%, transparent), transparent 70%),
+    linear-gradient(180deg, #060812 0%, #080b18 55%, #04050b 100%);
+  filter: blur(6px); animation: vibe-mesh 22s ease-in-out infinite alternate;
+}
+@keyframes vibe-mesh { 0% { transform: translate3d(-2%, 0, 0) scale(1); } 100% { transform: translate3d(2%, -2%, 0) scale(1.06); } }
+.vibe-equalizer.is-paused::before { animation-play-state: paused; }
+
+/* the grid floor the equalizer stands on */
+.vibe-reflection {
+  left: -25%; right: -25%; bottom: -2%; height: 36%; opacity: .5; mask-image: linear-gradient(180deg, transparent 0%, #000 55%, #000 100%);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 55%, #000 100%);
+  background:
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--hue-line) 70%, transparent) 0 1px, transparent 1px 64px),
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--hue-line) 70%, transparent) 0 1px, transparent 1px 30px);
+  transform: perspective(380px) rotateX(62deg); transform-origin: 50% 100%;
+}
+.vibe-equalizer.is-playing .vibe-reflection { animation: vibe-floor 1.6s linear infinite; }
+@keyframes vibe-floor { from { background-position: 0 0, 0 0; } to { background-position: 0 0, 0 30px; } }
+.vibe-equalizer-glow { filter: blur(60px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .zen-backdrop::before, .zen-sun, .zen-tree, .zen-mist, .vibe-equalizer::before, .vibe-reflection { animation: none !important; }
+}
+html[data-motion='reduced'] .zen-backdrop::before, html[data-motion='reduced'] .zen-sun, html[data-motion='reduced'] .zen-tree,
+html[data-motion='reduced'] .vibe-equalizer::before, html[data-motion='reduced'] .vibe-reflection { animation: none !important; }
+
+/* ─── Zen / Vibe chrome: frosted glass that sits on any of the scenes ───── */
+.reader-page.mode-zen  { --mx: #d8c8ff; --mx-ink: #f1eaff; --glass: rgba(18, 14, 34, .56); --edge: rgba(216, 200, 255, .2); --edge-2: rgba(216, 200, 255, .4); }
+.reader-page.mode-vibe { --glass: rgba(8, 10, 22, .6); }
+.mode-zen .reader-top  { background: linear-gradient(180deg, rgba(14, 10, 28, .78), rgba(14, 10, 28, .5)) !important; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border-bottom: 1px solid rgba(216, 200, 255, .14); }
+.mode-vibe .reader-top { background: linear-gradient(180deg, rgba(5, 7, 16, .82), rgba(5, 7, 16, .5)) !important; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); border-bottom: 1px solid rgba(52, 230, 236, .14); }
+.mp.zen-controls  { --mx: #d8c8ff; --mx-ink: #f1eaff; --mp-line: rgba(216, 200, 255, .18); background: linear-gradient(180deg, rgba(34, 26, 60, .66), rgba(14, 10, 28, .74)); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); border-color: rgba(216, 200, 255, .22); }
+.mp.vibe-controls { background: linear-gradient(180deg, rgba(14, 20, 40, .66), rgba(6, 8, 18, .78)); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+.mode-zen .reading-surface  { background: rgba(16, 12, 34, .6); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-color: rgba(216, 200, 255, .26); box-shadow: 0 30px 70px -26px rgba(4, 2, 16, .8), inset 0 1px 0 rgba(255, 255, 255, .12); }
+.zen-backdrop::after { opacity: .6; }
+.vibe-equalizer::after { opacity: .3; }
+.vibe-equalizer::before {
+  background:
+    radial-gradient(42% 38% at 16% 24%, color-mix(in srgb, var(--hue-a) 46%, transparent), transparent 70%),
+    radial-gradient(38% 34% at 88% 28%, color-mix(in srgb, var(--hue-c) 34%, transparent), transparent 70%),
+    radial-gradient(56% 40% at 50% 80%, color-mix(in srgb, var(--hue-glow) 44%, transparent), transparent 70%),
+    linear-gradient(180deg, #060812 0%, #080b18 55%, #04050b 100%);
+}

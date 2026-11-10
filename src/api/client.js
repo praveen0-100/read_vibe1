@@ -270,6 +270,7 @@ export const api = {
     overview: (data) => post('/ai/overview', data),
     translate: (texts, target, source = 'en') => post('/ai/translate', { texts, target, source }),
     status: () => get('/ai/status'),
+    test: () => post('/ai/test', {}),
     summarize: (document_id, chapter_index, depth) => post('/ai/summarize', { document_id, chapter_index, depth }),
     explain: (text, mode, document_id) => post('/ai/explain', { text, mode, document_id }),
     define: (term, document_id) => post('/ai/define', { term, document_id }),
@@ -419,7 +420,7 @@ export const api = {
     state: () => get('/playback/state'),
     saveState: (body) => put('/playback/state', body),
   },
-  lookup: (term, lang = 'en') => get('/lookup', { term, lang }),
+  lookup: (term, lang = 'en', context = '') => get('/lookup', { term, lang, ...(context ? { context } : {}) }),
   research_verify: (data) => post('/research/verify', data),
   research_graph: (data) => post('/research/graph', data),
   sources: {

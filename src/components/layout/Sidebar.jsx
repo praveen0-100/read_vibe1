@@ -10,6 +10,7 @@ import { initials } from '../../lib/format';
 import { resolveTheme } from '../../lib/prefs';
 import { Menu } from '../ui';
 import Notifications from './Notifications';
+import MoodPicker from './MoodPicker';
 import QuickActions from './QuickActions';
 
 export const NAV_ITEMS = [
@@ -97,6 +98,7 @@ export default function Sidebar() {
           )}
         </div>
 
+        <MoodPicker collapsed={collapsed} />
         <button className="theme-switch" onClick={() => setPrefs({ theme: dark ? 'light' : 'dark' })}
           aria-label={`Switch to ${dark ? 'light' : 'dark'} mode`} title="Toggle theme">
           {dark ? <Moon size={15} /> : <Sun size={15} />}
@@ -145,6 +147,7 @@ export function MobileHeader() {
       <div className="mobile-header-actions">
         <button className="icon-ghost" onClick={() => setSearchOpen(true)} aria-label="Search"><Search size={18} /></button>
         <QuickActions inline />
+        <MoodPicker iconOnly placement="down" />
         <Notifications />
         <NavLink to="/settings" className="mobile-avatar" aria-label="Profile and settings">
           {user?.avatar_url ? <img src={user.avatar_url} alt="" referrerPolicy="no-referrer" /> : initials(user?.name)}

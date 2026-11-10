@@ -12,6 +12,9 @@ os.environ["READVIBE_RESEARCH_ONLINE"] = "false"
 os.environ["READVIBE_RATE_LIMIT_PER_MINUTE"] = "100000"
 os.environ["READVIBE_AI_RATE_LIMIT_PER_MINUTE"] = "100000"
 os.environ["READVIBE_LLM_ENABLED"] = "false"  # tests never touch the network LLMs
+for _k in ("GROQ_API_KEY", "READVIBE_GROQ_API_KEY", "READVIBE_GROQ_MODEL", "READVIBE_GROQ_FAST_MODEL"):  # a key in the developer shell must never leak into tests
+    os.environ.pop(_k, None)
+os.environ["READVIBE_GROQ_API_KEY"] = ""  # an environment value beats backend/.env, so the tests never see (or spend) the real key
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

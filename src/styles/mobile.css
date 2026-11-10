@@ -325,6 +325,11 @@
 .mr-curl-stay, .mr-curl-flap, .mr-curl-ushade, .mr-curl-crease { position: absolute; inset: 0; pointer-events: none; }
 .mr-curl-stay { background: var(--paper-bg); will-change: clip-path; }
 .mr-curl-flap { transform-origin: 0 0; background-color: color-mix(in srgb, var(--paper-bg) 93%, #000); will-change: transform, clip-path; }
+.mr-curl-back, .mr-curl-edge { position: absolute; inset: 0; pointer-events: none; }
+.mr-curl-back { opacity: .13; filter: blur(.45px) contrast(1.1); mix-blend-mode: multiply; }
+.mr-curl-back .mr-face { background: transparent; }
+.mobile-reader.paper-night .mr-curl-back { mix-blend-mode: screen; opacity: .1; }
+.mobile-reader.paper-night .mr-curl-flap { background-color: color-mix(in srgb, var(--paper-bg) 82%, #fff); }
 .mr-curl-flap::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(0, 0, 0, .018) 0 1px, transparent 1px 3px); }
 
 /* book gutter: the page curves into the spine */
