@@ -29,7 +29,12 @@ html body .mode-zen .reading-surface :is(.muted, .meta, .reading-meta, .reading-
 /* chapter list / rails next to the page */
 html body .mode-zen .chapter-nav { --text: #fbfaff; --muted: #e0dbf1; --muted-2: #c3bcdb; background: rgba(10, 8, 24, .82); }
 html body .mode-zen .chapter-nav nav button { color: #f1eefb; }
-html body .mode-zen .reader-footer, html body .mode-zen .reader-footer * { color: #f1eefb; }
+html body .mode-zen .reader-footer { color: #f1eefb; background: rgba(12, 9, 28, .94); border-top-color: rgba(235, 228, 255, .3); }
+html body .mode-zen .reader-footer :is(span, .icon-ghost) { color: #f1eefb; }
+/* the footer's action buttons were pastel with light text: on Zen's glass they are dark glass with light text */
+html body .mode-zen .reader-footer :is(.ai-reader-button, .audio-mini, .ov-launch) { background: rgba(235, 228, 255, .14); color: #fbfaff; border: 1px solid rgba(235, 228, 255, .32); }
+html body .mode-zen .reader-footer :is(.ov-launch-main, .ov-launch button, .ov-launch select) { color: #fbfaff; background: transparent; }
+html body .mode-zen .reader-footer .audio-mini.playing { background: #d8c8ff; color: #140e2b; }
 /* the Zen control panel itself */
 html body .mp.zen-controls { --text: #fbfaff; --text-2: #e6e1f5; --muted: #d9d3ee; color: #fbfaff; background: linear-gradient(180deg, rgba(30, 24, 56, .92), rgba(10, 8, 24, .94)); }
 html body .mp.zen-controls :is(.mp-sec-head, .mp-status, .mp-field span, .timer-ring small) { color: #e6e1f5; }
@@ -108,7 +113,7 @@ select, input, textarea, button { max-width: 100%; }
 /* phones on their side: short viewport — keep the panels and the sheets inside it */
 @media (max-height: 520px) {
   .mp-body { max-height: calc(100dvh - 120px); overflow-y: auto; overscroll-behavior: contain; }
-  .modal, .mr-sheet { max-height: calc(100dvh - 16px); overflow-y: auto; }
+  .modal { max-height: calc(100dvh - 16px); overflow-y: auto; }
   .reading-surface { padding-top: 14px; padding-bottom: 14px; }
 }
 
@@ -162,3 +167,66 @@ select, input, textarea, button { max-width: 100%; }
 .am-tile { min-width: 0; }
 .am-tile strong, .am-tile small, .hp-tile-book strong, .hp-tile-book small { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .hp-cover { min-width: 0; max-width: 100%; }
+
+/* ═══ 7 · Phone audit fixes ════════════════════════════════════════════════════ */
+/* The paged reader's page had no background of its own: with the toolbars open the dark toolbar colour showed through behind dark text. */
+.mobile-reader .mr-page { background: var(--paper-bg); }
+
+/* Phones: one floating bar above the tab bar, not two. The audio mini player wins; "continue reading" is on Home and in Library anyway. */
+@media (max-width: 680px) {
+  .app:has(.global-mini .mini-now) .dock .mini-reading { display: none; }
+}
+
+/* The reader's display-settings sheet was taller than a phone screen and could not scroll, so its last rows fell below the frame. */
+.mr-display { display: flex; flex-direction: column; max-height: calc(100% - 84px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); }
+.mr-display .mr-sheet-body { overflow-y: auto; min-height: 0; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.mr-contents { max-height: 78dvh; }
+.mr-contents .mr-list { overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
+.mr-display .mr-sheet-body { grid-auto-rows: max-content; align-content: start; }
+.mr-display .mr-sheet-body > * { min-height: min-content; }
+.mr-display .mr-fonts { flex: none; }
+
+/* Reader (Zen / Vibe / scrolling) on a phone: the tool groups ran 80px past the right edge, and the sticky page footer sat underneath the
+   floating mini player. Groups now wrap onto a second row, and the footer rides above whatever floats at the bottom. */
+@media (max-width: 680px) {
+  .reader-page .reader-top .reader-actions { flex-wrap: wrap; justify-content: flex-start; gap: 8px; max-width: 100%; }
+  .reader-page .reader-top .tool-group { max-width: 100%; flex-wrap: wrap; }
+  .reader-page .reader-footer { position: static; margin-bottom: calc(var(--mini-h, 0px) + 8px); row-gap: 6px; }
+  .reader-page .reader-footer > * { min-width: 0; }
+  .reader-page .reader-footer .ai-reader-button, .reader-page .reader-footer .audio-mini { padding: 6px 9px; }
+}
+
+/* ═══ 8 · Read-aloud player on short phones ═══════════════════════════════════
+   The cover block was allowed to shrink below its own content, so the artwork ran above the top edge, the title sat under the seek bar and the
+   subtitle was cut off. The block now keeps its natural size (the sheet scrolls if it must) and the artwork scales with the screen height. */
+.mr-listen { overflow-y: auto; }
+.mr-listen .ls-cover { flex: 1 0 auto; min-height: min-content; gap: clamp(10px, 3.2dvh, 28px); padding-block: 6px; }
+.mr-listen .ls-art { width: min(78vw, 340px, 34dvh); }
+.mr-listen .ls-meta { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mr-listen .ls-meta-text { flex: 1; min-width: 0; }
+.mr-listen .ls-meta h2 { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.mr-listen .ls-meta p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mr-listen .ls-progress, .mr-listen .ls-controls, .mr-listen .ls-tools { flex: none; }
+@media (max-height: 640px) {
+  .mr-listen { padding-top: calc(6px + env(safe-area-inset-top)); padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  .mr-listen header { min-height: 44px; }
+  .mr-listen .ls-meta h2 { font-size: 18px; }
+  .mr-listen .ls-meta p { font-size: 13.5px; }
+  .mr-listen .ls-controls { padding: 6px 12px 4px; }
+  .mr-listen .ls-controls button { width: 58px; height: 58px; }
+}
+.mr-listen .ls-tools { flex-wrap: wrap; justify-content: center; gap: 8px; }
+
+/* Settings: helper text under a heading wraps inside its card instead of running past the edge */
+.voice-langs, .voice-langs-head, .voice-langs-head > * { min-width: 0; max-width: 100%; }
+.voice-langs-head small, .setting-line small, .setting-desc, .section-description { white-space: normal; overflow-wrap: anywhere; }
+.setting-rows, .setting-section, .settings-content { grid-template-columns: minmax(0, 1fr); }
+.setting-rows > *, .setting-section > * { min-width: 0; }
+.voice-lang-row { min-width: 0; }
+.voice-lang-row select { min-width: 0; max-width: 100%; }
+
+/* Research: long document titles in the source picker no longer push the chip row past its card */
+.source-picker { min-width: 0; max-width: 100%; }
+.source-picker .eyebrow { white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
+.source-chips { min-width: 0; max-width: 100%; }
+.source-chips > .chip, .source-chips > button { max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
