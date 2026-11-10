@@ -1,3 +1,5 @@
+import { withStyle } from '../lib/narrationStyle';
+
 // ─── ReadVibe API client ──────────────────────────────────────────────────────
 // Thin, typed-error wrapper around fetch. Every request carries the JWT; a 401
 // clears the session and notifies the app so it can route to the login screen.
@@ -287,7 +289,7 @@ export const api = {
   tts: {
     status: () => get('/tts/status'),
     voices: () => get('/tts/voices'),
-    synthesize: (text, voice, delivery) => post('/tts/synthesize', { text, voice, emotion: delivery?.emotion, pitch_shift: delivery?.shift || 0, pace: delivery?.pace, energy: delivery?.energy, articulation: delivery?.articulation, language: delivery?.language, glossary: delivery?.glossary, natural: delivery?.natural, position: delivery?.position }),
+    synthesize: (text, voice, raw) => { const delivery = withStyle(raw); return post('/tts/synthesize', { text, voice, emotion: delivery?.emotion, pitch_shift: delivery?.shift || 0, pace: delivery?.pace, energy: delivery?.energy, articulation: delivery?.articulation, language: delivery?.language, glossary: delivery?.glossary, natural: delivery?.natural, position: delivery?.position }); },
     languages: () => get('/tts/languages'),
     cast: (docId, names) => post(`/documents/${docId}/cast`, { names }),
   },

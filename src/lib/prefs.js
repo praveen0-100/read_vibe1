@@ -35,6 +35,9 @@ export const DEFAULT_PREFS = {
   audio: {
     rate: 1,
     tone: 'Regular',
+    narrationTone: 'natural', // how the narrator sounds: natural | calm | warm | news | energetic | cheerful | dramatic | serious | whisper
+    pitch: 0, // -10 … +10 Hz on top of the tone
+    autoRead: false, // start reading aloud as soon as a book opens
     voice: '',
     engine: 'natural', // natural (neural voices from the server) | device (the browser's own voices)
     naturalVoice: 'edge:en-US-AvaMultilingualNeural',

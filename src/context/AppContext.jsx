@@ -3,6 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { api, invalidateCache, onUnauthorized, tokenStore } from '../api/client';
 import { loadLocalPrefs, mergePrefs, resolveTheme, saveLocalPrefs, upgradePrefs } from '../lib/prefs';
 import { resolveMood } from '../lib/mood';
+import { setNarrationStyle } from '../lib/narrationStyle';
 
 const AppCtx = createContext(null);
 const USER_KEY = 'rv.user';
@@ -199,6 +200,9 @@ export function AppProvider({ children }) {
     google: async (credential) => { markDemo(false); return finishLogin(await api.auth.google(credential)); },
     logout,
   }), [finishLogin, logout]);
+
+  // the narrator's tone and pitch apply to every voice request
+  setNarrationStyle(prefs.audio);
 
   // ─── Apply theme & accessibility to <html> ─────────────────────────────────
   useEffect(() => {

@@ -212,3 +212,34 @@ def test_translate_many_keeps_order_and_splits_long_text(monkeypatch):
     out = translate.translate_many(["First unique sentence aaa.", "Second unique sentence bbb.", ("Long sentence number ccc, " * 40).strip()], "ta")
     assert out[0].endswith("Fir") and out[1].endswith("Sec")
     assert all(n <= translate.MAX_CHARS for n in seen)                  # long text is cut so every request stays small
+
+
+def test_translation_keeps_flowing_when_a_provider_is_spent(monkeypatch):
+    """A used-up allowance puts that provider to rest and the next one answers — translation never just stops."""
+    from app.services import translate
+
+    translate._cooldown.clear()
+    calls = []
+
+    def spent(text, source, target):
+        calls.append("spent")
+        raise translate.TranslateError("allowance used up", quota=True)
+
+    def fine(text, source, target):
+        calls.append("fine")
+        return "வணக்கம் உலகம் இது ஒரு சோதனை"
+
+    monkeypatch.setattr(translate, "PROVIDERS", (spent, fine))
+    assert translate.translate_one("Hello world this is a test of fallbacks 7731.", "ta").startswith("வணக்கம்")
+    assert translate.translate_one("Hello world this is a second test 7732.", "ta").startswith("வணக்கம்")
+    assert calls == ["spent", "fine", "fine"]   # the spent provider was not asked again while it rests
+    translate._cooldown.clear()
+
+
+def test_long_text_is_split_at_sentence_ends():
+    from app.services import translate
+
+    text = " ".join(f"Sentence number {i} ends here." for i in range(200))
+    parts = translate._split(text, 450)
+    assert all(len(p) <= 450 for p in parts)
+    assert " ".join(parts) == text

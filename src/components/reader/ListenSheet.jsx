@@ -1,6 +1,7 @@
 // Full-screen "now reading aloud" player: cover view and synced-text (lyrics) view.
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Clock, FastForward, Gauge, List, MoreVertical, Pause, Play, Quote, Rewind, Star } from 'lucide-react';
+import { ChevronDown, Clock, FastForward, Gauge, List, MoreVertical, Mic, Pause, Play, Quote, Rewind, Star } from 'lucide-react';
+import { TONES } from '../../lib/narrationStyle';
 import { useApp } from '../../context/AppContext';
 import { formatClock } from '../../lib/format';
 import { Cover, Menu } from '../ui';
@@ -37,6 +38,8 @@ export default function ListenSheet({ doc, title, narrator, listen, onStart, onC
   const elapsed = narrator.elapsedSeconds;
   const total = narrator.totalSeconds;
   const toggle = () => (loaded ? narrator.toggle() : onStart());
+  const tone = TONES.find((t) => t.id === (prefs.audio.narrationTone || 'natural')) || TONES[0];
+  const changeTone = (id) => { setPrefs({ audio: { narrationTone: id } }); notify('Tone changes from the next sentence', 'info'); };
   const changeRate = (r) => { setPrefs({ audio: { rate: r } }); narrator.setRate(r); };
 
   const actions = (
@@ -94,6 +97,8 @@ export default function ListenSheet({ doc, title, narrator, listen, onStart, onC
         <button className={`ls-text ${lyrics ? 'on' : ''}`} onClick={() => setLyrics((l) => !l)} aria-pressed={lyrics} aria-label="Transcript"><Quote size={18} fill={lyrics ? 'currentColor' : 'none'} /> <span>Transcript</span></button>
         <Menu label="Speed" align="up" trigger={<span className="ls-pill"><Gauge size={16} /> {rate}×</span>}
           items={SPEEDS.map((s) => ({ label: `${s}×`, checked: s === rate, onClick: () => changeRate(s) }))} />
+        <Menu label="Narration tone" align="up" trigger={<span className="ls-pill"><Mic size={16} /> {tone.label}</span>}
+          items={TONES.map((t) => ({ label: t.label, checked: t.id === tone.id, onClick: () => changeTone(t.id) }))} />
         <Menu label="Sleep timer" align="up" trigger={<span className={`ls-pill ${sleep ? 'on' : ''}`}><Clock size={16} /> {sleep ? `${sleep}m` : 'Sleep'}</span>}
           items={SLEEP.map((m) => ({ label: m ? `${m} minutes` : 'Off', checked: sleep === m, onClick: () => setSleep(m) }))} />
         <button onClick={onContents} aria-label="Contents"><List size={20} /></button>

@@ -25,8 +25,35 @@ from . import languages
 
 log = logging.getLogger("readvibe.translate")
 
-MAX_CHARS = 450  # MyMemory accepts at most 500 bytes per request
+MAX_CHARS = 1800  # one request to Google can carry a few paragraphs; MyMemory is fed smaller pieces (see _mymemory)
+MYMEMORY_CHARS = 450  # MyMemory accepts at most 500 bytes per request
 _HEADERS = {"User-Agent": "Mozilla/5.0 (ReadVibe)"}
+
+
+# A provider that says "allowance used up" / "too many requests" is left alone for a while instead of being asked again for every
+# sentence. Translation keeps flowing through whichever provider is still willing, so one spent allowance never ends it.
+_cooldown: dict[str, float] = {}
+COOLDOWN_SECONDS = {"_mymemory": 30 * 60, "_google": 5 * 60}
+
+
+def _resting(name: str) -> bool:
+    return _cooldown.get(name, 0) > time.time()
+
+
+def _split(text: str, size: int) -> list[str]:
+    """Cut `text` into pieces of at most `size` characters, at a sentence end or a space where possible."""
+    out: list[str] = []
+    while len(text) > size:
+        cut = max(text.rfind(". ", 0, size), text.rfind("? ", 0, size), text.rfind("! ", 0, size), text.rfind("। ", 0, size))
+        if cut < size // 3:
+            cut = text.rfind(" ", 0, size)
+        if cut < 1:
+            cut = size - 1
+        out.append(text[: cut + 1].strip())
+        text = text[cut + 1:].strip()
+    if text:
+        out.append(text)
+    return out
 
 
 class TranslateError(Exception):
@@ -54,6 +81,8 @@ def _in_script(text: str, target: str) -> bool:
 
 
 def _mymemory(text: str, source: str, target: str) -> str:
+    if len(text) > MYMEMORY_CHARS:
+        return " ".join(_mymemory(piece, source, target) for piece in _split(text, MYMEMORY_CHARS))
     params = {"q": text, "langpair": f"{source}|{target}"}
     email = get_settings().translate_email
     if email:
@@ -73,8 +102,8 @@ def _mymemory(text: str, source: str, target: str) -> str:
 
 
 def _google(text: str, source: str, target: str) -> str:
-    r = httpx.get("https://translate.googleapis.com/translate_a/single",
-                  params={"client": "gtx", "sl": source, "tl": target, "dt": "t", "q": text}, headers=_HEADERS, timeout=15)
+    r = httpx.post("https://translate.googleapis.com/translate_a/single", params={"client": "gtx", "sl": source, "tl": target, "dt": "t"},
+                   data={"q": text}, headers=_HEADERS, timeout=20)
     if r.status_code != 200:
         raise TranslateError(f"Google answered {r.status_code}", quota=r.status_code == 429)
     try:
@@ -83,7 +112,7 @@ def _google(text: str, source: str, target: str) -> str:
         raise TranslateError("Unreadable answer from Google") from exc
 
 
-PROVIDERS = (_mymemory, _google)
+PROVIDERS = (_google, _mymemory)  # Google carries long passages in one call; MyMemory is the second opinion
 
 
 def translate_one(text: str, target: str, source: str = "en") -> str:
@@ -94,17 +123,23 @@ def translate_one(text: str, target: str, source: str = "en") -> str:
     if cached.exists():
         return json.loads(cached.read_text("utf-8"))["t"]
     if len(text) > MAX_CHARS:  # cut at a sentence/space so each request is small enough
-        cut = max(text.rfind(". ", 0, MAX_CHARS), text.rfind(" ", 0, MAX_CHARS))
-        head, tail = text[: cut + 1].strip(), text[cut + 1:].strip()
-        return " ".join(p for p in (translate_one(head, target, source), translate_one(tail, target, source)) if p)
+        return " ".join(p for p in (translate_one(piece, target, source) for piece in _split(text, MAX_CHARS)) if p)
 
     quota = False
     last = "No translation service answered"
+    tried = False
     for provider in PROVIDERS:
+        name = provider.__name__
+        if _resting(name):
+            quota = True
+            continue
+        tried = True
         for attempt in range(2):
             try:
                 out = provider(text, source, target).strip()
             except TranslateError as exc:
+                if exc.quota:
+                    _cooldown[name] = time.time() + COOLDOWN_SECONDS.get(name, 600)
                 quota = quota or exc.quota
                 last = str(exc)
                 break  # this provider is unwell: try the next one
@@ -117,6 +152,8 @@ def translate_one(text: str, target: str, source: str = "en") -> str:
                 return out
             last = "The service returned the text untranslated"
             break
+    if not tried:
+        last = "The free translation services are resting for a few minutes"
     raise TranslateError(last, quota=quota)
 
 
@@ -207,7 +244,7 @@ def translate_texts(texts: list[str], target: str, source: str = "en") -> tuple[
     missing = sum(1 for i in todo if result[i] is None)
     note = None
     if missing:
-        note = ("The free translation limit for today is used up, so the rest stays in the original language. "
-                "Try again tomorrow, or set READVIBE_TRANSLATE_EMAIL on the server for a larger allowance."
+        # the browser finishes these itself (src/lib/translateClient.js), so the server only reports what it could not do
+        note = ("The server's translators are busy, so the rest is being translated on your device."
                 if quota else f"{missing} passage(s) could not be translated: {failure}")
     return result, engine, note

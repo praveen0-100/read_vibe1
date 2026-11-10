@@ -1,5 +1,6 @@
 // ─── Settings ─────────────────────────────────────────────────────────────────
 import React, { useEffect, useMemo, useState } from 'react';
+import TonePicker from '../components/audio/TonePicker';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Accessibility, AudioLines, BookOpen, Check, Database, Download, HardDrive, Keyboard, LogOut, Monitor, Moon, Palette,
@@ -210,6 +211,12 @@ function AudioSettings() {
         </div>
       )}
       <Segmented size="sm" value={au.tone} onChange={(v) => setPrefs({ audio: { tone: v } })} label="Default tone" options={['Regular', 'Humor', 'Tough']} />
+      <div className="voice-langs" role="group" aria-label="Narration tone">
+        <div className="voice-langs-head"><strong>Narration tone</strong><small>How the narrator sounds while reading aloud. Applies to the page, the audiobook player and the audio overview.</small></div>
+        <TonePicker tone={au.narrationTone || 'natural'} pitch={au.pitch || 0} busy={testing} onPreview={test}
+          onTone={(v) => setPrefs({ audio: { narrationTone: v } })} onPitch={(v) => setPrefs({ audio: { pitch: v } })} />
+      </div>
+      <Switch label="Start reading aloud automatically" description="Open a book and the narrator begins at once — no need to touch the text. Pause any time." checked={!!au.autoRead} onChange={(v) => setPrefs({ audio: { autoRead: v } })} />
       <Slider label="Default speed" value={au.rate} min={0.5} max={3} step={0.25} onChange={(v) => setPrefs({ audio: { rate: v } })} format={(v) => `${v}×`} />
       {voices.length > 0 && !natural && (
         <label className="setting-line">Voice

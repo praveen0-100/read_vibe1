@@ -436,7 +436,10 @@ function Reader({ docId }) {
     if (from == null) {
       const main = getScroller();
       const ps = [...(articleRef.current?.querySelectorAll('[data-p]') || [])];
-      const visible = ps.find((p) => p.getBoundingClientRect().bottom > (main?.getBoundingClientRect().top || 0) + 120);
+      // paged (book) layout: pages are columns, so "what is on screen" is a horizontal test; scrolling layout: first line below the top edge
+      const visible = pagedRef.current
+        ? ps.find((p) => [...p.getClientRects()].some((rc) => rc.right > 24 && rc.left < window.innerWidth - 24 && rc.bottom > 0))
+        : ps.find((p) => p.getBoundingClientRect().bottom > (main?.getBoundingClientRect().top || 0) + 120);
       from = visible ? Number(visible.dataset.p) : 0;
     }
     const langVoices = nv.languages.find((l) => l.code === chapterLang)?.voices || [];
@@ -514,6 +517,17 @@ function Reader({ docId }) {
   useEffect(() => {
     if (autoNext.current && chapter) { autoNext.current = false; startListening(0); }
   }, [chapter]); // eslint-disable-line
+
+  // "Start reading aloud automatically": the narrator begins on its own when a book opens — nobody has to touch the text first
+  const startRef = useRef(startListening);
+  startRef.current = startListening;
+  const autoStarted = useRef('');
+  useEffect(() => {
+    if (!prefs.audio.autoRead || !chapter || chapterLoading || autoStarted.current === docId) return undefined;
+    autoStarted.current = docId;
+    const t = setTimeout(() => { if (!narrator.playing) startRef.current(); }, 1400); // let the page lay out first
+    return () => clearTimeout(t);
+  }, [chapter, chapterLoading, docId]); // eslint-disable-line
 
   useEffect(() => {
     if (!listen.playing || listen.paragraph == null || pagedRef.current) return; // the paged reader turns pages itself

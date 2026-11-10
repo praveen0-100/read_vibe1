@@ -2,6 +2,8 @@
 // Fetches synthesised speech for a sentence from the API, caches it in memory as a playable blob URL and keeps the
 // per-word timings that drive word-by-word highlighting.
 
+import { styleKey } from './narrationStyle';
+
 const MAX_CLIPS = 64;
 const CLIP_TIMEOUT_MS = 14000; // a sentence that takes longer than this is retried, not waited on forever
 
@@ -30,7 +32,7 @@ export class NeuralClips {
   /** Promise of {url, words:[[charOffset, length, start, duration]], timing:'ms'|'fraction'} for a sentence. */
   /** `delivery`: {emotion, shift} — how the line should sound (see lib/stageDirections, backend tts.PRESETS). */
   get(text, voice = this.voice, delivery = null) {
-    const key = `${voice}|${delivery?.emotion || ''}|${delivery?.shift || 0}|${delivery?.position || ''}|${text}`;
+    const key = `${voice}|${styleKey()}|${delivery?.emotion || ''}|${delivery?.shift || 0}|${delivery?.position || ''}|${text}`;
     let hit = this.clips.get(key);
     if (hit) return hit;
     hit = withTimeout(this.synth(text, voice, delivery), CLIP_TIMEOUT_MS).then((r) => ({ url: toBlobUrl(r.audio, r.mime), words: r.words || [], timing: r.timing }));
@@ -46,7 +48,7 @@ export class NeuralClips {
 
   /** True when the clip is already fetched, so playing it needs no wait. */
   has(text, voice = this.voice, delivery = null) {
-    return this.clips.has(`${voice}|${delivery?.emotion || ''}|${delivery?.shift || 0}|${delivery?.position || ''}|${text}`);
+    return this.clips.has(`${voice}|${styleKey()}|${delivery?.emotion || ''}|${delivery?.shift || 0}|${delivery?.position || ''}|${text}`);
   }
 
   dispose() {

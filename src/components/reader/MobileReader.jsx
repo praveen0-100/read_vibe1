@@ -4,7 +4,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft, AudioLines, BookOpen, Bookmark, BookmarkCheck, CloudDownload, Download, Headphones, LayoutGrid, List, MoreHorizontal, Moon, Search,
-  Sparkles, StickyNote, Trash2, Type, WifiOff, X, ChevronUp, SlidersHorizontal, Rows3, Maximize, Minimize,
+  Sparkles, StickyNote, Trash2, Type, WifiOff, X, ChevronUp, SlidersHorizontal, Rows3, Maximize, Minimize, Pause, Play,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { READING_FONTS } from '../../lib/prefs';
@@ -589,6 +589,13 @@ export default function MobileReader({
     if (!narrator.script.length || !narrator.playing) startListening(p ? Number(p.dataset.p) : 0);
   };
 
+  /** One tap, no text to touch: play from the first line on this page, or pause. */
+  const quickListen = () => {
+    if (listen.playing) { narrator.pause(); return; }
+    const p = firstVisibleParagraph();
+    startListening(p ? Number(p.dataset.p) : 0);
+  };
+
   const goFromSheet = (index, opts) => { setSheet(null); setChrome(false); goChapter(index, opts); };
   const meta = doc.chapters?.[chapterIndex];
   const title = chapter?.title || meta?.title || '';
@@ -650,6 +657,12 @@ export default function MobileReader({
         </button>
       )}
 
+      {!sheet && !searchOpen && (
+        <button className={`mr-listenfab ${listen.playing ? 'playing' : ''}`} onClick={quickListen}
+          aria-label={listen.playing ? 'Pause reading aloud' : 'Read this page aloud'} title={listen.playing ? 'Pause' : 'Read aloud'}>
+          {listen.playing ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}
+        </button>
+      )}
       {!sheet && !searchOpen && (
         <button className="mr-toggle" onClick={() => setChrome((c) => !c)}
           aria-label={chrome ? 'Hide reader tools' : 'Show reader tools'} aria-pressed={chrome} title={chrome ? 'Hide tools' : 'Show tools'}>
